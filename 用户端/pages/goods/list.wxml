@@ -36,7 +36,7 @@
     <view class="side-wrap">
       <scroll-view scroll-y class="side" enhanced show-scrollbar="{{false}}">
         <view
-          class="side-item {{activeCategory === item ? 'on' : ''}}"
+          class="side-item {{activeCategory === item.name ? 'on' : ''}}"
           wx:for="{{groups}}"
           wx:key="name"
           bindtap="onCategoryClick"
