@@ -79,18 +79,20 @@
                 </view>
                 <view class="p-info">
                   <view class="p-name">{{item.name}}</view>
-                  <view class="p-price">
-                    <text class="p-price-now">¥{{item.price}}</text>
-                    <text class="p-old" wx:if="{{item.original_price}}">¥{{item.original_price}}</text>
+                  <view class="p-bottom">
+                    <view class="p-price">
+                      <text class="p-price-now">¥{{item.price}}</text>
+                      <text class="p-old" wx:if="{{item.original_price}}">¥{{item.original_price}}</text>
+                    </view>
+                    <view wx:if="{{item.qty > 0}}" class="stepper">
+                      <view class="stepper-btn" bindtap="onStep" data-id="{{item.id}}" data-delta="-1">-</view>
+                      <view class="stepper-num">{{item.qty}}</view>
+                      <view class="stepper-btn plus" bindtap="onStep" data-id="{{item.id}}" data-delta="1">+</view>
+                    </view>
+                    <view wx:else class="add-btn" catchtap="onStep" data-id="{{item.id}}" data-delta="1">
+                      <t-icon name="add" size="14" color="#ffffff" />
+                    </view>
                   </view>
-                </view>
-                <view wx:if="{{item.qty > 0}}" class="stepper">
-                  <view class="stepper-btn" bindtap="onStep" data-id="{{item.id}}" data-delta="-1">-</view>
-                  <view class="stepper-num">{{item.qty}}</view>
-                  <view class="stepper-btn plus" bindtap="onStep" data-id="{{item.id}}" data-delta="1">+</view>
-                </view>
-                <view wx:else class="add-btn" catchtap="onStep" data-id="{{item.id}}" data-delta="1">
-                  <t-icon name="add" size="12" color="#ffffff" />
                 </view>
               </view>
             </view>

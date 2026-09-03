@@ -160,14 +160,14 @@
   align-items: center;
   background: #ffffff;
   border-radius: 20rpx;
-  padding: 20rpx;
+  padding: 20rpx 24rpx;
   margin-bottom: 16rpx;
   box-shadow: 0 4rpx 16rpx rgba(31, 63, 122, 0.05);
 }
 
 .p-img {
-  width: 132rpx;
-  height: 132rpx;
+  width: 128rpx;
+  height: 128rpx;
   border-radius: 16rpx;
   flex-shrink: 0;
   display: flex;
@@ -177,23 +177,32 @@
 
 .p-info {
   flex: 1;
-  margin: 0 16rpx;
   min-width: 0;
+  margin-left: 20rpx;
 }
 
 .p-name {
   font-size: 28rpx;
   color: #1A1A1A;
+  line-height: 1.4;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* 名称独占一行，价格与 -/+ 放底部一行，互不挤压 */
+.p-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12rpx;
 }
 
 .p-price {
   display: flex;
   align-items: baseline;
   gap: 8rpx;
-  margin-top: 18rpx;
+  min-width: 0;
 }
 
 .p-price-now {
@@ -204,13 +213,43 @@
 
 .p-old {
   color: #B0B8C4;
-  font-size: 22rpx;
+  font-size: 20rpx;
   text-decoration: line-through;
 }
 
+/* 紧凑步进器（比全局小一号，- 白底蓝描边 / + 蓝底白字） */
+.stepper-btn {
+  width: 44rpx;
+  height: 44rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  border: 1rpx solid var(--brand);
+  color: var(--brand);
+  font-size: 26rpx;
+  line-height: 1;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.stepper-btn.plus {
+  background: var(--brand);
+  color: #ffffff;
+  border-color: var(--brand);
+}
+
+.stepper-num {
+  min-width: 48rpx;
+  text-align: center;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #1A1A1A;
+}
+
 .add-btn {
-  width: 52rpx;
-  height: 52rpx;
+  width: 44rpx;
+  height: 44rpx;
   border-radius: 50%;
   background: #2E7CF6;
   display: flex;
