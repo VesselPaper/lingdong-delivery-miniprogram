@@ -1,0 +1,14 @@
+<view class="tabbar">
+  <view
+    class="tab-item {{selected === index ? 'on' : ''}}"
+    wx:for="{{list}}"
+    wx:key="pagePath"
+    bindtap="switchTab"
+    data-index="{{index}}"
+  >
+    <view class="tab-icon">
+      <t-icon name="{{item.icon}}" size="22" color="{{selected === index ? '#2E7CF6' : '#99A3B0'}}" />
+    </view>
+    <view class="tab-text">{{item.text}}</view>
+  </view>
+</view>

@@ -1,0 +1,71 @@
+<view class="shop-home">
+  <view class="card task-card" bindtap="goOrders">
+    <view class="task-head">
+      <view class="task-title-row">
+        <view class="task-title">我的任务</view>
+        <view class="tag {{shopOpen ? 'tag-green' : ''}}">{{shopOpen ? '营业中' : '歇业中'}}</view>
+      </view>
+      <t-icon name="chevron-right" size="36rpx" color="#C0C0C0" />
+    </view>
+    <view class="task-grid">
+      <view class="task-item">
+        <view class="task-label">
+          <t-icon name="order" size="28rpx" color="#3078C0" />
+          <text class="task-text task-blue">待接单</text>
+        </view>
+        <view class="task-num">{{stats.pending}}</view>
+      </view>
+      <view class="task-item">
+        <view class="task-label">
+          <t-icon name="info-circle" size="28rpx" color="#E64340" />
+          <text class="task-text task-red">异常</text>
+        </view>
+        <view class="task-num">0</view>
+      </view>
+      <view class="task-item">
+        <view class="task-label">
+          <t-icon name="service" size="28rpx" color="#F5A623" />
+          <text class="task-text task-orange">售后</text>
+        </view>
+        <view class="task-num">0</view>
+      </view>
+      <view class="task-item">
+        <view class="task-label">
+          <t-icon name="time" size="28rpx" color="#666666" />
+          <text class="task-text task-gray">未完结</text>
+        </view>
+        <view class="task-num">{{stats.delivering}}</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="card func-card">
+    <view class="func-title">常用功能</view>
+    <view class="func-grid">
+      <view class="func-item" bindtap="goGoods">
+        <t-icon name="cart" size="56rpx" color="#333333" />
+        <view class="func-text">商品管理</view>
+      </view>
+      <view class="func-item" bindtap="goActivities">
+        <t-icon name="activity" size="56rpx" color="#333333" />
+        <view class="func-text">活动管理</view>
+      </view>
+      <view class="func-item" bindtap="goHistory">
+        <t-icon name="order" size="56rpx" color="#333333" />
+        <view class="func-text">历史订单</view>
+      </view>
+      <view class="func-item" bindtap="goAfterSale">
+        <t-icon name="service" size="56rpx" color="#333333" />
+        <view class="func-text">历史售后</view>
+      </view>
+      <view class="func-item" bindtap="goSettings">
+        <t-icon name="setting" size="56rpx" color="#333333" />
+        <view class="func-text">商铺设置</view>
+      </view>
+      <view class="func-item" bindtap="goMonitor">
+        <t-icon name="location" size="56rpx" color="#333333" />
+        <view class="func-text">配送监控</view>
+      </view>
+    </view>
+  </view>
+</view>

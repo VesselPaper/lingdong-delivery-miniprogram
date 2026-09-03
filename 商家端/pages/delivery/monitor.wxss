@@ -1,0 +1,84 @@
+.monitor-page {
+  padding: 24rpx;
+  padding-bottom: 48rpx;
+}
+
+.robot-overview {
+  margin-bottom: 20rpx;
+}
+
+.robot-name {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #111111;
+}
+
+.robot-id {
+  margin-top: 4rpx;
+}
+
+.robot-meta {
+  display: flex;
+  margin-top: 28rpx;
+}
+
+.meta-item {
+  flex: 1;
+  text-align: center;
+}
+
+.meta-num {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #111111;
+}
+
+.meta-label {
+  margin-top: 6rpx;
+}
+
+.robot-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 48rpx 32rpx;
+  margin-bottom: 20rpx;
+}
+
+.robot-error-text {
+  margin-top: 16rpx;
+  font-size: 28rpx;
+  color: #111111;
+  text-align: center;
+}
+
+.robot-error-tip {
+  margin-top: 8rpx;
+  text-align: center;
+}
+
+.robot-retry {
+  margin-top: 24rpx;
+  background: #3078C0;
+  color: #ffffff;
+}
+
+.task {
+  padding: 24rpx 32rpx;
+}
+
+.task-no {
+  font-size: 28rpx;
+}
+
+.task-status {
+  font-size: 26rpx;
+  color: #111111;
+  font-weight: 500;
+}
+
+.task-line {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12rpx;
+}

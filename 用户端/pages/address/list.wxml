@@ -1,0 +1,28 @@
+<view class="addr-page">
+  <view wx:if="{{list.length}}" class="page">
+    <view class="card addr-item {{item.is_default ? 'active' : ''}}" wx:for="{{list}}" wx:key="id" bindtap="edit" data-id="{{item.id}}">
+      <view class="addr-main">
+        <view class="addr-line1">
+          <text class="addr-name">{{item.contact_name}}</text>
+          <text class="addr-phone text-sub">{{item.contact_phone}}</text>
+          <view class="tag" wx:if="{{item.is_default}}">默认</view>
+        </view>
+        <view class="addr-line2 text-sub text-sm">
+          <t-icon name="location" size="14" color="#2E7CF6" />
+          <text>{{item.landmark_name}} {{item.detail}}</text>
+        </view>
+      </view>
+      <view class="addr-del" catchtap="del" data-id="{{item.id}}">
+        <t-icon name="delete" size="20" color="#99A3B0" />
+      </view>
+    </view>
+  </view>
+  <view wx:else class="empty">
+    <view class="empty-icon"><t-icon name="location" size="40" color="#C9D2DE" /></view>
+    <view class="empty-text">还没有收货地址</view>
+  </view>
+
+  <view class="bottom-bar safe-bottom">
+    <view class="btn btn-block" bindtap="add">新增地址</view>
+  </view>
+</view>

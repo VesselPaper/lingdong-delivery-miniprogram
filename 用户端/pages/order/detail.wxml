@@ -1,0 +1,54 @@
+<view class="detail-page">
+  <view class="status-head">
+    <view class="status-title">{{order.status_text}}</view>
+    <view class="status-sub text-sm" wx:if="{{order.status === 3}}">机器人已到达 {{order.landmark_name}}，请及时取餐</view>
+    <view class="status-sub text-sm" wx:elif="{{order.status === 2}}">机器人正在配送途中</view>
+    <view class="status-sub text-sm" wx:elif="{{order.status === 1}}">商家正在备餐，准备装载机器人</view>
+    <view class="status-sub text-sm" wx:elif="{{order.status === 0}}">请尽快完成支付</view>
+  </view>
+
+  <view class="card" wx:if="{{order.pickup_code && order.status >= 1}}">
+    <view class="pickup">
+      <view class="pickup-label">取餐码</view>
+      <view class="pickup-code">{{order.pickup_code}}</view>
+      <view class="pickup-tip text-weak text-sm">机器人在取餐点输入该号码即可开舱</view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">配送信息</view>
+    <view class="info-row"><text class="info-label">送达点位</text><text>{{order.landmark_name}}</text></view>
+    <view class="info-row"><text class="info-label">订单编号</text><text>{{order.order_no}}</text></view>
+    <view class="info-row" wx:if="{{order.remark}}"><text class="info-label">备注</text><text>{{order.remark}}</text></view>
+    <view class="info-row"><text class="info-label">下单时间</text><text>{{order.created_at}}</text></view>
+  </view>
+
+  <view class="card">
+    <view class="shop-row">
+      <view class="shop-badge"><t-icon name="shop" size="14" color="#2E7CF6" /></view>
+      <text class="shop-name">零栋铺子</text>
+    </view>
+    <view class="items">
+      <view class="item" wx:for="{{items}}" wx:key="id">
+        <image wx:if="{{item.goods_image}}" class="item-pic" src="{{item.goods_image}}" mode="aspectFill" />
+        <view class="item-info">
+          <view class="item-name">{{item.goods_name}}</view>
+          <view class="text-weak text-sm">x{{item.quantity}}</view>
+        </view>
+        <view class="price"><text class="price-symbol">¥</text><text class="price-num-sm">{{item.price}}</text></view>
+      </view>
+    </view>
+    <view class="total-row">
+      <text class="text-sub">合计</text>
+      <view class="price"><text class="price-symbol">¥</text><text class="price-num">{{order.total_amount}}</text></view>
+    </view>
+  </view>
+
+  <view class="foot-actions">
+    <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 0}}" bindtap="cancelOrder">取消订单</view>
+    <view class="btn btn-sm" style="flex:1;" wx:if="{{order.status === 0}}" bindtap="payOrder">立即支付</view>
+    <view class="btn btn-sm" style="flex:1;" wx:if="{{order.status === 3}}" bindtap="scanPickup">扫码取餐</view>
+    <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 3}}" bindtap="inputCode">输入取餐码</view>
+    <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 2}}" bindtap="goTrack">查看配送位置</view>
+  </view>
+</view>

@@ -1,0 +1,59 @@
+.edit-page {
+  padding-bottom: 160rpx;
+}
+
+.desc-input {
+  width: 100%;
+  margin-top: 20rpx;
+  min-height: 120rpx;
+  font-size: 28rpx;
+  color: #111111;
+  line-height: 1.5;
+}
+
+.img-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 200rpx;
+  height: 200rpx;
+  border: 2rpx dashed #D8D8D8;
+  border-radius: 12rpx;
+  background: #FAFAFA;
+  gap: 12rpx;
+}
+
+.img-picker-text {
+  font-size: 24rpx;
+  color: #999999;
+}
+
+.img-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.img-preview {
+  width: 200rpx;
+  height: 200rpx;
+  border-radius: 12rpx;
+  display: block;
+}
+
+.img-remove {
+  position: absolute;
+  top: -12rpx;
+  right: -12rpx;
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.img-hint {
+  margin-top: 16rpx;
+}

@@ -1,0 +1,54 @@
+.activity-page {
+  min-height: 100vh;
+  background: #F6F8FB;
+  padding-bottom: 220rpx;
+  box-sizing: border-box;
+}
+
+.act-head {
+  padding: 48rpx 40rpx 200rpx;
+  background: linear-gradient(180deg, #FFD9A8 0%, #FFEBD4 60%, #F6F8FB 100%);
+}
+
+.act-title {
+  font-size: 48rpx;
+  font-weight: 700;
+  color: #B25A1F;
+  letter-spacing: 2rpx;
+}
+
+.act-sub {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #B98A5A;
+}
+
+.act-body {
+  margin-top: -160rpx;
+  padding: 0 32rpx 40rpx;
+}
+
+.act-card {
+  background: #ffffff;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 4rpx 20rpx rgba(31, 63, 122, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.act-card-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #1A1A1A;
+}
+
+.act-card-sub {
+  margin-top: 10rpx;
+}
+
+.act-btn {
+  margin-top: 24rpx;
+}

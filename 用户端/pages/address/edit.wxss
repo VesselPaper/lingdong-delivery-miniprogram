@@ -1,0 +1,60 @@
+.edit-page {
+  min-height: 100vh;
+  background: #F6F8FB;
+  padding-bottom: 200rpx;
+  box-sizing: border-box;
+}
+
+.point-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 28rpx;
+  color: #1A1A1A;
+  padding: 10rpx 0 4rpx;
+}
+
+.placeholder-text {
+  color: #B0B8C4;
+}
+
+.default-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 28rpx;
+}
+
+.picker-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 32rpx;
+}
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.picker-item {
+  padding: 26rpx 32rpx;
+  border-radius: 20rpx;
+  background: #F5F7FA;
+  border: 2rpx solid transparent;
+}
+
+.picker-item.active {
+  background: #EAF3FF;
+  border-color: #2E7CF6;
+}
+
+.picker-name {
+  font-size: 30rpx;
+  color: #1A1A1A;
+}
+
+.picker-sub {
+  margin-top: 4rpx;
+}

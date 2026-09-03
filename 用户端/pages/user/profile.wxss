@@ -1,0 +1,112 @@
+.profile-page {
+  min-height: 100vh;
+  padding: 32rpx 32rpx 240rpx;
+  box-sizing: border-box;
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 8rpx 40rpx;
+}
+
+.avatar {
+  width: 112rpx;
+  height: 112rpx;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #4E9AF8 0%, #2E7CF6 100%);
+  border: 4rpx solid rgba(255, 255, 255, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 24rpx;
+  flex-shrink: 0;
+}
+
+.user-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-name {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #1A1A1A;
+}
+
+.user-phone {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+}
+
+.login-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4rpx;
+  margin-top: 12rpx;
+  padding: 6rpx 20rpx;
+  background: #ffffff;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  color: #2E7CF6;
+  box-shadow: 0 4rpx 12rpx rgba(31, 63, 122, 0.08);
+}
+
+/* 我的订单 */
+.orders-card {
+  background: #ffffff;
+  border-radius: 24rpx;
+  padding: 28rpx 8rpx 24rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 4rpx 20rpx rgba(31, 63, 122, 0.05);
+}
+
+.orders-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #1A1A1A;
+  padding: 0 24rpx 20rpx;
+}
+
+.orders-grid {
+  display: flex;
+}
+
+.orders-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.orders-icon {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 20rpx;
+  background: linear-gradient(180deg, #4E9AF8 0%, #2E7CF6 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.orders-label {
+  font-size: 22rpx;
+  color: #666666;
+}
+
+/* 菜单 */
+.menu {
+  padding: 0 !important;
+  border-radius: 24rpx;
+  box-shadow: 0 4rpx 20rpx rgba(31, 63, 122, 0.05);
+}
+
+.menu .cell {
+  padding: 28rpx 32rpx;
+}
+
+.foot {
+  text-align: center;
+  margin-top: 48rpx;
+}

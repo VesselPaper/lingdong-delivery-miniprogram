@@ -1,0 +1,48 @@
+<view class="detail-page">
+  <view class="hero" style="background: {{theme}};">
+    <image wx:if="{{goods.image}}" class="hero-pic" src="{{goods.image}}" mode="aspectFill" />
+    <t-icon wx:else name="{{icon}}" size="120" color="#BFBFBF" />
+    <view class="hero-badge">商品图</view>
+  </view>
+
+  <view class="info card">
+    <view class="info-head">
+      <view class="info-left">
+        <view class="name">{{goods.name}}</view>
+        <view class="price-row">
+          <text class="price-now">¥{{goods.price}}</text>
+          <text class="price-old" wx:if="{{goods.original_price}}">¥{{goods.original_price}}</text>
+        </view>
+      </view>
+      <view class="stepper">
+        <view class="stepper-btn {{cartQty <= 1 ? 'disabled' : ''}}" bindtap="onStep" data-delta="-1">-</view>
+        <view class="stepper-num">{{cartQty}}</view>
+        <view class="stepper-btn plus" bindtap="onStep" data-delta="1">+</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">配送说明</view>
+    <view class="notice-lines">
+      <view class="notice-line"><text class="nl-label">送达方式</text><text>无人车配送至所选点位</text></view>
+      <view class="notice-line"><text class="nl-label">配送时段</text><text>11:00-13:00 / 17:00-19:00</text></view>
+      <view class="notice-line"><text class="nl-label">取餐凭证</text><text>取餐码（下单后自动生成）</text></view>
+      <view class="notice-line"><text class="nl-label">超时处理</text><text>机器人到达后停留 15 分钟</text></view>
+    </view>
+  </view>
+
+  <view class="card disclaimer">
+    <view class="section-title">免责声明</view>
+    <view class="disclaimer-text">本小程序根据用户需求提供代买跑腿服务；商品质量与食品安全问题由商家负责；请确认所在楼宇是否有机器人入驻，入驻楼宇订单将无法送达；订单确认页展示的送达时间为平均理想值，若因商家备货时间延长或取货超时，则以具体送达时间为准。</view>
+  </view>
+
+  <view class="bottom-bar safe-bottom">
+    <view class="bar-price">
+      <view class="bar-price-main">¥{{goods.price}}</view>
+      <text class="bar-price-old" wx:if="{{goods.original_price}}">¥{{goods.original_price}}</text>
+    </view>
+    <view class="bar-fee text-weak">配送费 ¥0 · 明细</view>
+    <view class="go-cart" bindtap="goCart">去结算</view>
+  </view>
+</view>

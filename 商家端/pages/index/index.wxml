@@ -1,0 +1,27 @@
+<view class="home-page">
+  <view class="search-row">
+    <view class="search-box">
+      <t-icon name="search" size="32rpx" color="#999999" />
+      <input class="search-input" placeholder="请输入商铺名称" placeholder-class="search-ph" value="{{keyword}}" bindinput="onSearch" />
+    </view>
+    <view class="lock-sort" bindtap="lockSort">
+      <t-icon name="swap" size="28rpx" color="#333333" />
+      <text class="lock-sort-text">锁定排序</text>
+    </view>
+  </view>
+
+  <view class="shop-card" bindtap="goShop">
+    <view class="shop-card-main">
+      <view class="shop-card-name-row">
+        <view class="shop-card-name">四川师范大学商铺</view>
+        <view class="tag {{shopOpen ? 'tag-green' : ''}}">{{shopOpen ? '营业中' : '歇业中'}}</view>
+      </view>
+    </view>
+    <view class="shop-card-tag">上次访问</view>
+    <view class="shop-card-divider"></view>
+    <view class="shop-card-action">
+      <t-icon name="time" size="36rpx" color="#3078C0" />
+      <view class="shop-card-action-text">进入站点</view>
+    </view>
+  </view>
+</view>

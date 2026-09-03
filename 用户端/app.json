@@ -1,0 +1,56 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/goods/list",
+    "pages/activity/index",
+    "pages/goods/detail",
+    "pages/cart/cart",
+    "pages/order/confirm",
+    "pages/order/list",
+    "pages/order/detail",
+    "pages/delivery/track",
+    "pages/user/login",
+    "pages/user/profile",
+    "pages/user/settings",
+    "pages/address/list",
+    "pages/address/edit"
+  ],
+  "window": {
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarTitleText": "零栋无人送餐",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#F6F8FB"
+  },
+  "tabBar": {
+    "custom": true,
+    "color": "#99A3B0",
+    "selectedColor": "#2E7CF6",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/goods/list",
+        "text": "商城"
+      },
+      {
+        "pagePath": "pages/activity/index",
+        "text": "活动"
+      },
+      {
+        "pagePath": "pages/user/profile",
+        "text": "我的"
+      }
+    ]
+  },
+  "usingComponents": {
+    "t-icon": "tdesign-miniprogram/icon/icon"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

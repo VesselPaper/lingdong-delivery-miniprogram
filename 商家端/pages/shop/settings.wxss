@@ -1,0 +1,42 @@
+.settings-page {
+  padding: 32rpx 24rpx 64rpx;
+}
+
+.settings-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #111111;
+  margin-bottom: 12rpx;
+}
+
+.seg-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 26rpx 0;
+  border-bottom: 1rpx solid #F0F0F0;
+}
+
+.seg-row:last-child {
+  border-bottom: none;
+}
+
+.seg-label {
+  display: flex;
+  align-items: center;
+  font-size: 28rpx;
+  color: #111111;
+}
+
+.settings-hint {
+  margin-top: 8rpx;
+  line-height: 1.6;
+}
+
+.cell-full {
+  flex: 1;
+}
+
+.logout-text {
+  color: #E64340;
+}

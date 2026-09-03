@@ -1,0 +1,102 @@
+.profile-page {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.grad-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 980rpx;
+}
+
+.profile-body {
+  position: relative;
+  padding: 120rpx 24rpx 180rpx;
+  z-index: 1;
+}
+
+.shop-card {
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 40rpx 32rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.06);
+}
+
+.shop-logo {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 20rpx;
+  background: #EAF2FA;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 24rpx;
+  flex-shrink: 0;
+}
+
+.shop-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.shop-name {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #111111;
+  letter-spacing: 2rpx;
+}
+
+.shop-sub {
+  margin-top: 8rpx;
+  font-size: 26rpx;
+  color: #666666;
+}
+
+.change-pwd {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+  flex-shrink: 0;
+  margin-left: 20rpx;
+}
+
+.change-pwd-text {
+  font-size: 24rpx;
+  color: #3078C0;
+}
+
+.menu-card {
+  border-radius: 20rpx;
+  padding: 32rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.06);
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+}
+
+.menu-label {
+  flex: 1;
+  margin-left: 20rpx;
+  font-size: 28rpx;
+  color: #111111;
+}
+
+.menu-value {
+  font-size: 26rpx;
+  color: #999999;
+}
+
+.foot {
+  text-align: center;
+  margin-top: 48rpx;
+}

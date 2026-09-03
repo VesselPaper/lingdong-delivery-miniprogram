@@ -1,0 +1,70 @@
+const api = require('../../utils/api')
+const request = require('../../utils/request')
+
+Page({
+  data: {
+    user: {},
+    userInitial: '零'
+  },
+
+  onShow() {
+    this.load()
+    if (typeof this.getTabBar === 'function' && this.getTabBar()) {
+      this.getTabBar().setData({ selected: 3 })
+    }
+  },
+
+  async load() {
+    try {
+      const user = await request.get(api.getProfile)
+      const initial = user.nickname ? user.nickname.charAt(0) : '零'
+      this.setData({ user, userInitial: initial })
+    } catch (e) {
+      this.setData({ user: {}, userInitial: '零' })
+    }
+  },
+
+  goLogin() {
+    wx.navigateTo({ url: '/pages/user/login' })
+  },
+
+  goOrders() {
+    wx.navigateTo({ url: '/pages/order/list' })
+  },
+
+  goOrdersTab(e) {
+    wx.setStorageSync('order_tab', e.currentTarget.dataset.status)
+    wx.navigateTo({ url: '/pages/order/list' })
+  },
+
+  goAddress() {
+    wx.navigateTo({ url: '/pages/address/list' })
+  },
+
+  showInfo() {
+    wx.showModal({
+      title: '配送说明',
+      content: '机器人配送时段 11:00-13:00、17:00-19:00。下单后商家备餐装载，机器人自动配送至所选点位，到达后凭取餐码开舱取餐。',
+      showCancel: false
+    })
+  },
+
+  contactService() {
+    wx.showModal({
+      title: '联系客服',
+      content: '如遇问题请联系零栋铺子门店或配送技术群反馈。',
+      showCancel: false
+    })
+  },
+
+  goSetting() {
+    wx.navigateTo({ url: '/pages/user/settings' })
+  },
+
+  logout() {
+    wx.removeStorageSync('token')
+    wx.removeStorageSync('userInfo')
+    this.setData({ user: {} })
+    wx.showToast({ title: '已退出', icon: 'success' })
+  }
+})

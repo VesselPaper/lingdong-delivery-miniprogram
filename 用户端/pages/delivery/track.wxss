@@ -1,0 +1,157 @@
+.track-page {
+  min-height: 100vh;
+  background: #F6F8FB;
+  padding: 24rpx;
+  padding-bottom: 240rpx;
+  box-sizing: border-box;
+}
+
+.robot-card {
+  background: #ffffff;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 4rpx 20rpx rgba(31, 63, 122, 0.05);
+}
+
+.robot-head {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.robot-icon {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #4E9AF8 0%, #2E7CF6 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.robot-info {
+  flex: 1;
+}
+
+.robot-name {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #1A1A1A;
+}
+
+.robot-status {
+  font-size: 26rpx;
+  color: #2E7CF6;
+  margin-top: 6rpx;
+}
+
+.robot-progress {
+  margin-top: 32rpx;
+}
+
+.progress-track {
+  height: 10rpx;
+  background: #EAF3FF;
+  border-radius: 5rpx;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: #2E7CF6;
+  border-radius: 5rpx;
+  transition: width 0.5s ease;
+}
+
+.progress-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: #99A3B0;
+}
+
+.progress-labels .on {
+  color: #2E7CF6;
+  font-weight: 600;
+}
+
+.map-card {
+  position: relative;
+  height: 320rpx;
+  background: #EAF3FF;
+  border-radius: 24rpx;
+  overflow: hidden;
+  margin-bottom: 20rpx;
+}
+
+.map-grid {
+  position: absolute;
+  inset: 0;
+  background: #EAF3FF;
+}
+
+.map-route {
+  position: absolute;
+  left: 8%; top: 76%;
+  width: 72%;
+  height: 4rpx;
+  background: #2E7CF6;
+  transform: rotate(-28deg);
+  transform-origin: left center;
+  opacity: 0.6;
+}
+
+.map-robot {
+  position: absolute;
+  transition: all 0.6s ease;
+}
+
+.map-robot-dot {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  background: #2E7CF6;
+  border: 4rpx solid #ffffff;
+  box-shadow: 0 4rpx 12rpx rgba(46, 124, 246, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.map-dest {
+  position: absolute;
+}
+
+.map-tip {
+  position: absolute;
+  left: 0; right: 0; bottom: 8rpx;
+  text-align: center;
+  color: #1A1A1A;
+}
+
+.pickup-code {
+  font-size: 72rpx;
+  font-weight: 700;
+  letter-spacing: 12rpx;
+  color: #2E7CF6;
+  margin: 8rpx 0;
+}
+
+.foot-actions {
+  display: flex;
+  gap: 24rpx;
+  margin-top: 16rpx;
+}
+
+.empty {
+  padding-top: 200rpx;
+}
+
+.order-btn {
+  margin: 40rpx auto 0;
+  width: 240rpx;
+}

@@ -1,0 +1,51 @@
+<view class="monitor-page">
+  <!-- 真实机器人概览（可多台；数据来自开放物流平台 runtimeStatusList） -->
+  <block wx:if="{{robots.length}}">
+    <view class="robot-overview card" wx:for="{{robots}}" wx:key="device_sn">
+      <view class="flex-between">
+        <view>
+          <view class="robot-name">{{item.name}}</view>
+          <view class="robot-id text-weak text-sm">{{item.device_sn}}</view>
+        </view>
+        <view class="tag {{item.online ? 'tag-green' : ''}}">{{item.online_text}}</view>
+      </view>
+      <view class="robot-meta">
+        <view class="meta-item">
+          <view class="meta-num">{{item.machine_text}}</view>
+          <view class="meta-label text-weak text-sm">运行状态</view>
+        </view>
+        <view class="meta-item">
+          <view class="meta-num">{{item.battery === null ? '—' : item.battery + '%'}}</view>
+          <view class="meta-label text-weak text-sm">电量</view>
+        </view>
+        <view class="meta-item">
+          <view class="meta-num">{{item.building ? item.building + (item.floor ? ' ' + item.floor : '') : '—'}}</view>
+          <view class="meta-label text-weak text-sm">当前位置</view>
+        </view>
+      </view>
+    </view>
+  </block>
+
+  <!-- 无 API / 未配置平台时：明确报错 + 重试 -->
+  <view wx:elif="{{robotsError}}" class="card robot-error">
+    <view class="robot-error-icon"><t-icon name="info-circle" size="40" color="#C0C6CF" /></view>
+    <view class="robot-error-text">{{robotsError}}</view>
+    <view class="robot-error-tip text-weak text-sm">机器人由开放物流平台统一管理，请配置平台凭据后重试</view>
+    <view class="btn btn-sm robot-retry" bindtap="retryRobots">重试</view>
+  </view>
+
+  <view class="section-title">执行中的配送任务</view>
+  <view class="card task" wx:for="{{tasks}}" wx:key="id">
+    <view class="flex-between">
+      <view class="task-no text-sub">{{item.order_no}}</view>
+      <view class="task-status">{{item.status_text}}</view>
+    </view>
+    <view class="task-line text-sub text-sm">
+      <text>送达</text>
+      <text>{{item.landmark_name}}</text>
+    </view>
+  </view>
+  <view class="empty" wx:if="{{!tasks.length}}">
+    <view class="empty-text">暂无执行中的任务</view>
+  </view>
+</view>

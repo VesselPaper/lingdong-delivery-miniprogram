@@ -1,0 +1,41 @@
+.edit-page {
+  min-height: 100vh;
+  background: #FAFAFA;
+  padding: 24rpx 24rpx 48rpx;
+  box-sizing: border-box;
+}
+
+.form-card {
+  padding: 8rpx 28rpx;
+}
+
+.field {
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid #F0F0F0;
+}
+
+.field:last-child {
+  border-bottom: none;
+}
+
+.field-label {
+  font-size: 26rpx;
+  color: #666666;
+  margin-bottom: 12rpx;
+}
+
+.field-input {
+  font-size: 30rpx;
+  color: #111111;
+}
+
+.save-btn {
+  margin-top: 32rpx;
+  background: #3078C0;
+  color: #ffffff;
+}
+
+.tip {
+  margin-top: 20rpx;
+  text-align: center;
+}

@@ -1,0 +1,52 @@
+<view class="cart-page">
+  <view wx:if="{{items.length}}">
+    <view class="cart-head">
+      <text class="cart-head-title">已选购商品（{{items.length}}件）</text>
+    </view>
+    <view class="card">
+      <view class="shop-row">
+        <t-icon name="shop" size="18" color="#2E7CF6" />
+        <text class="shop-name">零栋铺子</text>
+        <text class="text-weak text-sm">无人车配送</text>
+      </view>
+      <view class="cart-list">
+        <view class="cart-item" wx:for="{{items}}" wx:key="id">
+          <view class="check {{item.selected ? 'check-on' : ''}}" bindtap="toggleSelect" data-id="{{item.id}}" data-selected="{{item.selected}}">
+            <t-icon wx:if="{{item.selected}}" name="check" size="12" color="#ffffff" />
+          </view>
+          <view class="item-img">
+            <image wx:if="{{item.image}}" class="fill-img" src="{{item.image}}" mode="aspectFill" />
+            <t-icon wx:else name="app" size="20" color="#BFBFBF" />
+          </view>
+          <view class="item-info">
+            <view class="item-name ellipsis">{{item.name}}</view>
+            <view class="item-price">¥{{item.price}}</view>
+          </view>
+          <view class="stepper">
+            <view class="stepper-btn" bindtap="onQuantity" data-id="{{item.id}}" data-delta="-1">-</view>
+            <view class="stepper-num">{{item.quantity}}</view>
+            <view class="stepper-btn plus" bindtap="onQuantity" data-id="{{item.id}}" data-delta="1">+</view>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+  <view wx:else class="empty">
+    <view class="empty-icon"><t-icon name="cart" size="40" color="#C9D2DE" /></view>
+    <view class="empty-text">购物车还是空的</view>
+  </view>
+
+  <view wx:if="{{items.length}}" class="bottom-bar safe-bottom">
+    <view class="all-check" bindtap="toggleAll">
+      <view class="check {{allSelected ? 'check-on' : ''}}">
+        <t-icon wx:if="{{allSelected}}" name="check" size="12" color="#ffffff" />
+      </view>
+      <text>全选</text>
+    </view>
+    <view class="total">
+      <text class="text-sub">合计</text>
+      <view class="price"><text class="price-symbol">¥</text><text class="price-num">{{total}}</text></view>
+    </view>
+    <view class="go-btn" bindtap="checkout">去结算({{selectCount}})</view>
+  </view>
+</view>

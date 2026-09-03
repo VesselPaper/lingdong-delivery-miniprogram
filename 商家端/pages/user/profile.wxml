@@ -1,0 +1,49 @@
+<view class="profile-page">
+  <view class="grad-banner"></view>
+
+  <view class="profile-body">
+    <view class="shop-card">
+      <view class="shop-logo">
+        <t-icon name="shop-4" size="56rpx" color="#3078C0" />
+      </view>
+      <view class="shop-info">
+        <view class="shop-name">SCSFDXSP</view>
+        <view class="shop-sub">四川师范大学商铺</view>
+      </view>
+    </view>
+
+    <view class="card menu-card" bindtap="notOpen">
+      <view class="menu-row">
+        <t-icon name="notification" size="40rpx" color="#333333" />
+        <view class="menu-label">消息接收</view>
+        <view class="menu-value">已关注</view>
+      </view>
+    </view>
+
+    <view class="card menu-card" bindtap="showAgreement">
+      <view class="menu-row">
+        <t-icon name="file" size="40rpx" color="#333333" />
+        <view class="menu-label">享递用户协议</view>
+        <t-icon name="chevron-right" size="36rpx" color="#666666" />
+      </view>
+    </view>
+
+    <view class="card menu-card" bindtap="showPrivacy">
+      <view class="menu-row">
+        <t-icon name="info-circle" size="40rpx" color="#333333" />
+        <view class="menu-label">享递隐私声明</view>
+        <t-icon name="chevron-right" size="36rpx" color="#666666" />
+      </view>
+    </view>
+
+    <view class="card menu-card" bindtap="goSettings">
+      <view class="menu-row">
+        <t-icon name="setting" size="40rpx" color="#333333" />
+        <view class="menu-label">设置</view>
+        <t-icon name="chevron-right" size="36rpx" color="#666666" />
+      </view>
+    </view>
+
+    <view class="foot text-weak text-sm">零栋无人送餐 · 商家端</view>
+  </view>
+</view>

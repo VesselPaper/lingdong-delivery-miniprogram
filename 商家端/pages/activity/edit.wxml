@@ -1,0 +1,23 @@
+<view class="edit-page">
+  <view class="card form-card">
+    <view class="field">
+      <view class="field-label">活动标题</view>
+      <input class="field-input" placeholder="请输入活动标题" value="{{form.title}}" bindinput="onField" data-field="title" />
+    </view>
+    <view class="field">
+      <view class="field-label">副标题</view>
+      <input class="field-input" placeholder="一句话描述（选填）" value="{{form.subtitle}}" bindinput="onField" data-field="subtitle" />
+    </view>
+    <view class="field">
+      <view class="field-label">跳转链接</view>
+      <input class="field-input" placeholder="用户端点击活动后跳转的页面路径（选填）" value="{{form.link}}" bindinput="onField" data-field="link" />
+    </view>
+    <view class="field">
+      <view class="field-label">排序</view>
+      <input class="field-input" type="number" placeholder="数字越小越靠前" value="{{form.sort}}" bindinput="onField" data-field="sort" />
+    </view>
+  </view>
+
+  <view class="btn btn-block save-btn" bindtap="save">保存</view>
+  <view class="tip text-weak text-sm">保存后默认发布，用户端活动页即可看到；也可在活动列表页下线。</view>
+</view>

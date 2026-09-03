@@ -1,0 +1,6 @@
+.settings-page {
+  min-height: 100vh;
+  background: #F6F8FB;
+  padding: 24rpx 32rpx 200rpx;
+  box-sizing: border-box;
+}

@@ -1,0 +1,69 @@
+<view class="home sky-bg">
+  <view class="home-top">
+    <view class="brand-row">
+      <view class="brand-loc">
+        <t-icon name="location" size="16" color="#2E7CF6" />
+        <text class="brand-name">川师成龙校区</text>
+        <t-icon name="chevron-right" size="14" color="#99A3B0" />
+      </view>
+    </view>
+    <view class="search-box" bindtap="goSearch">
+      <t-icon name="search" size="16" color="#99A3B0" />
+      <text class="search-text">搜索热卤、饮品、套餐</text>
+    </view>
+  </view>
+
+  <view class="coupon-card">
+    <view class="coupon-head">
+      <view class="coupon-mascot">
+        <t-icon name="robot-1" size="20" color="#6B4E1F" />
+      </view>
+      <view class="coupon-name">零栋铺子</view>
+      <view class="coupon-count">免配送费</view>
+    </view>
+    <view class="coupon-notice">
+      <text class="coupon-notice-tag">热门福利</text>
+      <text class="coupon-notice-text">机器人自动配送至所选点位</text>
+      <t-icon name="chevron-right" size="14" color="#A98A4F" />
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-head">
+      <view class="section-title">零栋铺子</view>
+      <view class="section-more" bindtap="goAll">全部<t-icon name="chevron-right" size="12" color="#2E7CF6" /></view>
+    </view>
+    <scroll-view scroll-x class="goods-scroll" enhanced show-scrollbar="{{false}}">
+      <view class="goods-row">
+        <view class="goods-card" wx:for="{{goods}}" wx:key="id" bindtap="goDetail" data-id="{{item.id}}">
+          <view class="goods-img" style="background: {{item.theme}};">
+            <image wx:if="{{item.image}}" class="fill-img" src="{{item.image}}" mode="aspectFill" />
+            <t-icon wx:else name="{{item.icon}}" size="30" color="#BFBFBF" />
+          </view>
+          <view class="goods-name ellipsis">{{item.name}}</view>
+          <view class="goods-bottom">
+            <view class="goods-price">
+              <text class="goods-price-now">¥{{item.price}}</text>
+              <text class="goods-old" wx:if="{{item.original_price}}">¥{{item.original_price}}</text>
+            </view>
+            <view class="add-btn" catchtap="addCart" data-id="{{item.id}}">
+              <t-icon name="add" size="12" color="#ffffff" />
+            </view>
+          </view>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+
+  <view class="cart-bar" wx:if="{{cartCount}}" bindtap="goCart">
+    <view class="cart-bar-icon">
+      <t-icon name="robot-1" size="24" color="#2E7CF6" />
+      <view class="cart-bar-badge">{{cartCount}}</view>
+    </view>
+    <view class="cart-bar-info">
+      <view class="cart-bar-price">¥{{cartTotal}}</view>
+      <view class="cart-bar-fee">配送费 ¥0 · 明细</view>
+    </view>
+    <view class="go-cart">去结算</view>
+  </view>
+</view>

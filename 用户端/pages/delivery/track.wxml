@@ -1,0 +1,63 @@
+<view class="track-page">
+  <view wx:if="{{empty}}" class="empty">
+    <view class="empty-icon"><t-icon name="robot-1" size="40" color="#C9D2DE" /></view>
+    <view class="empty-text">暂无配送中的订单</view>
+    <view class="btn btn-sm order-btn" bindtap="goOrder">去下单</view>
+  </view>
+  <block wx:else>
+    <view class="robot-card">
+      <view class="robot-head">
+        <view class="robot-icon">
+          <t-icon name="robot-1" size="28" color="#ffffff" />
+        </view>
+        <view class="robot-info">
+          <view class="robot-name">零栋无人配送机器人</view>
+          <view class="robot-status">{{taskText}}</view>
+        </view>
+        <view class="tag tag-dark">配送中</view>
+      </view>
+      <view class="robot-progress">
+        <view class="progress-track">
+          <view class="progress-bar" style="width: {{progressPercent}}%;"></view>
+        </view>
+        <view class="progress-labels">
+          <text class="{{progressStep >= 1 ? 'on' : ''}}">已接单</text>
+          <text class="{{progressStep >= 2 ? 'on' : ''}}">取餐</text>
+          <text class="{{progressStep >= 3 ? 'on' : ''}}">配送</text>
+          <text class="{{progressStep >= 4 ? 'on' : ''}}">送达</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="map-card" wx:if="{{position}}">
+      <view class="map-grid"></view>
+      <view class="map-route"></view>
+      <view class="map-robot" style="left: {{posX}}%; top: {{posY}}%;">
+        <view class="map-robot-dot"><t-icon name="robot-1" size="14" color="#ffffff" /></view>
+      </view>
+      <view class="map-dest" style="left: 80%; top: 76%;">
+        <t-icon name="location" size="20" color="#2E7CF6" />
+      </view>
+      <view class="map-tip">
+        <text class="text-sm">{{order.landmark_name}}</text>
+      </view>
+    </view>
+
+    <view class="card" wx:if="{{task}}">
+      <view class="section-title">配送进度</view>
+      <view class="task-status text-sub">{{task.status_text}}</view>
+    </view>
+
+    <view class="card">
+      <view class="section-title">取餐凭证</view>
+      <view class="pickup-code">{{order.pickup_code}}</view>
+      <view class="text-weak text-sm">机器人到达后，在机器人屏幕上输入此取餐码取餐</view>
+    </view>
+
+    <view class="foot-actions">
+      <view class="btn btn-sm btn-outline" style="flex:1;" bindtap="refresh">刷新状态</view>
+      <view class="btn btn-sm" style="flex:1;" wx:if="{{order.order_status === 3}}" bindtap="scanPickup">扫码取餐</view>
+      <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.order_status === 3}}" bindtap="inputCode">输入取餐码</view>
+    </view>
+  </block>
+</view>

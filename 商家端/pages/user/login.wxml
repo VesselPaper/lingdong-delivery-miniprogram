@@ -1,0 +1,14 @@
+<view class="login-page">
+  <view class="login-hero">
+    <view class="login-logo">
+      <t-icon name="shop-4" size="26" color="#ffffff" />
+    </view>
+    <view class="login-title">零栋无人送餐 · 商家端</view>
+    <view class="login-sub">商家登录管理商品与配送</view>
+  </view>
+
+  <view class="login-actions">
+    <view class="btn btn-block" bindtap="wechatLogin">微信一键登录</view>
+    <view class="login-tip text-weak text-sm">登录即同意《商家入驻协议》与《隐私政策》</view>
+  </view>
+</view>

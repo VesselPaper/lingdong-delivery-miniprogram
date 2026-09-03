@@ -1,0 +1,59 @@
+.act-page {
+  min-height: 100vh;
+  background: #FAFAFA;
+  padding: 24rpx 24rpx 48rpx;
+  box-sizing: border-box;
+}
+
+.act-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24rpx;
+}
+
+.act-head-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111111;
+}
+
+.act-add {
+  background: #3078C0;
+  color: #ffffff;
+}
+
+.act-card {
+  padding: 28rpx;
+}
+
+.act-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.act-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #111111;
+}
+
+.act-sub {
+  margin-top: 12rpx;
+}
+
+.act-meta {
+  margin-top: 12rpx;
+}
+
+.act-actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 20rpx;
+}
+
+.act-actions .danger {
+  color: #FA5151;
+  border-color: #FA5151;
+}

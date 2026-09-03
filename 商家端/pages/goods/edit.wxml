@@ -1,0 +1,51 @@
+<view class="edit-page">
+  <view class="card">
+    <view class="field">
+      <view class="field-label">商品名称</view>
+      <input class="field-input" placeholder="如：招牌鸭脖" value="{{form.name}}" bind:change="onField" data-field="name" />
+    </view>
+    <view class="field">
+      <view class="field-label">分类</view>
+      <input class="field-input" placeholder="热卤 / 卤味 / 饮品 / 套餐" value="{{form.category}}" bind:change="onField" data-field="category" />
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">商品图片</view>
+    <view class="img-picker" wx:if="{{!form.image}}" bindtap="chooseImage">
+      <t-icon name="add" size="52rpx" color="#BFBFBF" />
+      <view class="img-picker-text">添加商品图片</view>
+    </view>
+    <view class="img-wrapper" wx:else>
+      <image class="img-preview" src="{{form.image}}" mode="aspectFill" bindtap="previewImage" />
+      <view class="img-remove" catchtap="removeImage">
+        <t-icon name="close" size="26rpx" color="#ffffff" />
+      </view>
+    </view>
+    <view class="img-hint text-weak text-sm">支持从相册选择或拍摄，最多 1 张</view>
+  </view>
+
+  <view class="card">
+    <view class="field">
+      <view class="field-label">售价</view>
+      <input class="field-input" type="digit" placeholder="0.00" value="{{form.price}}" bind:change="onField" data-field="price" />
+    </view>
+    <view class="field">
+      <view class="field-label">原价</view>
+      <input class="field-input" type="digit" placeholder="选填，划线价展示" value="{{form.original_price}}" bind:change="onField" data-field="original_price" />
+    </view>
+    <view class="field">
+      <view class="field-label">库存</view>
+      <input class="field-input" type="number" placeholder="99" value="{{form.stock}}" bind:change="onField" data-field="stock" />
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="field-label">商品描述</view>
+    <textarea class="desc-input" placeholder="介绍商品卖点，如口味、配料" value="{{form.description}}" bind:change="onField" data-field="description" auto-height maxlength="200" />
+  </view>
+
+  <view class="bottom-bar safe-bottom">
+    <view class="btn btn-block" bindtap="save">保存商品</view>
+  </view>
+</view>

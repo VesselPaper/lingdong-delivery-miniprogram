@@ -1,0 +1,20 @@
+<view class="activity-page">
+  <view class="act-head">
+    <view class="act-title">超值权益</view>
+    <view class="act-sub">每日省钱 超值权益</view>
+  </view>
+
+  <view class="act-body">
+    <block wx:if="{{activities.length}}">
+      <view class="act-card" wx:for="{{activities}}" wx:key="id" bindtap="onActivity" data-link="{{item.link}}">
+        <view class="act-card-title">{{item.title}}</view>
+        <view class="act-card-sub text-weak text-sm">{{item.subtitle}}</view>
+        <view class="btn btn-sm act-btn" wx:if="{{item.link}}">查看详情</view>
+      </view>
+    </block>
+    <view wx:else class="empty">
+      <view class="empty-icon"><t-icon name="activity" size="40" color="#C9D2DE" /></view>
+      <view class="empty-text">暂无进行中的活动</view>
+    </view>
+  </view>
+</view>

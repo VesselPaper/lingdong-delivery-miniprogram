@@ -1,0 +1,43 @@
+.addr-page {
+  min-height: 100vh;
+  background: #F6F8FB;
+  padding-bottom: 200rpx;
+  box-sizing: border-box;
+}
+
+.addr-item {
+  display: flex;
+  align-items: center;
+  border-radius: 24rpx;
+}
+
+.addr-item.active {
+  border: 1rpx solid #2E7CF6;
+}
+
+.addr-main {
+  flex: 1;
+}
+
+.addr-line1 {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.addr-name {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #1A1A1A;
+}
+
+.addr-line2 {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  margin-top: 10rpx;
+}
+
+.addr-del {
+  padding-left: 24rpx;
+}

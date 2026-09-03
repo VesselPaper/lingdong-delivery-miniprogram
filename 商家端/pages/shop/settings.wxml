@@ -1,0 +1,31 @@
+<view class="settings-page">
+  <view class="card">
+    <view class="settings-title">商铺设置</view>
+    <view class="seg-row">
+      <view class="seg-label">
+        <t-icon name="shop-4" size="36rpx" color="#3078C0" style="margin-right:12rpx;" />
+        <text>营业状态</text>
+      </view>
+      <view class="seg">
+        <view class="seg-item {{business === 'closed' ? 'on' : ''}}" bindtap="setBusiness" data-val="closed">歇业</view>
+        <view class="seg-item {{business === 'open' ? 'on' : ''}}" bindtap="setBusiness" data-val="open">营业</view>
+      </view>
+    </view>
+    <view class="seg-row">
+      <view class="seg-label"><text>自动接单</text></view>
+      <switch checked="{{autoAccept}}" color="#3078C0" bindchange="onAutoAccept" />
+    </view>
+    <view class="settings-hint text-weak text-sm">歇业期间暂停接单，已接订单正常配送；自动接单开启后扫码将直接接单</view>
+  </view>
+
+  <view class="card">
+    <view class="cell" bindtap="goMonitor">
+      <view class="cell-label cell-full">配送监控</view>
+      <t-icon name="chevron-right" size="36rpx" color="#C0C0C0" />
+    </view>
+    <view class="cell" bindtap="logout">
+      <view class="cell-label cell-full logout-text">退出登录</view>
+      <t-icon name="chevron-right" size="36rpx" color="#C0C0C0" />
+    </view>
+  </view>
+</view>

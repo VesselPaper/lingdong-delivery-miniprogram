@@ -1,0 +1,47 @@
+<view class="order-list-page">
+  <view class="nav tabs-area">
+    <view class="nav-item {{active === '' ? 'on' : ''}}" bindtap="onTab" data-name="">全部</view>
+    <view class="nav-item {{active === '0' ? 'on' : ''}}" bindtap="onTab" data-name="0">待支付</view>
+    <view class="nav-item {{active === '1' ? 'on' : ''}}" bindtap="onTab" data-name="1">待接单</view>
+    <view class="nav-item {{active === '2' ? 'on' : ''}}" bindtap="onTab" data-name="2">配送中</view>
+    <view class="nav-item {{active === '3' ? 'on' : ''}}" bindtap="onTab" data-name="3">已送达</view>
+    <view class="nav-item {{active === '4' ? 'on' : ''}}" bindtap="onTab" data-name="4">已完成</view>
+  </view>
+
+  <view class="list">
+    <block wx:for="{{orders}}" wx:key="id">
+      <view class="order-card" bindtap="goDetail" data-id="{{item.id}}">
+        <view class="o-head">
+          <view class="o-store">
+            <view class="o-store-icon"><t-icon name="shop" size="13" color="#2E7CF6" /></view>
+            <text class="o-store-name">零栋铺子</text>
+          </view>
+          <text class="o-status">{{item.status_text}}</text>
+        </view>
+        <view class="o-main">
+          <view class="o-img">
+            <image wx:if="{{item.first_image}}" class="fill-img" src="{{item.first_image}}" mode="aspectFill" />
+            <t-icon wx:else name="app" size="18" color="#BFBFBF" />
+          </view>
+          <view class="o-name">{{item.first_name}}</view>
+          <text class="o-qty">x{{item.first_qty}}</text>
+        </view>
+        <view class="o-foot">
+          <text class="text-sub text-sm">共{{item.item_count}}件</text>
+          <view class="o-actual">
+            <text class="text-sub text-sm">实付款：</text>
+            <text class="o-actual-price">¥{{item.total_amount}}</text>
+          </view>
+        </view>
+        <view class="o-actions" wx:if="{{item.status === 0}}">
+          <view class="btn btn-sm btn-outline" catchtap="cancelOrder" data-id="{{item.id}}">取消订单</view>
+          <view class="btn btn-sm" catchtap="payOrder" data-id="{{item.id}}">去支付</view>
+        </view>
+      </view>
+    </block>
+    <view wx:if="{{!orders.length}}" class="empty">
+      <view class="empty-icon"><t-icon name="order" size="40" color="#C9D2DE" /></view>
+      <view class="empty-text">暂无订单</view>
+    </view>
+  </view>
+</view>

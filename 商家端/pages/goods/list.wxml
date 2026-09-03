@@ -1,0 +1,65 @@
+<view class="goods-page">
+  <view class="search-row">
+    <view class="search-box">
+      <t-icon name="search" size="32rpx" color="#999999" />
+      <input class="search-input" placeholder="请输入商品名称" placeholder-class="search-ph" value="{{keyword}}" bindinput="onSearch" />
+    </view>
+    <view class="filter-btn" bindtap="openFilter">
+      <t-icon name="filter" size="40rpx" color="#333333" />
+    </view>
+  </view>
+
+  <view class="card stat-card">
+    <view class="stat-head">
+      <view class="stat-title">商品统计</view>
+      <view class="add-btn" bindtap="addGoods">新增商品</view>
+    </view>
+    <view class="stat-grid">
+      <view class="stat-item">
+        <view class="stat-num orange">{{stats.onShelf}}</view>
+        <view class="stat-label">上架商品</view>
+      </view>
+      <view class="stat-item">
+        <view class="stat-num orange">{{stats.offShelf}}</view>
+        <view class="stat-label">下架商品</view>
+      </view>
+      <view class="stat-item">
+        <view class="stat-num orange">{{stats.soldOut}}</view>
+        <view class="stat-label">售罄商品</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="list">
+    <view class="goods-card card" wx:for="{{filtered}}" wx:key="id">
+      <view class="goods-head">
+        <image wx:if="{{item.image}}" class="goods-img img-real" src="{{item.image}}" mode="aspectFill" />
+        <view wx:else class="goods-img" style="background: {{item.theme}};">
+          <t-icon name="{{item.icon}}" size="56rpx" color="#BFBFBF" />
+        </view>
+        <view class="goods-info">
+          <view class="goods-name ellipsis">{{item.name}}</view>
+          <view class="goods-meta text-sm">库存: {{item.stock}}　已售: 0</view>
+        </view>
+        <view class="goods-price"><text class="price-symbol">¥</text><text class="price-num">{{item.price}}</text></view>
+      </view>
+      <view class="goods-actions">
+        <view class="action" bindtap="toggleStatus" data-id="{{item.id}}" data-status="{{item.status}}">
+          <t-icon name="arrow-down" size="32rpx" color="#333333" />
+          <text class="action-text">{{item.status === 1 ? '下架' : '上架'}}</text>
+        </view>
+        <view class="action" bindtap="editGoods" data-id="{{item.id}}">
+          <t-icon name="tag" size="32rpx" color="#333333" />
+          <text class="action-text">价格库存</text>
+        </view>
+        <view class="action" bindtap="markSoldOut" data-id="{{item.id}}">
+          <t-icon name="stop" size="32rpx" color="#333333" />
+          <text class="action-text">标记售罄</text>
+        </view>
+      </view>
+    </view>
+    <view class="empty" wx:if="{{!filtered.length}}">
+      <view class="empty-text">暂无商品</view>
+    </view>
+  </view>
+</view>
