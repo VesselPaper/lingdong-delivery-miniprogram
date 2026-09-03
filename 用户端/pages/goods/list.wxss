@@ -86,9 +86,6 @@
   height: calc(100vh - 420rpx);
   min-height: 600rpx;
   overflow: hidden;
-  /* 底部给抬高的购物车栏让出空间，保证最后一件商品能滚到购物车栏上方 */
-  padding-bottom: calc(200rpx + env(safe-area-inset-bottom));
-  box-sizing: border-box;
 }
 
 /* scroll-view 是原生组件，在 flex 里不会可靠收缩、会按自身内容撑宽，
@@ -136,6 +133,9 @@
    内层内容宽度不会减去 padding，卡片会向右溢出屏幕 */
 .main-inner {
   padding: 0 24rpx;
+  /* 底部滚动余量：购物车栏是悬浮在列表之上的覆盖层，
+     给最后一件商品留出可滚到栏上方的空间（无栏时不产生固定空白） */
+  padding-bottom: calc(200rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 
