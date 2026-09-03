@@ -1,0 +1,48 @@
+.match-page {
+  padding: 24rpx 32rpx 60rpx;
+}
+
+.match-head {
+  padding: 24rpx 8rpx 28rpx;
+}
+
+.match-title {
+  font-size: 38rpx;
+  font-weight: 700;
+  color: #222;
+}
+
+.match-sub {
+  margin-top: 8rpx;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+}
+
+.item-name {
+  flex: 1;
+  font-size: 28rpx;
+  color: #333;
+}
+
+.item-qty {
+  margin: 0 24rpx;
+  font-size: 26rpx;
+  color: #999;
+}
+
+.item-price {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #222;
+}
+
+.foot-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+  margin-top: 24rpx;
+}

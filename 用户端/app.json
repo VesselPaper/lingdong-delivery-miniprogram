@@ -9,6 +9,7 @@
     "pages/order/list",
     "pages/order/detail",
     "pages/delivery/track",
+    "pages/delivery/pickup",
     "pages/user/login",
     "pages/user/profile",
     "pages/user/settings",

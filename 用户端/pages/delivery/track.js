@@ -99,9 +99,10 @@ Page({
     })
   },
 
-  // 模拟扫码取餐：测试用，模拟已扫到机器人取餐码并验证通过，直接完成取餐
+  // 模拟扫码取餐：模拟已扫到机器人二维码，跳转到取餐页（开舱/取餐/关舱逻辑在取餐页）
   simulatePickup() {
-    this.confirmReceive('')
+    if (!this.data.orderId) return wx.showToast({ title: '暂无可取餐订单', icon: 'none' })
+    wx.navigateTo({ url: '/pages/delivery/pickup?order_id=' + this.data.orderId })
   },
 
   inputCode() {

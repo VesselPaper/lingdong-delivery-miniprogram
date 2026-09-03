@@ -419,4 +419,31 @@ async function loadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, applyStatus, platformReady, getDeviceList, grantControl, loadingVerify, drawerCtrl, loadingConfirm }
+// ---------------- 用户取餐（下货验证开舱 / 确认关舱） ----------------
+// 开舱取餐：unloading/verify 验证通过自动开舱（开舱即完成，任务流转 80）
+async function unloadingVerify(deviceSn, platformTaskId, strategies) {
+  if (MOCK) return { ok: true }
+  try {
+    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/unloading/verify', {
+      taskIdList: [String(platformTaskId)], deviceSn, strategies: strategies || {}, autoOpen: true
+    })
+    return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '开舱失败' }
+  } catch (e) {
+    return { ok: false, msg: '开舱异常：' + e.message }
+  }
+}
+
+// 关闭舱门：unloading/confirm 关舱返回（40s 未调用平台自动关舱；此项不改变任务状态）
+async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
+  if (MOCK) return { ok: true }
+  try {
+    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/unloading/confirm', {
+      deviceSn, strategies: strategies || {}
+    })
+    return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '关舱失败' }
+  } catch (e) {
+    return { ok: false, msg: '关舱异常：' + e.message }
+  }
+}
+
+module.exports = { createQueueTask, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, applyStatus, platformReady, getDeviceList, grantControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm }

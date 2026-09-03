@@ -28,6 +28,9 @@ const api = {
   // 配送
   deliveryTrack: '/delivery/track',
   deliveryConfirm: '/delivery/confirm',
+  pickupScan: '/delivery/pickup-scan',
+  pickupOpen: '/delivery/pickup-open',
+  pickupClose: '/delivery/pickup-close',
 
   // 活动
   activityList: '/activity/list',

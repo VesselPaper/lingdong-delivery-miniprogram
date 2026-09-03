@@ -52,79 +52,22 @@ Page({
     wx.navigateTo({ url: '/pages/orders/detail?id=' + e.currentTarget.dataset.id })
   },
 
-  // 模拟扫码配单：不真扫码，从待接单订单里选一单，走与扫码一致的确认流程（测试用）
+  // 模拟扫码配单：不真扫码，从待接单订单里选一单，跳转扫码配单结果页确认接单
   simulateScan() {
     const pending = this.data.orders.filter((o) => o.status === 1)
     if (!pending.length) {
       wx.showToast({ title: '暂无待接单订单', icon: 'none' })
       return
     }
+    const pick = (m) => wx.navigateTo({ url: '/pages/orders/scanMatch?id=' + m.id })
     if (pending.length === 1) {
-      const m = pending[0]
-      this.handleScan(JSON.stringify({ no: m.order_no, id: m.id }))
+      pick(pending[0])
       return
     }
     wx.showActionSheet({
       itemList: pending.map((o) => o.order_no + ' ' + (o.landmark_name || '')),
-      success: (r) => {
-        const m = pending[r.tapIndex]
-        this.handleScan(JSON.stringify({ no: m.order_no, id: m.id }))
-      }
+      success: (r) => pick(pending[r.tapIndex])
     })
-  },
-
-  handleScan(result) {
-    if (!result) return
-    let orderNo = ''
-    let id = null
-    try {
-      const obj = JSON.parse(result)
-      orderNo = obj.no || obj.order_no || ''
-      id = obj.id || obj.order_id || null
-    } catch (e) {
-      orderNo = String(result).trim()
-    }
-    const matched = this.data.orders.find((o) =>
-      (orderNo && o.order_no === orderNo) ||
-      (id && String(o.id) === String(id)))
-    if (!matched) {
-      wx.showToast({ title: '未找到对应订单，请核对二维码', icon: 'none' })
-      return
-    }
-    if (matched.status !== 1) {
-      wx.showModal({
-        title: '模拟扫码配单',
-        content: '订单 ' + matched.order_no + ' 当前状态：' + matched.status_text + '，无需接单',
-        showCancel: false,
-        confirmColor: '#3078C0'
-      })
-      return
-    }
-    if (!this.data.shopOpen) {
-      wx.showToast({ title: '店铺当前歇业中，无法接单', icon: 'none' })
-      return
-    }
-    if (shopState.getAutoAccept()) {
-      this.doConfirm(matched.id, '自动接单')
-      return
-    }
-    wx.showModal({
-      title: '模拟扫码配单',
-      content: '匹配到订单 ' + matched.order_no + '（' + matched.status_text + '）\n是否确认接单？',
-      confirmColor: '#3078C0',
-      success: async (r) => {
-        if (!r.confirm) return
-        await this.doConfirm(matched.id, '已接单，机器人出发')
-      }
-    })
-  },
-
-  async doConfirm(id, okText) {
-    try {
-      await request.post(api.orderConfirm, { id: Number(id) })
-      wx.showToast({ title: okText, icon: 'success' })
-      this.load()
-    } catch (e) { /* handled */ }
   },
 
   openFilter() {

@@ -331,6 +331,53 @@ app.post('/api/delivery/confirm', auth, (req, res) => {
   ok(res)
 })
 
+// ---------- 用户取餐（扫码后：开舱/关舱/40s自动关/重开） ----------
+// 扫码取餐：校验订单归属 + 已送达，返回取餐上下文（供取餐页展示与操作）
+app.post('/api/delivery/pickup-scan', auth, (req, res) => {
+  const order = store.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(Number((req.body || {}).order_id), req.user.id)
+  if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
+  if (Number(order.status) !== 3) return res.status(400).json({ code: 400, msg: '机器人还未送达，暂不能取餐' })
+  const task = order.delivery_task_id ? store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(order.delivery_task_id) : null
+  ok(res, {
+    order_id: order.id,
+    order_no: order.order_no,
+    pickup_code: order.pickup_code,
+    landmark_name: order.landmark_name,
+    task: task ? { task_id: task.id, platform_task_id: task.platform_task_id, device_sn: task.device_sn, task_status: task.task_status, status_text: task.status_text } : null
+  })
+})
+
+// 打开舱门取餐（unloading/verify 开舱即完成，订单置为已完成）
+// 测试兜底：无真实机器人任务（deviceSn/平台任务为空）时本地直接完成并标记 test，便于测试取餐页流程
+app.post('/api/delivery/pickup-open', auth, async (req, res) => {
+  const order = store.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(Number((req.body || {}).order_id), req.user.id)
+  if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
+  if (Number(order.status) !== 3) return res.status(400).json({ code: 400, msg: '机器人还未送达，暂不能取餐' })
+  const task = order.delivery_task_id ? store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(order.delivery_task_id) : null
+  const ready = !!(task && task.device_sn && task.platform_task_id)
+  if (ready) {
+    const r = await platform.unloadingVerify(task.device_sn, task.platform_task_id, { contact: order.contact_phone || '', roomNum: order.pickup_code })
+    if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg })
+  }
+  store.prepare("UPDATE orders SET status=4, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
+  ok(res, { order_id: order.id, status: 4, test: !ready })
+})
+
+// 关闭舱门（unloading/confirm 关舱返回；订单若仍为已送达则置为已完成）
+app.post('/api/delivery/pickup-close', auth, async (req, res) => {
+  const order = store.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(Number((req.body || {}).order_id), req.user.id)
+  if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
+  if (![3, 4].includes(Number(order.status))) return res.status(400).json({ code: 400, msg: '订单状态不允许关舱' })
+  const task = order.delivery_task_id ? store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(order.delivery_task_id) : null
+  const ready = !!(task && task.device_sn && task.platform_task_id)
+  if (ready) {
+    const r = await platform.unloadingConfirm(task.device_sn, task.platform_task_id, { contact: order.contact_phone || '', roomNum: order.pickup_code })
+    if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg })
+  }
+  store.prepare("UPDATE orders SET status=4, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
+  ok(res, { order_id: order.id, status: 4, test: !ready })
+})
+
 // ---------- 活动 ----------
 app.get('/api/activity/list', (req, res) => {
   ok(res, store.prepare('SELECT * FROM activities WHERE status=1 ORDER BY sort, id DESC').all())
@@ -620,6 +667,7 @@ app.post('/api/merchant/device/scan', merchantGuard, async (req, res) => {
 // 测试辅助：真实模式无真机器人时，把卡在「配送中」的订单标记为已送达(3)或已完成(4)，便于走通流程
 app.post('/api/merchant/delivery/test-complete', merchantGuard, (req, res) => {
   const { order_id, status = 3 } = req.body || {}
+  console.log('[merchant] test-complete called, order_id=' + order_id + ' status=' + status + ' user=' + req.user.id)
   const order = store.prepare('SELECT * FROM orders WHERE id=?').get(Number(order_id))
   if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
   const to = Number(status) === 4 ? 4 : 3

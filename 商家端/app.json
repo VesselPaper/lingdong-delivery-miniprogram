@@ -6,6 +6,7 @@
     "pages/orders/list",
     "pages/orders/history",
     "pages/orders/detail",
+    "pages/orders/scanMatch",
     "pages/device/loading",
     "pages/goods/list",
     "pages/goods/edit",
