@@ -1,7 +1,13 @@
+/* 商品页整页不滚动：搜索框/店铺名钉在顶部，只有左分类栏、右商品栏各自内部滚动 */
+page {
+  height: 100vh;
+  overflow: hidden;
+}
+
 .glist {
-  min-height: 100vh;
+  height: 100vh;
   background: #F6F8FB;
-  padding-bottom: 60rpx;
+  overflow: hidden;
 }
 
 .search-area {
