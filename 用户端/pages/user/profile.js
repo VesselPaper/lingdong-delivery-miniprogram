@@ -41,6 +41,10 @@ Page({
     wx.navigateTo({ url: '/pages/address/list' })
   },
 
+  goRefundList() {
+    wx.navigateTo({ url: '/pages/refund/list' })
+  },
+
   showInfo() {
     wx.showModal({
       title: '配送说明',

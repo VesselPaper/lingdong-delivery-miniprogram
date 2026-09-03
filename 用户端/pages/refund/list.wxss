@@ -1,0 +1,55 @@
+.refund-list-page {
+  padding: 24rpx 32rpx 60rpx;
+}
+
+.item {
+  margin-bottom: 20rpx;
+}
+
+.item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+
+.item-type {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #222;
+}
+
+.item-status {
+  font-size: 26rpx;
+  color: #666;
+}
+
+.item-status.warn {
+  color: #E64340;
+}
+
+.item-status.ok {
+  color: #2BA471;
+}
+
+.item-line {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8rpx;
+}
+
+.item-line text:last-child {
+  max-width: 70%;
+  text-align: right;
+}
+
+.item-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12rpx;
+}
+
+.link {
+  font-size: 26rpx;
+  color: #3078C0;
+}

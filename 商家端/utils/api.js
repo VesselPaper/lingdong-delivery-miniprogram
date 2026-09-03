@@ -19,7 +19,10 @@ const api = {
   devicePending: '/merchant/device/pending',
   deviceOpenBin: '/merchant/device/open-bin',
   deviceCloseBin: '/merchant/device/close-bin',
-  deviceDispatch: '/merchant/device/dispatch'
+  deviceDispatch: '/merchant/device/dispatch',
+  refunds: '/merchant/refunds',
+  refundDetail: '/merchant/refund/detail',
+  refundHandle: '/merchant/refund/handle'
 }
 
 module.exports = api

@@ -7,6 +7,8 @@
     "pages/orders/history",
     "pages/orders/detail",
     "pages/orders/scanMatch",
+    "pages/orders/aftersale",
+    "pages/orders/aftersaleDetail",
     "pages/device/loading",
     "pages/goods/list",
     "pages/goods/edit",

@@ -10,6 +10,8 @@
     "pages/order/detail",
     "pages/delivery/track",
     "pages/delivery/pickup",
+    "pages/order/refund",
+    "pages/refund/list",
     "pages/user/login",
     "pages/user/profile",
     "pages/user/settings",

@@ -81,5 +81,9 @@ Page({
 
   goTrack() {
     wx.redirectTo({ url: '/pages/delivery/track?order_id=' + this.data.id })
+  },
+
+  goRefund() {
+    wx.navigateTo({ url: '/pages/order/refund?order_id=' + this.data.id })
   }
 })

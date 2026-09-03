@@ -40,6 +40,10 @@ const api = {
   addressSave: '/address/save',
   addressDelete: '/address/delete',
 
+  // 售后（退款/投诉）
+  refundApply: '/refund/apply',
+  refundList: '/refund/list',
+
   // 点位
   landmarkList: '/landmarks'
 }

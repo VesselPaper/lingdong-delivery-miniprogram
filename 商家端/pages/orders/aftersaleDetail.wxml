@@ -1,0 +1,30 @@
+<view class="asd-page">
+  <view class="card">
+    <view class="asd-top">
+      <text class="asd-type">{{item.type === 'complaint' ? '投诉' : '退款'}}</text>
+      <text class="asd-status {{item.status === 0 ? 'warn' : ''}}">{{item.status_text}}</text>
+    </view>
+    <view class="info-row text-sub"><text>订单号</text><text>{{item.order_no}}</text></view>
+    <view class="info-row text-sub"><text>送达点位</text><text>{{item.landmark_name}}</text></view>
+    <view class="info-row text-sub" wx:if="{{item.type === 'refund'}}"><text>订单金额</text><text>¥{{item.total_amount}}</text></view>
+    <view class="info-row text-sub" wx:if="{{item.type === 'refund'}}"><text>退款金额</text><text class="pay-amount">¥{{item.amount}}</text></view>
+    <view class="info-row text-sub"><text>申请时间</text><text>{{item.created_at}}</text></view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">申请原因</view>
+    <view class="reason">{{item.reason || '无'}}</view>
+    <block wx:if="{{item.merchant_reply}}">
+      <view class="section-title" style="margin-top:24rpx;">处理结果</view>
+      <view class="reason">{{item.merchant_reply}}</view>
+    </block>
+  </view>
+
+  <view class="foot-actions" wx:if="{{item.status === 0}}">
+    <block wx:if="{{item.type === 'refund'}}">
+      <view class="btn btn-outline btn-block" bindtap="reject">拒绝退款</view>
+      <view class="btn btn-block" bindtap="approve">同意退款</view>
+    </block>
+    <view class="btn btn-block" wx:else bindtap="reply">回复处理</view>
+  </view>
+</view>

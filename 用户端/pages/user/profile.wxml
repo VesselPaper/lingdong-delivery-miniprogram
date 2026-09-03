@@ -41,6 +41,12 @@
       <view class="cell-value"></view>
       <t-icon name="chevron-right" size="14" color="#C0C6CF" />
     </view>
+    <view class="cell" bindtap="goRefundList">
+      <t-icon name="service" size="18" color="#1A1A1A" />
+      <view class="cell-label" style="margin-left:16rpx;">售后记录</view>
+      <view class="cell-value"></view>
+      <t-icon name="chevron-right" size="14" color="#C0C6CF" />
+    </view>
     <view class="cell" bindtap="showInfo">
       <t-icon name="info-circle" size="18" color="#1A1A1A" />
       <view class="cell-label" style="margin-left:16rpx;">配送说明</view>

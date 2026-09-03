@@ -1,0 +1,25 @@
+<view class="aftersale-page">
+  <view class="tab-bar">
+    <view class="tab {{active === '' ? 'on' : ''}}" bindtap="onTab" data-name="">全部</view>
+    <view class="tab {{active === '0' ? 'on' : ''}}" bindtap="onTab" data-name="0">待处理</view>
+    <view class="tab {{active === '3' ? 'on' : ''}}" bindtap="onTab" data-name="3">已退款</view>
+    <view class="tab {{active === '2' ? 'on' : ''}}" bindtap="onTab" data-name="2">已拒绝</view>
+    <view class="tab {{active === '4' ? 'on' : ''}}" bindtap="onTab" data-name="4">已处理</view>
+  </view>
+
+  <view class="list">
+    <view class="card item" wx:for="{{list}}" wx:key="id" bindtap="goDetail" data-id="{{item.id}}">
+      <view class="item-top">
+        <text class="item-type">{{item.type === 'complaint' ? '投诉' : '退款'}}</text>
+        <text class="item-status {{item.status === 0 ? 'warn' : ''}}">{{item.status_text}}</text>
+      </view>
+      <view class="item-line text-sub text-sm"><text>订单号</text><text>{{item.order_no}}</text></view>
+      <view class="item-line text-sub text-sm" wx:if="{{item.type === 'refund'}}"><text>申请金额</text><text>¥{{item.amount}}</text></view>
+      <view class="item-line text-sub text-sm"><text>原因</text><text class="ellipsis">{{item.reason}}</text></view>
+      <view class="item-line text-sub text-sm" wx:if="{{item.merchant_reply}}"><text>处理</text><text class="ellipsis">{{item.merchant_reply}}</text></view>
+    </view>
+    <view class="empty" wx:if="{{!list.length}}">
+      <view class="empty-text">暂无售后单</view>
+    </view>
+  </view>
+</view>

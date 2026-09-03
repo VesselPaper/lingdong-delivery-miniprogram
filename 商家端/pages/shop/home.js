@@ -44,7 +44,11 @@ Page({
   },
 
   goAfterSale() {
-    wx.showToast({ title: '历史售后功能开发中', icon: 'none' })
+    wx.navigateTo({ url: '/pages/orders/aftersale' })
+  },
+
+  goAftersale() {
+    wx.navigateTo({ url: '/pages/orders/aftersale' })
   },
 
   goSettings() {

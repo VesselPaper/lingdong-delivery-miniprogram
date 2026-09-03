@@ -196,8 +196,11 @@ app.delete('/api/address/delete', auth, (req, res) => {
 
 // ---------- 订单 ----------
 const ORDER_STATUS = {
-  0: '待支付', 1: '待接单', 2: '配送中', 3: '已送达', 4: '已完成', 5: '已取消', 6: '配送异常'
+  0: '待支付', 1: '待接单', 2: '配送中', 3: '已送达', 4: '已完成', 5: '已取消', 6: '配送异常', 7: '已退款'
 }
+
+// 售后状态：0 待处理 / 2 已拒绝 / 3 已退款 / 4 已处理(投诉)
+const REFUND_STATUS = { 0: '待处理', 2: '已拒绝', 3: '已退款', 4: '已处理' }
 
 app.post('/api/order/create', auth, (req, res) => {
   const { landmark_id, landmark_name, remark = '', items = [] } = req.body || {}
@@ -299,6 +302,68 @@ app.post('/api/order/cancel', auth, (req, res) => {
   if (![0, 1].includes(order.status)) return res.status(400).json({ code: 400, msg: '配送中的订单无法取消' })
   store.prepare("UPDATE orders SET status=5, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
   ok(res)
+})
+
+// ---------- 退款/投诉（售后） ----------
+// 用户申请退款/投诉（已送达/已完成/配送异常可申请；退款默认全额）
+app.post('/api/refund/apply', auth, (req, res) => {
+  const { order_id, type = 'refund', reason = '' } = req.body || {}
+  const order = store.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(Number(order_id), req.user.id)
+  if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
+  if (![3, 4, 6].includes(Number(order.status))) return res.status(400).json({ code: 400, msg: '当前状态不可申请退款/投诉' })
+  const t = type === 'complaint' ? 'complaint' : 'refund'
+  const info = store.prepare('INSERT INTO refunds (order_id, user_id, type, reason, amount) VALUES (?,?,?,?,?)')
+    .run(order.id, req.user.id, t, reason || '', t === 'refund' ? order.total_amount : 0)
+  ok(res, { id: Number(info.lastInsertRowid), type: t, status: 0 })
+})
+
+// 我的售后记录
+app.get('/api/refund/list', auth, (req, res) => {
+  const rows = store.prepare(`
+    SELECT r.*, o.order_no FROM refunds r JOIN orders o ON o.id = r.order_id
+    WHERE r.user_id=? ORDER BY r.id DESC`).all(req.user.id)
+  ok(res, rows.map((r) => ({ ...r, status_text: REFUND_STATUS[r.status] || '' })))
+})
+
+// 商家售后列表（待处理优先）
+app.get('/api/merchant/refunds', merchantGuard, (req, res) => {
+  const { status = '' } = req.query
+  let sql = `SELECT r.*, o.order_no, o.landmark_name FROM refunds r JOIN orders o ON o.id=r.order_id`
+  const args = []
+  if (status !== '' && status !== undefined) { sql += ' WHERE r.status=?'; args.push(Number(status)) }
+  sql += ' ORDER BY (r.status=0) DESC, r.id DESC'
+  ok(res, store.prepare(sql).all(...args).map((r) => ({ ...r, status_text: REFUND_STATUS[r.status] || '' })))
+})
+
+app.get('/api/merchant/refund/detail', merchantGuard, (req, res) => {
+  const row = store.prepare('SELECT r.*, o.order_no, o.landmark_name, o.total_amount FROM refunds r JOIN orders o ON o.id=r.order_id WHERE r.id=?').get(Number(req.query.id))
+  row ? ok(res, row) : res.status(404).json({ code: 404, msg: '售后单不存在' })
+})
+
+// 商家处理售后：退款 approve(默认全额可改)/reject(填理由)；投诉 reply
+app.post('/api/merchant/refund/handle', merchantGuard, (req, res) => {
+  const { id, action = '', amount, reply = '' } = req.body || {}
+  const r = store.prepare('SELECT * FROM refunds WHERE id=?').get(Number(id))
+  if (!r) return res.status(404).json({ code: 404, msg: '售后单不存在' })
+  if (Number(r.status) !== 0) return res.status(400).json({ code: 400, msg: '该售后已处理' })
+  if (r.type === 'refund') {
+    if (action === 'approve') {
+      const amt = (amount === undefined || amount === null || isNaN(Number(amount)) || Number(amount) < 0) ? r.amount : Number(amount)
+      store.prepare("UPDATE refunds SET status=3, amount=?, merchant_reply=?, handled_at=datetime('now','localtime') WHERE id=?")
+        .run(amt, reply || '同意退款', r.id)
+      // 订单标记为已退款
+      store.prepare("UPDATE orders SET status=7, updated_at=datetime('now','localtime') WHERE id=?").run(r.order_id)
+    } else if (action === 'reject') {
+      if (!reply) return res.status(400).json({ code: 400, msg: '请填写拒绝理由' })
+      store.prepare("UPDATE refunds SET status=2, merchant_reply=?, handled_at=datetime('now','localtime') WHERE id=?").run(reply, r.id)
+    } else {
+      return res.status(400).json({ code: 400, msg: '无效操作' })
+    }
+  } else {
+    // 投诉：商家回复处理
+    store.prepare("UPDATE refunds SET status=4, merchant_reply=?, handled_at=datetime('now','localtime') WHERE id=?").run(reply || '已处理', r.id)
+  }
+  ok(res, store.prepare('SELECT * FROM refunds WHERE id=?').get(r.id))
 })
 
 // ---------- 配送追踪 ----------
@@ -416,7 +481,7 @@ app.get('/api/merchant/stats', merchantGuard, (req, res) => {
     delivering: store.prepare('SELECT COUNT(*) c FROM orders WHERE status IN (2,3)').get().c,
     finished: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=4').get().c,
     exception: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=6').get().c,
-    aftersale: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=5').get().c
+    aftersale: store.prepare('SELECT COUNT(*) c FROM refunds WHERE status=0').get().c
   }
   ok(res, stats)
 })
@@ -425,9 +490,9 @@ app.get('/api/merchant/orders', merchantGuard, (req, res) => {
   const { status = '', scope = '' } = req.query
   let sql = 'SELECT * FROM orders'
   const args = []
-  // 当前任务：仅执行中的订单（待接单/配送中/等待取餐）；历史订单：已完成/已取消/配送异常
+  // 当前任务：仅执行中的订单（待接单/配送中/等待取餐）；历史订单：已完成/已取消/配送异常/已退款
   if (scope === 'active') sql += ' WHERE status IN (1,2,3)'
-  else if (scope === 'history') sql += ' WHERE status IN (4,5,6)'
+  else if (scope === 'history') sql += ' WHERE status IN (4,5,6,7)'
   else if (status !== '' && status !== undefined) { sql += ' WHERE status=?'; args.push(Number(status)) }
   sql += ' ORDER BY id DESC'
   const rows = store.prepare(sql).all(...args).map((o) => ({ ...o, status_text: ORDER_STATUS[o.status] || '' }))

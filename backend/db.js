@@ -115,6 +115,18 @@ function init() {
       sort INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
+    CREATE TABLE IF NOT EXISTS refunds (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER,
+      user_id INTEGER,
+      type TEXT DEFAULT 'refund',       -- refund 退款 / complaint 投诉
+      reason TEXT,
+      amount REAL DEFAULT 0,            -- 退款金额（商家同意时写入，默认订单全额）
+      status INTEGER DEFAULT 0,         -- 0 待处理 / 2 已拒绝 / 3 已退款 / 4 已处理(投诉)
+      merchant_reply TEXT,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      handled_at TEXT
+    );
   `)
   migrate(db)
   seed(db)

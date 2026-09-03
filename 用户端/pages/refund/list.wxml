@@ -1,0 +1,18 @@
+<view class="refund-list-page">
+  <view class="card item" wx:for="{{list}}" wx:key="id">
+    <view class="item-top">
+      <text class="item-type">{{item.type === 'complaint' ? '投诉' : '退款'}}</text>
+      <text class="item-status {{item.status === 0 ? 'warn' : (item.status === 3 ? 'ok' : '')}}">{{item.status_text}}</text>
+    </view>
+    <view class="item-line text-sub text-sm"><text>订单号</text><text>{{item.order_no}}</text></view>
+    <view class="item-line text-sub text-sm" wx:if="{{item.type === 'refund'}}"><text>退款金额</text><text>¥{{item.amount}}</text></view>
+    <view class="item-line text-sub text-sm"><text>申请原因</text><text class="ellipsis">{{item.reason}}</text></view>
+    <view class="item-line text-sub text-sm" wx:if="{{item.merchant_reply}}"><text>商家处理</text><text class="ellipsis">{{item.merchant_reply}}</text></view>
+    <view class="item-actions" wx:if="{{item.order_id}}">
+      <view class="link" bindtap="goOrder" data-order="{{item.order_id}}">查看订单 ›</view>
+    </view>
+  </view>
+  <view class="empty" wx:if="{{!list.length}}">
+    <view class="empty-text">暂无售后记录</view>
+  </view>
+</view>

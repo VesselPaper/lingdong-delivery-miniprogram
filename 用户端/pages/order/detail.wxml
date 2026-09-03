@@ -50,5 +50,6 @@
     <view class="btn btn-sm" style="flex:1;" wx:if="{{order.status === 3}}" bindtap="scanPickup">扫码取餐</view>
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 3}}" bindtap="inputCode">输入取餐码</view>
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 2}}" bindtap="goTrack">查看配送位置</view>
+    <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 3 || order.status === 4 || order.status === 6}}" bindtap="goRefund">退款/投诉</view>
   </view>
 </view>

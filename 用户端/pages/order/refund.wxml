@@ -1,0 +1,32 @@
+<view class="refund-page">
+  <view class="card" wx:if="{{order.order_no}}">
+    <view class="section-title">申请类型</view>
+    <view class="type-row">
+      <view class="type-item {{type === 'refund' ? 'on' : ''}}" bindtap="selectType" data-type="refund">
+        <t-icon name="cash" size="44rpx" color="{{type === 'refund' ? '#3078C0' : '#999'}}" />
+        <text>退款</text>
+      </view>
+      <view class="type-item {{type === 'complaint' ? 'on' : ''}}" bindtap="selectType" data-type="complaint">
+        <t-icon name="comment" size="44rpx" color="{{type === 'complaint' ? '#3078C0' : '#999'}}" />
+        <text>投诉</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">订单信息</view>
+    <view class="info-row text-sub"><text>订单号</text><text>{{order.order_no}}</text></view>
+    <view class="info-row text-sub"><text>金额</text><text class="pay-amount">¥{{order.total_amount}}</text></view>
+    <view class="info-row text-sub" wx:if="{{type === 'refund'}}"><text>退款说明</text><text class="text-weak">默认退订单全额，最终以商家处理为准</text></view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">{{type === 'refund' ? '退款原因' : '投诉内容'}}</view>
+    <textarea class="reason-input" placeholder="请详细说明申请原因（必填）" placeholder-class="ph" value="{{reason}}" bindinput="onReason" maxlength="200" />
+    <view class="reason-count text-weak text-sm">{{reason.length}}/200</view>
+  </view>
+
+  <view class="foot-actions">
+    <view class="btn btn-block" bindtap="submit">提交申请</view>
+  </view>
+</view>
