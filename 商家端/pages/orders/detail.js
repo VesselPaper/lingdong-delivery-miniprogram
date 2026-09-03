@@ -59,5 +59,23 @@ Page({
 
   goLoad() {
     wx.navigateTo({ url: '/pages/device/loading' })
+  },
+
+  // 测试辅助：真实模式无真机器人时，把卡在配送中的订单标记为已送达，用户端可继续取餐完成
+  testComplete() {
+    wx.showModal({
+      title: '测试完成配送',
+      content: '测试模式：直接标记该订单为已送达（用户端可继续取餐完成）。此操作仅测试用，不会真实下发任务。',
+      confirmText: '标记已送达',
+      confirmColor: '#3078C0',
+      success: async (r) => {
+        if (!r.confirm) return
+        try {
+          await request.post(api.deliveryTestComplete, { order_id: this.data.id, status: 3 })
+          wx.showToast({ title: '已标记已送达', icon: 'success' })
+          this.load()
+        } catch (e) { /* handled */ }
+      }
+    })
   }
 })

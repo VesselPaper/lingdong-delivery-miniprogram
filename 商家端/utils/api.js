@@ -6,6 +6,7 @@ const api = {
   orders: '/merchant/orders',
   orderDetail: '/merchant/order/detail',
   orderConfirm: '/merchant/order/confirm',
+  deliveryTestComplete: '/merchant/delivery/test-complete',
   goods: '/merchant/goods',
   goodsUpdate: '/merchant/goods',
   goodsStatus: '/merchant/goods/status',

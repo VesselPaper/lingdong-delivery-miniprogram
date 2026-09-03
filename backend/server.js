@@ -617,6 +617,21 @@ app.post('/api/merchant/device/scan', merchantGuard, async (req, res) => {
   })
 })
 
+// 测试辅助：真实模式无真机器人时，把卡在「配送中」的订单标记为已送达(3)或已完成(4)，便于走通流程
+app.post('/api/merchant/delivery/test-complete', merchantGuard, (req, res) => {
+  const { order_id, status = 3 } = req.body || {}
+  const order = store.prepare('SELECT * FROM orders WHERE id=?').get(Number(order_id))
+  if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
+  const to = Number(status) === 4 ? 4 : 3
+  if (order.delivery_task_id) {
+    store.prepare("UPDATE delivery_tasks SET task_status=80, status_text='任务完成（测试）', updated_at=datetime('now','localtime') WHERE id=?")
+      .run(order.delivery_task_id)
+  }
+  store.prepare("UPDATE orders SET status=?, updated_at=datetime('now','localtime') WHERE id=?")
+    .run(to, order.id)
+  ok(res, { order_id: order.id, status: to })
+})
+
 // 待上货任务列表：机器人已到上货点/上货中（含排队中未拉取），供商家列表选择上货
 app.get('/api/merchant/device/pending', merchantGuard, (req, res) => {
   const rows = store.prepare(`

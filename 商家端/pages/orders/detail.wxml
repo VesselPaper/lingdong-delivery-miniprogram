@@ -45,7 +45,10 @@
   <view class="foot-actions">
     <view class="btn btn-sm btn-block" wx:if="{{order.status === 1 && shopOpen}}" bindtap="confirmOrder">接单并装车</view>
     <view class="btn btn-sm btn-block btn-disabled" wx:elif="{{order.status === 1 && !shopOpen}}">歇业中，暂不可接单</view>
-    <view class="btn btn-sm btn-block" wx:elif="{{order.status === 2}}" bindtap="goLoad">开仓上货</view>
+    <block wx:elif="{{order.status === 2}}">
+      <view class="btn btn-sm btn-block" bindtap="goLoad">开仓上货</view>
+      <view class="btn btn-outline btn-sm btn-block test-btn" bindtap="testComplete">测试完成配送</view>
+    </block>
     <view class="btn btn-outline btn-sm btn-block" bindtap="back" wx:else>返回列表</view>
   </view>
 </view>
