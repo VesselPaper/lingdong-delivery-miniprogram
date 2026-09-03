@@ -25,6 +25,12 @@ Page({
     wx.navigateTo({ url: '/pages/orders/list' })
   },
 
+  // 我的任务四个分类按钮：跳转到对应订单分类（待接单1 / 异常6 / 售后5 / 未完结空=全部当前）
+  goOrdersTab(e) {
+    const tab = e.currentTarget.dataset.tab || ''
+    wx.navigateTo({ url: '/pages/orders/list' + (tab !== '' ? '?tab=' + tab : '') })
+  },
+
   goGoods() {
     wx.navigateTo({ url: '/pages/goods/list' })
   },

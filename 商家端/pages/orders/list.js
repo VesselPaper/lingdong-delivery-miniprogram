@@ -19,6 +19,13 @@ Page({
     this.load()
   },
 
+  onLoad(options) {
+    // 支持从工作台跳转指定分类：?tab=1 待接单 / 6 异常 / 5 售后（空=全部当前）
+    if (options && options.tab !== undefined && options.tab !== '') {
+      this.setData({ active: options.tab })
+    }
+  },
+
   onTab(e) {
     this.setData({ active: e.currentTarget.dataset.name })
     this.load()

@@ -414,7 +414,9 @@ app.get('/api/merchant/stats', merchantGuard, (req, res) => {
     today_amount: store.prepare("SELECT IFNULL(SUM(total_amount),0) s FROM orders WHERE date(created_at)=? AND status NOT IN (0,5)").get(today).s,
     pending: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=1').get().c,
     delivering: store.prepare('SELECT COUNT(*) c FROM orders WHERE status IN (2,3)').get().c,
-    finished: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=4').get().c
+    finished: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=4').get().c,
+    exception: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=6').get().c,
+    aftersale: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=5').get().c
   }
   ok(res, stats)
 })
