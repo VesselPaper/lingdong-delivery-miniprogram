@@ -15,7 +15,7 @@
         </view>
       </view>
       <view class="stepper">
-        <view class="stepper-btn {{cartQty <= 1 ? 'disabled' : ''}}" bindtap="onStep" data-delta="-1">-</view>
+        <view class="stepper-btn {{cartQty < 1 ? 'disabled' : ''}}" bindtap="onStep" data-delta="-1">-</view>
         <view class="stepper-num">{{cartQty}}</view>
         <view class="stepper-btn plus" bindtap="onStep" data-delta="1">+</view>
       </view>
