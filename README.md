@@ -110,6 +110,21 @@ node server.js
 
 > 真实凭据（平台 appid/secret、微信支付商户、微信 AppSecret）不进仓库，由项目负责人在线下发，各成员填到本地 backend/.env。
 
+### 5. 已有代码的成员：同步更新
+
+项目负责人每次推送后，成员在**本地项目文件夹**（你 git clone 的那个目录）里执行即可同步到最新：
+
+```bash
+cd 送餐无人车微信小程序
+git pull        # 拉取最新代码
+```
+
+- 后端有改动时重启后端生效：`cd backend && node server.js`（依赖没变可跳过 `npm install`）。
+- `git pull` 报错说明你本地改过文件，按需二选一：
+  - **想保留本地改动**（如 config.js 的 baseUrl、project.config.json 的 appid 等本机配置）：`git stash` → `git pull` → `git stash pop`
+  - **不想要本地改动**：`git checkout .` → `git pull`（⚠️ 会丢弃本机未提交的改动）
+- `.env` 不会随代码同步（已 gitignore）：本地演示保持 `PLATFORM_MOCK=true` 即可；要跑真实配送需线下获取平台凭据填到本地 `backend/.env`。
+
 ## 三、用微信开发者工具预览
 
 ### 1. 安装
@@ -167,7 +182,7 @@ node server.js
 
 ## 文档索引
 
-- 启动与运行：见本文件「一、启动后端服务器」「二、新环境首次运行」「三、用微信开发者工具预览」。
+- 启动与运行：见本文件「一、启动后端服务器」「二、新环境首次运行」「三、用微信开发者工具预览」；已有代码的成员同步更新见「二、新环境首次运行 → 5. 已有代码的成员：同步更新」。
 - 项目文档（doc/ 目录）：
   - `doc/01_PRD需求文档.md` 需求/角色/流程/异常
   - `doc/02_接口文档.md` 全部 API 说明
