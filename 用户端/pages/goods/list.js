@@ -164,8 +164,13 @@ Page({
         } else {
           await request.post(api.cartAdd, { goods_id: gid, quantity: 1 })
         }
-      } else if (cur && cur.quantity > 1) {
-        await request.put(api.cartUpdate, { id: cur.id, quantity: cur.quantity - 1 })
+      } else if (cur) {
+        if (cur.quantity > 1) {
+          await request.put(api.cartUpdate, { id: cur.id, quantity: cur.quantity - 1 })
+        } else {
+          // 数量为 1 时再点减号 = 从购物车移除该商品
+          await request.del(api.cartRemove, { id: cur.id })
+        }
       }
       this.loadGoods()
     } catch (err) { /* handled */ }

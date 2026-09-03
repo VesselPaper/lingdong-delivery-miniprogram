@@ -48,8 +48,13 @@ Page({
     const { id, delta } = e.currentTarget.dataset
     const it = this.data.items.find((x) => x.id === Number(id))
     if (!it) return
-    const quantity = Math.max(1, Number(it.quantity) + Number(delta))
-    await request.put(api.cartUpdate, { id: Number(id), quantity })
+    const next = Number(it.quantity) + Number(delta)
+    if (next < 1) {
+      // 数量减到 0 = 从购物车移除该商品
+      await request.del(api.cartRemove, { id: Number(id) })
+    } else {
+      await request.put(api.cartUpdate, { id: Number(id), quantity: next })
+    }
     this.loadCart()
   },
 
