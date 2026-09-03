@@ -107,6 +107,46 @@ node server.js
 - 支付提示未开通：.env 未配置微信支付商户参数。
 - 商品图片是色块：项目未内置真实商品图，前端用分类主题色块占位，替换商品图后自动显示。
 
+## 三、成员 / 新环境首次运行（克隆后跑起来）
+
+### 1. 前置
+- Node.js 22+（后端用内置 node:sqlite）
+- 微信开发者工具（稳定版）
+
+### 2. 克隆并启动后端
+```bash
+git clone https://github.com/VesselPaper/lingdong-delivery-miniprogram.git
+cd lingdong-delivery-miniprogram/backend
+
+# ① 装依赖（node_modules 未进仓库）
+npm install
+
+# ② 建本地 .env：想完整演示配送闭环就开 Mock（机器人自动推进）
+echo "PLATFORM_MOCK=true" > .env
+
+# ③ 启动（首次自动建库+种子数据）
+node server.js
+```
+
+### 3. 打开微信小程序
+1. 微信开发者工具 → 导入项目 → 选择 `用户端`（或 `商家端`）文件夹。
+2. **AppID 选「测试号」或填你自己的 AppID**（仓库里是别人的 AppID，无权限时无法导入；测试号可直接编译预览，仅不能真机预览）。
+3. 点「编译」即可看到页面；`miniprogram_npm` 已随仓库提交，无需构建 npm。
+
+### 4. 开箱即用 vs 需要配置
+
+| 项 | 说明 |
+| --- | --- |
+| 数据库 | 自动建库 + 种子数据，无需配置 |
+| 登录 | 演示登录，点微信登录直接成功 |
+| 接口地址 | config.js 默认 http://localhost:3000/api，无需改 |
+| UI 组件 | miniprogram_npm 已提交，直接编译 |
+| 支付 | 未配微信支付商户 → 支付提示"通道未开通"（浏览/下单/订单/配送演示不受影响） |
+| 真实配送 | 未配平台凭据 → 任务不下发；开 `PLATFORM_MOCK=true` 用本地状态机演示 |
+| 开放平台点位 | 真实接入才需点位同步（商家端 → /api/merchant/landmarks/sync） |
+
+> 真实凭据（平台 appid/secret、微信支付商户、微信 AppSecret）不进仓库，由项目负责人在线下发，各成员填到本地 backend/.env。
+
 ## 真实业务逻辑说明
 
 - 登录：测试阶段为演示登录（未配置 WX_APPID/WX_SECRET 时点击微信登录直接成功）；正式环境启用真实 code2session（server.js 中注释保留，配置 .env 后取消注释）。
