@@ -310,12 +310,13 @@ async function getDevicePosition(store, taskId) {
   return hit ? hit.pos : null
 }
 
-// 机器状态码 -> 中文（与开放物流平台对齐，见 03_技术记录.md）
+// 机器状态码 -> 中文（与开放物流平台标准对照表一致，见 doc/06 常量字典）
 const MACHINE_TEXT = {
-  init: '初始化', setting: '设置/建图', charging: '充电中', returnChargingPile: '返回充电桩',
-  standby: '待机中', returnStandby: '返回待机点', delivery: '配送中', exception: '异常',
-  interaction: '交互中', lightTask: '召唤中', remoteDevOps: '远程运维', update: '更新中',
-  Patrol: '巡逻', Acceptance: '验收'
+  idle: '空状态', init: '初始化', setting: '设置', charging: '正在充电', returnChargingPile: '返回充电桩',
+  standby: '待机中', returnStandby: '前往待机', exception: '异常',
+  lightTask: '召唤', update: '升级', interaction: '交互',
+  patrol: '巡逻中', Patrol: '巡逻中', Delivery: '配送中', delivery: '配送中',
+  remoteDevOps: '远程运维', Acceptance: '验收'
 }
 
 // ---------------- 机器人设备列表 ----------------
