@@ -18,7 +18,8 @@ Page({
     groups: [],
     cartCount: 0,
     cartTotal: '0.00',
-    mainTo: ''
+    mainTo: '',
+    shopClosed: false
   },
 
   cartMap: {},
@@ -38,6 +39,15 @@ Page({
       this.getTabBar().setData({ selected: 1 })
     }
     this.loadGoods()
+    this.loadShopStatus()
+  },
+
+  // 店铺营业状态：歇业时店铺卡展示「歇业」标签
+  async loadShopStatus() {
+    try {
+      const shop = await request.get(api.shopStatus)
+      this.setData({ shopClosed: shop.business_status === 'closed' })
+    } catch (e) { /* 默认按营业处理 */ }
   },
 
   onSearch(e) {

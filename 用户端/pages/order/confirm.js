@@ -27,7 +27,8 @@ Page({
       '17:00-17:20', '17:20-17:40'
     ],
     timeDay: '今天',
-    showTimeSheet: false
+    showTimeSheet: false,
+    shopClosed: false
   },
 
   async onLoad(options) {
@@ -56,7 +57,16 @@ Page({
     // 先加载点位与已存收货地址，再回填收餐信息
     await Promise.all([this.loadPoints(), this.loadAddresses()])
     this.loadUser()
+    this.loadShopStatus()
     this.ready = true
+  },
+
+  // 读取店铺营业状态：歇业时禁止下单、结算按钮置灰
+  async loadShopStatus() {
+    try {
+      const shop = await request.get(api.shopStatus)
+      this.setData({ shopClosed: shop.business_status === 'closed' })
+    } catch (e) { /* 默认按营业处理 */ }
   },
 
   // 从地址管理页新增/编辑返回时刷新地址
@@ -182,6 +192,10 @@ Page({
   onPhone(e) { this.setData({ contactPhone: e.detail && typeof e.detail === 'object' ? e.detail.value : e.detail }) },
 
   async submit() {
+    if (this.data.shopClosed) {
+      wx.showToast({ title: '店铺歇业中，暂无法下单', icon: 'none' })
+      return
+    }
     const { items, selectedPoint, remark, contactName, contactPhone } = this.data
     if (!items.length) return
     if (!selectedPoint) {

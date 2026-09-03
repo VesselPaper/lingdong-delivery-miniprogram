@@ -238,6 +238,10 @@ function applyOrderCancelled(order) {
 }
 
 app.post('/api/order/create', auth, (req, res) => {
+  const shop = store.prepare('SELECT * FROM shops WHERE id=1').get() || {}
+  if (shop.business_status === 'closed') {
+    return res.status(400).json({ code: 400, msg: '店铺歇业中，暂无法下单' })
+  }
   const { landmark_id, landmark_name, remark = '', items = [] } = req.body || {}
   if (!items.length) return res.status(400).json({ code: 400, msg: '订单不能为空' })
   let total = 0
@@ -606,6 +610,12 @@ app.put('/api/merchant/shop', merchantGuard, (req, res) => {
   store.prepare("UPDATE shops SET business_status=?, auto_accept=?, updated_at=datetime('now','localtime') WHERE id=1")
     .run(st, aa)
   ok(res, store.prepare('SELECT * FROM shops WHERE id=1').get())
+})
+
+// 店铺状态（公开，用户端判断是否可下单 / 展示歇业标签）
+app.get('/api/shop/status', (req, res) => {
+  const shop = store.prepare('SELECT * FROM shops WHERE id=1').get()
+  ok(res, shop || { id: 1, name: '零栋铺子', business_status: 'open', auto_accept: 0 })
 })
 
 app.get('/api/merchant/stats', merchantGuard, (req, res) => {

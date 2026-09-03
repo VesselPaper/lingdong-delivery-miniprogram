@@ -47,7 +47,9 @@ const api = {
   refundList: '/refund/list',
 
   // 点位
-  landmarkList: '/landmarks'
+  landmarkList: '/landmarks',
+  // 店铺状态（公开，歇业判断）
+  shopStatus: '/shop/status'
 }
 
 module.exports = api

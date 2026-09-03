@@ -58,6 +58,12 @@ page {
   min-width: 0;
 }
 
+.store-name-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
 .store-name {
   font-size: 34rpx;
   font-weight: 600;

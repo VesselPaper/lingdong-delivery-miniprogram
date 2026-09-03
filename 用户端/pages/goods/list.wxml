@@ -20,7 +20,10 @@
       <t-icon name="shop" size="20" color="#2E7CF6" />
     </view>
     <view class="store-info">
-      <view class="store-name">零栋铺子</view>
+      <view class="store-name-row">
+        <view class="store-name">零栋铺子</view>
+        <view class="tag tag-orange" wx:if="{{shopClosed}}">歇业</view>
+      </view>
       <view class="store-sub">
         <text>起送 ¥0</text>
         <text class="store-free">免配送费</text>

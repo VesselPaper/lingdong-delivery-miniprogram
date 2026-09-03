@@ -41,6 +41,7 @@
     <view class="shop-row">
       <view class="shop-badge"><t-icon name="shop" size="14" color="#2E7CF6" /></view>
       <text class="shop-name">零栋铺子</text>
+      <view class="tag tag-orange" wx:if="{{shopClosed}}">歇业</view>
     </view>
     <view class="o-item" wx:for="{{items}}" wx:key="goods_id">
       <view class="o-img">
@@ -114,8 +115,8 @@
       <text class="text-sub">共计</text>
       <text class="pay-price">¥{{total}}</text>
     </view>
-    <view class="btn {{submitting ? 'btn-disabled' : ''}}" bindtap="submit" style="flex-shrink:0; margin-left:24rpx; padding:0 64rpx;">
-      {{submitting ? '提交中...' : '支付'}}
+    <view class="btn {{submitting || shopClosed ? 'btn-disabled' : ''}}" bindtap="submit" style="flex-shrink:0; margin-left:24rpx; padding:0 64rpx;">
+      {{shopClosed ? '店铺歇业' : (submitting ? '提交中...' : '支付')}}
     </view>
   </view>
 
