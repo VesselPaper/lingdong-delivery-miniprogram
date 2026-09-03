@@ -1,0 +1,110 @@
+.load-page {
+  padding: 24rpx 32rpx 60rpx;
+}
+
+.load-head {
+  padding: 24rpx 8rpx 32rpx;
+}
+
+.load-title {
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #222;
+}
+
+.load-status {
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  color: #666;
+}
+
+.load-status.on {
+  color: #2BA471;
+}
+
+.scan-card {
+  padding: 0;
+}
+
+.scan-big {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 120rpx 0;
+}
+
+.scan-big-text {
+  margin-top: 24rpx;
+  font-size: 30rpx;
+  color: #333;
+}
+
+.scan-big-sub {
+  margin-top: 12rpx;
+}
+
+.pickup-code {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #3078C0;
+  letter-spacing: 4rpx;
+}
+
+.dispatch-zone {
+  margin-top: 24rpx;
+}
+
+.dispatch-hint {
+  text-align: center;
+  font-size: 26rpx;
+  color: #666;
+  margin-bottom: 20rpx;
+}
+
+.dispatch-hint.warn {
+  color: #E5484D;
+}
+
+.slider-area {
+  width: 100%;
+  border-radius: 50rpx;
+  background: #E8EDF7;
+  position: relative;
+}
+
+.slider-thumb {
+  width: 120rpx;
+  height: 100rpx;
+  border-radius: 50rpx;
+  background: #3078C0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.slider-arrow {
+  color: #fff;
+  font-size: 40rpx;
+}
+
+.dispatch-label {
+  text-align: center;
+  margin-top: 16rpx;
+}
+
+.success-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40rpx 0 20rpx;
+}
+
+.success-icon {
+  margin-bottom: 16rpx;
+}
+
+.success-text {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #2BA471;
+}

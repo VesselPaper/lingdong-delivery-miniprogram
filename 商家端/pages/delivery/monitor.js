@@ -41,5 +41,9 @@ Page({
 
   retryRobots() {
     this.loadRobots()
+  },
+
+  goLoad() {
+    wx.navigateTo({ url: '/pages/device/loading' })
   }
 })

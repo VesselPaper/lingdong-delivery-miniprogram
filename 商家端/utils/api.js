@@ -13,7 +13,11 @@ const api = {
   deliveryMonitor: '/merchant/delivery/monitor',
   robots: '/merchant/robots',
   activities: '/merchant/activities',
-  activityStatus: '/merchant/activities/status'
+  activityStatus: '/merchant/activities/status',
+  deviceScan: '/merchant/device/scan',
+  deviceOpenBin: '/merchant/device/open-bin',
+  deviceCloseBin: '/merchant/device/close-bin',
+  deviceDispatch: '/merchant/device/dispatch'
 }
 
 module.exports = api

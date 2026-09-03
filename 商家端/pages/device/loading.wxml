@@ -1,0 +1,50 @@
+<view class="load-page">
+  <view class="load-head">
+    <view class="load-title">上货操作</view>
+    <view class="load-status {{phase === 'dispatched' ? 'on' : ''}}">{{statusText}}</view>
+  </view>
+
+  <!-- 扫码 -->
+  <view class="card scan-card" wx:if="{{phase === 'idle'}}">
+    <view class="scan-big" bindtap="scanRobot">
+      <t-icon name="scan" size="120rpx" color="#3078C0" />
+      <text class="scan-big-text">扫描机器人屏幕二维码</text>
+      <text class="scan-big-sub text-weak text-sm">识别后将自动匹配待上货订单</text>
+    </view>
+  </view>
+
+  <!-- 订单信息 -->
+  <view class="card" wx:if="{{order}}">
+    <view class="section-title">待上货订单</view>
+    <view class="info-row text-sub"><text>订单号</text><text>{{order.order_no}}</text></view>
+    <view class="info-row text-sub"><text>取餐码</text><text class="pickup-code">{{order.pickup_code}}</text></view>
+    <view class="info-row text-sub"><text>送达点位</text><text>{{order.delivery_landmark}}</text></view>
+    <view class="info-row text-sub"><text>收餐人</text><text>{{order.contact_name}} {{order.contact_phone}}</text></view>
+    <view class="info-row text-sub"><text>任务状态</text><text>{{order.status_text}}</text></view>
+    <view class="info-row text-sub" wx:if="{{order.control_msg}}"><text>控制权</text><text class="text-weak">{{order.control_msg}}</text></view>
+  </view>
+
+  <!-- 操作 -->
+  <view class="foot-actions" wx:if="{{order}}">
+    <view class="btn btn-block" wx:if="{{phase === 'scanned'}}" bindtap="openBin">打开舱门</view>
+    <view class="btn btn-block" wx:if="{{phase === 'open'}}" bindtap="closeBin">关闭舱门</view>
+
+    <view class="dispatch-zone" wx:if="{{phase === 'loaded'}}">
+      <view class="dispatch-hint {{countdown > 0 ? '' : 'warn'}}">{{countdownText || '请尽快开始配送'}}</view>
+      <movable-area class="slider-area" style="width:{{sliderAreaW}}px;height:100rpx">
+        <movable-view class="slider-thumb" style="width:{{sliderThumbW}}px;height:100rpx"
+          direction="horizontal" x="{{sliderX}}" bindchange="onSliderChange" bindtouchend="onSliderEnd">
+          <text class="slider-arrow">→</text>
+        </movable-view>
+      </movable-area>
+      <view class="dispatch-label text-weak text-sm">向右滑动立即配送</view>
+    </view>
+
+    <view class="success-box" wx:if="{{phase === 'dispatched'}}">
+      <view class="success-icon"><t-icon name="check-circle-filled" size="96rpx" color="#2BA471" /></view>
+      <view class="success-text">机器人已出发配送</view>
+    </view>
+
+    <view class="btn btn-outline btn-block" wx:if="{{phase !== 'idle'}}" bindtap="reset">重新扫码</view>
+  </view>
+</view>

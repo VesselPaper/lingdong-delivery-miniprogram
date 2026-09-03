@@ -55,5 +55,9 @@ Page({
 
   back() {
     wx.navigateBack()
+  },
+
+  goLoad() {
+    wx.navigateTo({ url: '/pages/device/loading' })
   }
 })

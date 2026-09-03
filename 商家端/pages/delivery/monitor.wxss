@@ -7,6 +7,25 @@
   margin-bottom: 20rpx;
 }
 
+.load-entry {
+  display: flex;
+  align-items: center;
+  padding: 28rpx 32rpx;
+  margin-bottom: 20rpx;
+}
+
+.load-entry-text {
+  flex: 1;
+  margin-left: 16rpx;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #111111;
+}
+
+.load-entry-arrow {
+  font-size: 40rpx;
+}
+
 .robot-name {
   font-size: 32rpx;
   font-weight: 600;

@@ -1,4 +1,11 @@
 <view class="monitor-page">
+  <!-- 扫码上货入口 -->
+  <view class="card load-entry" bindtap="goLoad">
+    <t-icon name="scan" size="36rpx" color="#3078C0" />
+    <text class="load-entry-text">扫码上货</text>
+    <text class="load-entry-arrow text-weak">›</text>
+  </view>
+
   <!-- 真实机器人概览（可多台；数据来自开放物流平台 runtimeStatusList） -->
   <block wx:if="{{robots.length}}">
     <view class="robot-overview card" wx:for="{{robots}}" wx:key="device_sn">

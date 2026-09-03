@@ -65,8 +65,8 @@ function mockPosition(taskStatus) {
   return { lat: pts[i].x, lng: pts[i].y, text: STATUS_TEXT[taskStatus] || '' }
 }
 
-// ---------------- 平台 HTTP 调用（Header 携带 appid/secret） ----------------
-function requestPlatform(method, path, body) {
+// ---------------- 平台 HTTP 调用（Header 携带 appid/secret，可附加自定义 header） ----------------
+function requestPlatform(method, path, body, extraHeaders) {
   return new Promise((resolve, reject) => {
     const url = BASE + path
     const isHttps = url.indexOf('https://') === 0
@@ -78,7 +78,10 @@ function requestPlatform(method, path, body) {
       hostname: u.hostname,
       port: u.port || (isHttps ? 443 : 80),
       path: u.pathname + u.search,
-      headers: { 'Content-Type': 'application/json;charset=UTF-8', appid: APPID, secret: SECRET }
+      headers: Object.assign(
+        { 'Content-Type': 'application/json;charset=UTF-8', appid: APPID, secret: SECRET },
+        extraHeaders || {}
+      )
     }
     const req = mod.request(options, (res) => {
       let data = ''
@@ -358,4 +361,62 @@ function getTaskStatus(store, taskId) {
   return store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(taskId)
 }
 
-module.exports = { createQueueTask, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, applyStatus, platformReady, getDeviceList }
+// ---------------- 商家面对面扫码上货（设备控制，真实模式） ----------------
+// 流程：扫码识别机器人(authority/grant 获取控制权) → loading/verify 开舱(40) →
+//       放货 → drawerCtrl 关舱(原地等待，任务仍 40) → loading/confirm 开始配送(50)
+// Mock 模式：返回模拟成功，用于本地演示页面流程。
+
+// 获取设备控制权（header duration 为超时秒数）
+async function grantControl(deviceSn, durationSec = 180) {
+  if (MOCK) return { ok: true, data: { ctrlId: 'mock-ctrl', sessionId: 'mock-session', expireTime: 0 } }
+  if (!deviceSn) return { ok: false, msg: '缺少设备编号' }
+  try {
+    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/authority/grant', { deviceSn, principalId: PRINCIPAL_ID }, { duration: String(durationSec) })
+    return r && r.code === 'COMM_200'
+      ? { ok: true, data: r.data || {} }
+      : { ok: false, msg: (r && r.msg) || '获取设备控制权失败' }
+  } catch (e) {
+    return { ok: false, msg: '获取设备控制权异常：' + e.message }
+  }
+}
+
+// 上货验证（验证通过自动开舱，任务流转 40 上货中）
+async function loadingVerify(deviceSn, platformTaskId, strategies) {
+  if (MOCK) return { ok: true }
+  try {
+    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/loading/verify', {
+      deviceSn, id: String(platformTaskId), strategies: strategies || {}, autoOpen: true
+    })
+    return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '上货验证失败' }
+  } catch (e) {
+    return { ok: false, msg: '上货验证异常：' + e.message }
+  }
+}
+
+// 舱门控制：stockCmd 1 开 / 0 关（不影响任务状态，用于「关舱等待」）
+async function drawerCtrl(deviceSn, stockCmd) {
+  if (MOCK) return { ok: true }
+  try {
+    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/drawerCtrl', {
+      deviceSn, stockPos: 'pos_1', stockCmd: Number(stockCmd)
+    })
+    return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '舱门控制失败' }
+  } catch (e) {
+    return { ok: false, msg: '舱门控制异常：' + e.message }
+  }
+}
+
+// 确认上货：关舱并开始配送（任务流转 50 已上货）
+async function loadingConfirm(deviceSn, platformTaskId, strategies) {
+  if (MOCK) return { ok: true }
+  try {
+    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/loading/confirm', {
+      deviceSn, id: String(platformTaskId), strategies: strategies || {}
+    })
+    return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '确认上货失败' }
+  } catch (e) {
+    return { ok: false, msg: '确认上货异常：' + e.message }
+  }
+}
+
+module.exports = { createQueueTask, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, applyStatus, platformReady, getDeviceList, grantControl, loadingVerify, drawerCtrl, loadingConfirm }

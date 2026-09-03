@@ -575,6 +575,76 @@ app.post('/api/merchant/landmarks/sync', merchantGuard, async (req, res) => {
   r.ok ? ok(res, r) : res.status(500).json({ code: 500, msg: r.msg || '同步失败' })
 })
 
+// ---------- 商家面对面扫码上货（设备控制） ----------
+// 流程：扫码识别机器人(scan) → 打开舱门(open-bin) → 放货 → 关闭舱门(close-bin，等待) → 立即配送(dispatch)
+function getLoadingTask(body) {
+  const id = Number((body || {}).task_id)
+  if (!id) return null
+  return store.prepare('SELECT d.*, o.pickup_code FROM delivery_tasks d JOIN orders o ON o.id=d.order_id WHERE d.id=?').get(id)
+}
+
+// 扫码识别机器人：按 deviceSn 定位待上货订单 + 获取控制权
+app.post('/api/merchant/device/scan', merchantGuard, async (req, res) => {
+  const { deviceSn = '' } = req.body || {}
+  if (!deviceSn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
+  const row = process.env.PLATFORM_MOCK === 'true'
+    ? store.prepare(`SELECT d.*, o.order_no, o.pickup_code, o.landmark_name, o.contact_name, o.contact_phone
+        FROM delivery_tasks d JOIN orders o ON o.id=d.order_id
+        WHERE d.task_status < 50 ORDER BY d.id DESC LIMIT 1`).get()
+    : store.prepare(`SELECT d.*, o.order_no, o.pickup_code, o.landmark_name, o.contact_name, o.contact_phone
+        FROM delivery_tasks d JOIN orders o ON o.id=d.order_id
+        WHERE d.device_sn=? AND d.task_status < 50 ORDER BY d.id DESC LIMIT 1`).get(deviceSn)
+  if (!row) return res.status(404).json({ code: 404, msg: '该机器人暂无待上货订单' })
+  // 记录机器人编号（后续 open/close/dispatch 使用）
+  if (!row.device_sn) {
+    store.prepare('UPDATE delivery_tasks SET device_sn=? WHERE id=?').run(deviceSn, row.id)
+    row.device_sn = deviceSn
+  }
+  const g = await platform.grantControl(deviceSn)
+  ok(res, {
+    task_id: row.id,
+    platform_task_id: row.platform_task_id,
+    device_sn: row.device_sn,
+    order_no: row.order_no,
+    pickup_code: row.pickup_code,
+    delivery_landmark: row.landmark_name,
+    contact_name: row.contact_name,
+    contact_phone: row.contact_phone,
+    task_status: row.task_status,
+    status_text: row.status_text,
+    control_ok: g.ok,
+    control_msg: g.ok ? '' : g.msg
+  })
+})
+
+// 打开舱门（上货验证，验证通过自动开舱）
+app.post('/api/merchant/device/open-bin', merchantGuard, async (req, res) => {
+  const task = getLoadingTask(req.body)
+  if (!task) return res.status(404).json({ code: 404, msg: '任务不存在' })
+  if (!task.platform_task_id) return res.status(400).json({ code: 400, msg: '任务未下发到平台' })
+  const r = await platform.loadingVerify(task.device_sn, task.platform_task_id, { anyCode: task.pickup_code })
+  r.ok ? ok(res) : res.status(502).json({ code: 502, msg: r.msg })
+})
+
+// 关闭舱门（关舱等待，不派发；机器人原地等待，滑块/按钮触发 dispatch 才派发）
+app.post('/api/merchant/device/close-bin', merchantGuard, async (req, res) => {
+  const task = getLoadingTask(req.body)
+  if (!task) return res.status(404).json({ code: 404, msg: '任务不存在' })
+  if (!task.device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号，请先扫码' })
+  const r = await platform.drawerCtrl(task.device_sn, 0)
+  r.ok ? ok(res) : res.status(502).json({ code: 502, msg: r.msg })
+})
+
+// 开始配送（确认上货）
+app.post('/api/merchant/device/dispatch', merchantGuard, async (req, res) => {
+  const task = getLoadingTask(req.body)
+  if (!task) return res.status(404).json({ code: 404, msg: '任务不存在' })
+  if (!task.platform_task_id) return res.status(400).json({ code: 400, msg: '任务未下发到平台' })
+  if (!task.device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号，请先扫码' })
+  const r = await platform.loadingConfirm(task.device_sn, task.platform_task_id, { anyCode: task.pickup_code })
+  r.ok ? ok(res) : res.status(502).json({ code: 502, msg: r.msg })
+})
+
 // ---------- 真实模式任务状态轮询兜底 ----------
 if (!(process.env.PLATFORM_MOCK === 'true')) {
   const POLL_MS = Number(process.env.PLATFORM_POLL_MS || 8000)
