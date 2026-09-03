@@ -9,6 +9,8 @@
     "pages/orders/scanMatch",
     "pages/orders/aftersale",
     "pages/orders/aftersaleDetail",
+    "pages/orders/cancelRequests",
+    "pages/orders/cancelRequestDetail",
     "pages/device/loading",
     "pages/goods/list",
     "pages/goods/edit",

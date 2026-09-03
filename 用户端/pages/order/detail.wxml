@@ -15,6 +15,13 @@
     </view>
   </view>
 
+  <view class="card" wx:if="{{order.cancel_request}}">
+    <view class="section-title">取消申请</view>
+    <view class="info-row"><text class="info-label">状态</text><text>{{order.cancel_request.status_text}}</text></view>
+    <view class="info-row" wx:if="{{order.cancel_request.reason}}"><text class="info-label">原因</text><text>{{order.cancel_request.reason}}</text></view>
+    <view class="info-row" wx:if="{{order.cancel_request.merchant_reply}}"><text class="info-label">处理结果</text><text>{{order.cancel_request.merchant_reply}}</text></view>
+  </view>
+
   <view class="card">
     <view class="section-title">配送信息</view>
     <view class="info-row"><text class="info-label">送达点位</text><text>{{order.landmark_name}}</text></view>
@@ -47,6 +54,8 @@
   <view class="foot-actions">
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 0}}" bindtap="cancelOrder">取消订单</view>
     <view class="btn btn-sm" style="flex:1;" wx:if="{{order.status === 0}}" bindtap="payOrder">立即支付</view>
+    <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 1 && order.direct_cancelable}}" bindtap="cancelOrder">取消订单</view>
+    <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 1 && order.request_cancelable}}" bindtap="goCancelRequest">提交取消申请</view>
     <view class="btn btn-sm" style="flex:1;" wx:if="{{order.status === 3}}" bindtap="scanPickup">扫码取餐</view>
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 3}}" bindtap="inputCode">输入取餐码</view>
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 2}}" bindtap="goTrack">查看配送位置</view>

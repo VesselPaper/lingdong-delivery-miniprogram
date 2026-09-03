@@ -127,6 +127,16 @@ function init() {
       created_at TEXT DEFAULT (datetime('now','localtime')),
       handled_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS cancel_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER,
+      user_id INTEGER,
+      reason TEXT,
+      status INTEGER DEFAULT 0,         -- 0 待处理 / 2 已拒绝 / 3 已同意取消
+      merchant_reply TEXT,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      handled_at TEXT
+    );
   `)
   migrate(db)
   seed(db)

@@ -48,7 +48,17 @@ Page({
       await request.post(api.orderCancel, { id: this.data.id })
       wx.showToast({ title: '已取消', icon: 'success' })
       this.load()
-    } catch (e) { /* handled */ }
+    } catch (e) {
+      // 超过免费取消时间：引导提交取消申请
+      if (e && e.message && e.message.indexOf('取消申请') > -1) {
+        wx.showToast({ title: '已超过免费取消时间，转提交取消申请', icon: 'none' })
+        setTimeout(() => this.goCancelRequest(), 600)
+      }
+    }
+  },
+
+  goCancelRequest() {
+    wx.navigateTo({ url: '/pages/order/cancelRequest?order_id=' + this.data.id })
   },
 
   async confirmReceive(code) {

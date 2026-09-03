@@ -1,0 +1,39 @@
+.asd-page {
+  padding: 24rpx 32rpx 60rpx;
+}
+
+.asd-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.asd-type {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #222;
+}
+
+.asd-status {
+  font-size: 26rpx;
+  color: #666;
+}
+
+.asd-status.warn {
+  color: #E64340;
+}
+
+.reason {
+  font-size: 28rpx;
+  color: #444;
+  line-height: 1.6;
+  margin-top: 8rpx;
+}
+
+.foot-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+  margin-top: 32rpx;
+}

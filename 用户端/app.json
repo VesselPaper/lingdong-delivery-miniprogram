@@ -11,6 +11,7 @@
     "pages/delivery/track",
     "pages/delivery/pickup",
     "pages/order/refund",
+    "pages/order/cancelRequest",
     "pages/refund/list",
     "pages/user/login",
     "pages/user/profile",

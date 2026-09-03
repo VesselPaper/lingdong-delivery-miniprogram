@@ -202,6 +202,41 @@ const ORDER_STATUS = {
 // 售后状态：0 待处理 / 2 已拒绝 / 3 已退款 / 4 已处理(投诉)
 const REFUND_STATUS = { 0: '待处理', 2: '已拒绝', 3: '已退款', 4: '已处理' }
 
+// 取消申请状态：0 待处理 / 2 已拒绝 / 3 已同意取消
+const CANCEL_REQ_STATUS = { 0: '待处理', 2: '已拒绝', 3: '已同意取消' }
+
+// 免费取消时间窗：下单后该时长内可直接取消（不论商家是否接单），超过须提交取消申请由商家判断。
+// 可用环境变量 FREE_CANCEL_WINDOW_MS 覆盖（单位 ms），默认 10 分钟。
+const FREE_CANCEL_WINDOW_MS = Number(process.env.FREE_CANCEL_WINDOW_MS || 10 * 60 * 1000)
+
+// 订单是否「真正开始配送」：已接单(2)且机器人已上货出发（任务状态 >= 50 已上货）
+function orderTrulyDelivering(order) {
+  if (Number(order.status) !== 2) return false
+  const task = order.delivery_task_id
+    ? store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(order.delivery_task_id)
+    : null
+  return !!task && Number(task.task_status) >= 50
+}
+
+// 是否仍在免费取消窗口内（按下单时间计）
+function withinFreeCancelWindow(order) {
+  const t = new Date(String(order.created_at || '').replace(' ', 'T')).getTime()
+  if (isNaN(t)) return false
+  return Date.now() - t <= FREE_CANCEL_WINDOW_MS
+}
+
+// 订单取消落库：订单置 5 已取消；若配送任务未完成，同步标记任务取消(110)
+function applyOrderCancelled(order) {
+  store.prepare("UPDATE orders SET status=5, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
+  if (order.delivery_task_id) {
+    const t = store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(order.delivery_task_id)
+    if (t && Number(t.task_status) < 80) {
+      store.prepare("UPDATE delivery_tasks SET task_status=110, status_text='订单取消', updated_at=datetime('now','localtime') WHERE id=?")
+        .run(order.delivery_task_id)
+    }
+  }
+}
+
 app.post('/api/order/create', auth, (req, res) => {
   const { landmark_id, landmark_name, remark = '', items = [] } = req.body || {}
   if (!items.length) return res.status(400).json({ code: 400, msg: '订单不能为空' })
@@ -293,15 +328,116 @@ app.get('/api/order/detail', auth, (req, res) => {
   const task = order.delivery_task_id
     ? store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(order.delivery_task_id)
     : null
-  ok(res, { ...order, status_text: ORDER_STATUS[order.status] || '', items, task })
+  // 取消相关：最新取消申请 + 可取消标记（供前端区分「取消订单 / 提交取消申请」）
+  const cancelReq = store.prepare('SELECT * FROM cancel_requests WHERE order_id=? ORDER BY id DESC LIMIT 1').get(order.id)
+  const created = new Date(String(order.created_at || '').replace(' ', 'T')).getTime()
+  const freeLeft = isNaN(created) ? 0 : Math.max(0, FREE_CANCEL_WINDOW_MS - (Date.now() - created))
+  const st = Number(order.status)
+  const trulyDelivering = orderTrulyDelivering(order)
+  ok(res, {
+    ...order,
+    status_text: ORDER_STATUS[order.status] || '',
+    items,
+    task,
+    cancel_request: cancelReq ? {
+      status: cancelReq.status,
+      status_text: CANCEL_REQ_STATUS[cancelReq.status] || '',
+      reason: cancelReq.reason,
+      merchant_reply: cancelReq.merchant_reply,
+      created_at: cancelReq.created_at
+    } : null,
+    free_cancel_left_ms: freeLeft,
+    // 待支付随时可取消；待接单/未真正配送在免费窗口内可直接取消
+    direct_cancelable: st === 0 || (st === 1 && freeLeft > 0) || (st === 2 && !trulyDelivering && freeLeft > 0),
+    // 超过免费窗口的待接单订单：只能提交取消申请
+    request_cancelable: st === 1 && freeLeft <= 0
+  })
 })
 
+// 取消订单：免费窗口内可直接取消（不论商家是否接单、只要未真正开始配送）；
+// 超过窗口未配送须提交取消申请（/api/order/cancel-request）；配送中不支持取消。
 app.post('/api/order/cancel', auth, (req, res) => {
   const order = store.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(Number(req.body.id), req.user.id)
   if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
-  if (![0, 1].includes(order.status)) return res.status(400).json({ code: 400, msg: '配送中的订单无法取消' })
-  store.prepare("UPDATE orders SET status=5, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
+  const st = Number(order.status)
+  if ([3, 4, 6].includes(st)) {
+    return res.status(400).json({ code: 400, msg: '该订单已送达/完成，请通过「退款/投诉」申请处理' })
+  }
+  if (st === 2 && orderTrulyDelivering(order)) {
+    return res.status(400).json({ code: 400, msg: '配送中不支持取消，送达后可申请退款' })
+  }
+  if (![0, 1, 2].includes(st)) return res.status(400).json({ code: 400, msg: '当前状态不可取消' })
+  // 待支付(0)随时可取消；待接单/未真正配送(1/2)须在免费窗口内
+  if (st !== 0 && !withinFreeCancelWindow(order)) {
+    return res.status(400).json({ code: 400, msg: '已超过可自由取消时间，请提交取消申请' })
+  }
+  applyOrderCancelled(order)
   ok(res)
+})
+
+// ---------- 取消申请（超过免费窗口、尚未配送） ----------
+// 用户提交取消申请
+app.post('/api/order/cancel-request', auth, (req, res) => {
+  const { order_id, reason = '' } = req.body || {}
+  const order = store.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(Number(order_id), req.user.id)
+  if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
+  const st = Number(order.status)
+  if (![0, 1].includes(st)) return res.status(400).json({ code: 400, msg: '当前状态不可提交取消申请' })
+  if (st !== 0 && withinFreeCancelWindow(order)) {
+    return res.status(400).json({ code: 400, msg: '仍可直接取消，无需提交申请' })
+  }
+  const dup = store.prepare('SELECT * FROM cancel_requests WHERE order_id=? AND status=0').get(order.id)
+  if (dup) return res.status(400).json({ code: 400, msg: '已有待处理的取消申请' })
+  const info = store.prepare('INSERT INTO cancel_requests (order_id, user_id, reason) VALUES (?,?,?)')
+    .run(order.id, req.user.id, reason || '')
+  ok(res, { id: Number(info.lastInsertRowid), status: 0 })
+})
+
+// 我的取消申请记录
+app.get('/api/order/cancel-request/list', auth, (req, res) => {
+  const rows = store.prepare(`
+    SELECT c.*, o.order_no FROM cancel_requests c JOIN orders o ON o.id=c.order_id
+    WHERE c.user_id=? ORDER BY c.id DESC`).all(req.user.id)
+  ok(res, rows.map((r) => ({ ...r, status_text: CANCEL_REQ_STATUS[r.status] || '' })))
+})
+
+// 商家取消申请列表（待处理优先）
+app.get('/api/merchant/cancel-requests', merchantGuard, (req, res) => {
+  const { status = '' } = req.query
+  let sql = `SELECT c.*, o.order_no, o.landmark_name FROM cancel_requests c JOIN orders o ON o.id=c.order_id`
+  const args = []
+  if (status !== '' && status !== undefined) { sql += ' WHERE c.status=?'; args.push(Number(status)) }
+  sql += ' ORDER BY (c.status=0) DESC, c.id DESC'
+  ok(res, store.prepare(sql).all(...args).map((r) => ({ ...r, status_text: CANCEL_REQ_STATUS[r.status] || '' })))
+})
+
+// 商家取消申请详情
+app.get('/api/merchant/cancel-request/detail', merchantGuard, (req, res) => {
+  const row = store.prepare('SELECT c.*, o.order_no, o.landmark_name, o.total_amount, o.status AS order_status FROM cancel_requests c JOIN orders o ON o.id=c.order_id WHERE c.id=?').get(Number(req.query.id))
+  if (!row) return res.status(404).json({ code: 404, msg: '取消申请不存在' })
+  ok(res, { ...row, status_text: CANCEL_REQ_STATUS[row.status] || '', order_status_text: ORDER_STATUS[row.order_status] || '' })
+})
+
+// 商家处理取消申请：approve 同意取消（订单→5 已取消）/ reject 拒绝（需理由）
+app.post('/api/merchant/cancel-request/handle', merchantGuard, (req, res) => {
+  const { id, action = '', reply = '' } = req.body || {}
+  const c = store.prepare('SELECT * FROM cancel_requests WHERE id=?').get(Number(id))
+  if (!c) return res.status(404).json({ code: 404, msg: '取消申请不存在' })
+  if (Number(c.status) !== 0) return res.status(400).json({ code: 400, msg: '该申请已处理' })
+  if (action === 'approve') {
+    store.prepare("UPDATE cancel_requests SET status=3, merchant_reply=?, handled_at=datetime('now','localtime') WHERE id=?")
+      .run(reply || '同意取消', c.id)
+    const order = store.prepare('SELECT * FROM orders WHERE id=?').get(c.order_id)
+    if (order && [0, 1, 2].includes(Number(order.status))) applyOrderCancelled(order)
+    return ok(res, store.prepare('SELECT * FROM cancel_requests WHERE id=?').get(c.id))
+  }
+  if (action === 'reject') {
+    if (!reply) return res.status(400).json({ code: 400, msg: '请填写拒绝理由' })
+    store.prepare("UPDATE cancel_requests SET status=2, merchant_reply=?, handled_at=datetime('now','localtime') WHERE id=?")
+      .run(reply, c.id)
+    return ok(res, store.prepare('SELECT * FROM cancel_requests WHERE id=?').get(c.id))
+  }
+  res.status(400).json({ code: 400, msg: '无效操作' })
 })
 
 // ---------- 退款/投诉（售后） ----------
@@ -481,7 +617,8 @@ app.get('/api/merchant/stats', merchantGuard, (req, res) => {
     delivering: store.prepare('SELECT COUNT(*) c FROM orders WHERE status IN (2,3)').get().c,
     finished: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=4').get().c,
     exception: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=6').get().c,
-    aftersale: store.prepare('SELECT COUNT(*) c FROM refunds WHERE status=0').get().c
+    aftersale: store.prepare('SELECT COUNT(*) c FROM refunds WHERE status=0').get().c,
+    cancel_requests: store.prepare('SELECT COUNT(*) c FROM cancel_requests WHERE status=0').get().c
   }
   ok(res, stats)
 })

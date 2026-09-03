@@ -41,7 +41,11 @@ Page({
         item_count: itemCount,
         first_name: first.goods_name || '',
         first_qty: first.quantity || 0,
-        first_image: first.goods_image || ''
+        first_image: first.goods_image || '',
+        // 取消相关标记（详情接口返回）：免费窗口内可直取消 / 超时须提交申请 / 已有待处理申请
+        direct_cancelable: !!detail.direct_cancelable,
+        request_cancelable: !!detail.request_cancelable,
+        cancel_req_pending: !!(detail.cancel_request && Number(detail.cancel_request.status) === 0)
       }))
     }
     return out
@@ -64,6 +68,12 @@ Page({
   },
 
   async cancelOrder(e) {
+    const order = this.data.orders.find((o) => o.id === Number(e.currentTarget.dataset.id))
+    // 超时未配送：直接引导提交取消申请
+    if (order && order.request_cancelable && !order.direct_cancelable) {
+      wx.navigateTo({ url: '/pages/order/cancelRequest?order_id=' + order.id })
+      return
+    }
     const res = await new Promise((resolve) => {
       wx.showModal({
         title: '确定取消该订单？',
@@ -76,6 +86,14 @@ Page({
       await request.post(api.orderCancel, { id: Number(e.currentTarget.dataset.id) })
       wx.showToast({ title: '已取消', icon: 'success' })
       this.loadOrders()
-    } catch (err) { /* handled */ }
+    } catch (err) {
+      if (err && err.message && err.message.indexOf('取消申请') > -1) {
+        wx.navigateTo({ url: '/pages/order/cancelRequest?order_id=' + Number(e.currentTarget.dataset.id) })
+      }
+    }
+  },
+
+  goCancelRequest(e) {
+    wx.navigateTo({ url: '/pages/order/cancelRequest?order_id=' + Number(e.currentTarget.dataset.id) })
   }
 })

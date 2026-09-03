@@ -37,6 +37,11 @@
           <view class="btn btn-sm btn-outline" catchtap="cancelOrder" data-id="{{item.id}}">取消订单</view>
           <view class="btn btn-sm" catchtap="payOrder" data-id="{{item.id}}">去支付</view>
         </view>
+        <view class="o-actions" wx:if="{{item.status === 1}}">
+          <view class="btn btn-sm btn-outline disabled-btn" wx:if="{{item.cancel_req_pending}}">取消申请处理中</view>
+          <view class="btn btn-sm btn-outline" catchtap="cancelOrder" data-id="{{item.id}}" wx:elif="{{item.direct_cancelable}}">取消订单</view>
+          <view class="btn btn-sm btn-outline" catchtap="goCancelRequest" data-id="{{item.id}}" wx:elif="{{item.request_cancelable}}">提交取消申请</view>
+        </view>
       </view>
     </block>
     <view wx:if="{{!orders.length}}" class="empty">

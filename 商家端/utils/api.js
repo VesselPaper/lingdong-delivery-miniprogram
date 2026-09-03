@@ -22,7 +22,10 @@ const api = {
   deviceDispatch: '/merchant/device/dispatch',
   refunds: '/merchant/refunds',
   refundDetail: '/merchant/refund/detail',
-  refundHandle: '/merchant/refund/handle'
+  refundHandle: '/merchant/refund/handle',
+  cancelRequests: '/merchant/cancel-requests',
+  cancelRequestDetail: '/merchant/cancel-request/detail',
+  cancelRequestHandle: '/merchant/cancel-request/handle'
 }
 
 module.exports = api

@@ -1,0 +1,59 @@
+.aftersale-page {
+  padding: 24rpx 32rpx 60rpx;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 16rpx;
+  margin-bottom: 24rpx;
+}
+
+.tab {
+  padding: 12rpx 24rpx;
+  border-radius: 32rpx;
+  font-size: 26rpx;
+  color: #666;
+  background: #F2F4F7;
+}
+
+.tab.on {
+  background: #3078C0;
+  color: #fff;
+}
+
+.item {
+  margin-bottom: 20rpx;
+}
+
+.item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+
+.item-type {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #222;
+}
+
+.item-status {
+  font-size: 26rpx;
+  color: #666;
+}
+
+.item-status.warn {
+  color: #E64340;
+}
+
+.item-line {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8rpx;
+}
+
+.item-line text:last-child {
+  max-width: 70%;
+  text-align: right;
+}

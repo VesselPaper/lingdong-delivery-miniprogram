@@ -126,3 +126,9 @@
   gap: 16rpx;
   margin-top: 20rpx;
 }
+
+.o-actions .disabled-btn {
+  background: #F5F7FA;
+  color: #999999;
+  border-color: #F5F7FA;
+}

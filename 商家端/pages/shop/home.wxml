@@ -54,9 +54,10 @@
         <t-icon name="order" size="56rpx" color="#333333" />
         <view class="func-text">历史订单</view>
       </view>
-      <view class="func-item" bindtap="goAftersale">
-        <t-icon name="service" size="56rpx" color="#333333" />
-        <view class="func-text">历史售后</view>
+      <view class="func-item" bindtap="goCancelRequests">
+        <t-icon name="time" size="56rpx" color="#333333" />
+        <view class="func-text">取消申请</view>
+        <view class="func-badge" wx:if="{{stats.cancel_requests}}">{{stats.cancel_requests}}</view>
       </view>
       <view class="func-item" bindtap="goSettings">
         <t-icon name="setting" size="56rpx" color="#333333" />

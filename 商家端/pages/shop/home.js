@@ -43,6 +43,10 @@ Page({
     wx.navigateTo({ url: '/pages/orders/history' })
   },
 
+  goCancelRequests() {
+    wx.navigateTo({ url: '/pages/orders/cancelRequests' })
+  },
+
   goAfterSale() {
     wx.navigateTo({ url: '/pages/orders/aftersale' })
   },

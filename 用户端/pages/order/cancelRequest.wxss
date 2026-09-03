@@ -1,0 +1,27 @@
+.cancel-request-page {
+  padding: 24rpx 32rpx 60rpx;
+}
+
+.reason-input {
+  width: 100%;
+  height: 220rpx;
+  padding: 20rpx;
+  box-sizing: border-box;
+  background: #F5F7FA;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  margin-top: 16rpx;
+}
+
+.ph {
+  color: #B0B6C0;
+}
+
+.reason-count {
+  text-align: right;
+  margin-top: 8rpx;
+}
+
+.foot-actions {
+  margin-top: 32rpx;
+}

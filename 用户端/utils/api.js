@@ -24,6 +24,8 @@ const api = {
   orderList: '/order/list',
   orderDetail: '/order/detail',
   orderCancel: '/order/cancel',
+  cancelRequest: '/order/cancel-request',
+  cancelRequestList: '/order/cancel-request/list',
 
   // 配送
   deliveryTrack: '/delivery/track',

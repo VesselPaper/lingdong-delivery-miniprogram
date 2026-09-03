@@ -67,6 +67,7 @@
 
 .func-item {
   width: 33.33%;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -77,4 +78,21 @@
 .func-text {
   font-size: 26rpx;
   color: #333333;
+}
+
+.func-badge {
+  position: absolute;
+  top: -4rpx;
+  right: 26rpx;
+  min-width: 32rpx;
+  height: 32rpx;
+  padding: 0 10rpx;
+  border-radius: 16rpx;
+  background: #E64340;
+  color: #ffffff;
+  font-size: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
