@@ -99,6 +99,11 @@ Page({
     })
   },
 
+  // 模拟扫码取餐：测试用，模拟已扫到机器人取餐码并验证通过，直接完成取餐
+  simulatePickup() {
+    this.confirmReceive('')
+  },
+
   inputCode() {
     wx.showModal({
       title: '输入取餐码',

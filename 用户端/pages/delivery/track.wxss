@@ -143,7 +143,8 @@
 
 .foot-actions {
   display: flex;
-  gap: 24rpx;
+  flex-wrap: wrap;
+  gap: 20rpx;
   margin-top: 16rpx;
 }
 

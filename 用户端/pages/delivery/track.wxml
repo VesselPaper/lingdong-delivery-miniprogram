@@ -57,6 +57,7 @@
     <view class="foot-actions">
       <view class="btn btn-sm btn-outline" style="flex:1;" bindtap="refresh">刷新状态</view>
       <view class="btn btn-sm" style="flex:1;" wx:if="{{order.order_status === 3}}" bindtap="scanPickup">扫码取餐</view>
+      <view class="btn btn-sm" style="flex:1;" wx:if="{{order.order_status === 3}}" bindtap="simulatePickup">模拟扫码取餐</view>
       <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.order_status === 3}}" bindtap="inputCode">输入取餐码</view>
     </view>
   </block>

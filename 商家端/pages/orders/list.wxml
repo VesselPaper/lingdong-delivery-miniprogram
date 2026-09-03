@@ -4,9 +4,9 @@
       <t-icon name="search" size="32rpx" color="#999999" />
       <input class="search-input" placeholder="用户手机号/订单ID/任务ID" placeholder-class="search-ph" value="{{keyword}}" bindinput="onSearch" />
     </view>
-    <view class="scan-btn" bindtap="scanOrder">
+    <view class="scan-btn" bindtap="simulateScan">
       <t-icon name="scan" size="30rpx" color="#3078C0" />
-      <text class="scan-text">扫码配单</text>
+      <text class="scan-text">模拟扫码配单</text>
     </view>
   </view>
 

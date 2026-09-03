@@ -52,11 +52,24 @@ Page({
     wx.navigateTo({ url: '/pages/orders/detail?id=' + e.currentTarget.dataset.id })
   },
 
-  scanOrder() {
-    wx.scanCode({
-      scanType: ['qrCode'],
-      success: (res) => this.handleScan(res.result),
-      fail: () => { /* 用户取消或扫码失败 */ }
+  // 模拟扫码配单：不真扫码，从待接单订单里选一单，走与扫码一致的确认流程（测试用）
+  simulateScan() {
+    const pending = this.data.orders.filter((o) => o.status === 1)
+    if (!pending.length) {
+      wx.showToast({ title: '暂无待接单订单', icon: 'none' })
+      return
+    }
+    if (pending.length === 1) {
+      const m = pending[0]
+      this.handleScan(JSON.stringify({ no: m.order_no, id: m.id }))
+      return
+    }
+    wx.showActionSheet({
+      itemList: pending.map((o) => o.order_no + ' ' + (o.landmark_name || '')),
+      success: (r) => {
+        const m = pending[r.tapIndex]
+        this.handleScan(JSON.stringify({ no: m.order_no, id: m.id }))
+      }
     })
   },
 
@@ -80,7 +93,7 @@ Page({
     }
     if (matched.status !== 1) {
       wx.showModal({
-        title: '扫码配单',
+        title: '模拟扫码配单',
         content: '订单 ' + matched.order_no + ' 当前状态：' + matched.status_text + '，无需接单',
         showCancel: false,
         confirmColor: '#3078C0'
@@ -96,7 +109,7 @@ Page({
       return
     }
     wx.showModal({
-      title: '扫码配单',
+      title: '模拟扫码配单',
       content: '匹配到订单 ' + matched.order_no + '（' + matched.status_text + '）\n是否确认接单？',
       confirmColor: '#3078C0',
       success: async (r) => {
