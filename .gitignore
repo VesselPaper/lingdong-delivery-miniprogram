@@ -23,3 +23,6 @@ backend/uploads/
 Thumbs.db
 *.log
 *.tmp
+
+# ---- 开放物流平台接口文档（官方导出，含示例 appid/secret，避免误提交） ----
+接口/

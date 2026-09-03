@@ -3,8 +3,8 @@
   "packOptions": {
     "ignore": [
       {
-        "type": "folder",
-        "value": "示例设计图"
+        "value": "示例设计图",
+        "type": "folder"
       }
     ],
     "include": []

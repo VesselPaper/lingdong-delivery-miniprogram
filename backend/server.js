@@ -1,14 +1,11 @@
 // 零栋无人送餐后端
-const express = require('express')
-const cors = require('cors')
 const crypto = require('crypto')
 const path = require('path')
 const fs = require('fs')
-const { init } = require('./db')
-const platform = require('./services/platform')
-const wxpay = require('./services/wxpay')
 
 // 轻量 .env 加载（零依赖）：backend/.env 存在时读取，格式 KEY=VALUE（# 注释行）
+// 注意：必须最先执行——services/platform 与 services/wxpay 在模块加载时就读取 env，
+// 若晚于 require 执行，APPID/SECRET 等将被捕获为空。
 ;(function loadEnvFile() {
   try {
     const p = path.join(__dirname, '.env')
@@ -25,6 +22,12 @@ const wxpay = require('./services/wxpay')
     }
   } catch (e) { /* 忽略 .env 读取异常 */ }
 })()
+
+const express = require('express')
+const cors = require('cors')
+const { init } = require('./db')
+const platform = require('./services/platform')
+const wxpay = require('./services/wxpay')
 
 const store = init()
 const app = express()
@@ -228,6 +231,12 @@ app.post('/api/order/pay', auth, async (req, res) => {
     .get(Number(req.body.id), req.user.id)
   if (!row) return res.status(404).json({ code: 404, msg: '订单不存在' })
   if (row.status !== 0) return res.status(400).json({ code: 400, msg: '订单状态不允许支付' })
+  // 试点临时开关：PAY_MOCK=true 时跳过真实微信支付，直接标记已支付进入待接单，用于先跑通真实配送链路。
+  // 真实支付代码（下方 wxpay.jsapiPay）保持不动，商户号/登录就绪后删除本开关即切真实收款。
+  if (process.env.PAY_MOCK === 'true') {
+    store.prepare("UPDATE orders SET status=1, updated_at=datetime('now','localtime') WHERE id=?").run(row.id)
+    return ok(res, { order_id: row.id, mock: true, msg: '试点模式：模拟支付成功' })
+  }
   if (!WX_APPID) return res.status(501).json({ code: 501, msg: '支付通道未开通：请先配置 WX_APPID 与微信支付商户参数' })
   if (!wxpay.enabled()) {
     return res.status(501).json({ code: 501, msg: '支付通道未开通：请配置 WXPAY_MCHID / WXPAY_SERIAL_NO / WXPAY_PRIVATE_KEY / WXPAY_APIV3_KEY / WXPAY_NOTIFY_URL' })
@@ -501,9 +510,11 @@ app.get('/api/merchant/delivery/monitor', merchantGuard, async (req, res) => {
 // feedbackDeliveryTaskUrl：平台在任务状态变更时 POST 到这里，同步任务与订单状态
 app.post('/api/platform/callback/delivery', (req, res) => {
   const body = req.body || {}
-  const taskId = body.taskId || body.id || (body.task && body.task.id)
-  const status = body.taskStatus !== undefined ? body.taskStatus
-    : (body.task && body.task.taskStatus)
+  // 兼容多种报文形态：直接字段 / task 包装 / data 包装（DeliveryTaskBasicVo 结构）
+  const src = (body.data && typeof body.data === 'object') ? body.data : body
+  const taskId = src.taskId || src.id || (src.task && src.task.id)
+  const status = src.taskStatus !== undefined ? src.taskStatus
+    : (src.task && src.task.taskStatus)
   if (!taskId || status === undefined) {
     return res.json({ code: 'FAIL', msg: '缺少任务ID或状态' })
   }
@@ -511,9 +522,9 @@ app.post('/api/platform/callback/delivery', (req, res) => {
   if (!row) {
     return res.json({ code: 'FAIL', msg: '任务不存在' })
   }
-  platform.applyStatus(store, row.id, Number(status), body.taskStatusText || platformStatusText(status))
+  platform.applyStatus(store, row.id, Number(status), src.taskStatusText || platformStatusText(status))
   // 同步设备编号
-  const sn = body.deviceSn || (body.task && body.task.deviceSn)
+  const sn = src.deviceSn || (src.task && src.task.deviceSn)
   if (sn && !row.device_sn) {
     store.prepare('UPDATE delivery_tasks SET device_sn=? WHERE id=?').run(sn, row.id)
   }
@@ -529,15 +540,27 @@ function platformStatusText(code) {
   return map[Number(code)] || ('状态 ' + code)
 }
 
-// checkBizOrderStatusUrl：平台下发任务前校验业务订单是否已支付
-app.get('/api/platform/check-order', (req, res) => {
+// checkBizOrderStatusUrl：设备端在关键节点检查业务订单状态（是否已退款/人工送达等）
+// 返回值格式以 Apifox open-logis_1.0 文档为准：HttpMethod 必须为 POST、公开访问，
+// 需要强制关闭任务时返回 keyEvent（taskSubStatus 201 已退款 / 202 人工送达）。
+function handleCheckOrder(req, res) {
   const orderNo = req.query.orderNo || req.query.outOrderNo || (req.body && (req.body.orderNo || req.body.outOrderNo))
   if (!orderNo) return res.json({ code: 'FAIL', msg: '缺少订单号' })
   const order = store.prepare('SELECT * FROM orders WHERE order_no=?').get(String(orderNo))
   if (!order) return res.json({ code: 'FAIL', msg: '订单不存在' })
-  const paid = Number(order.status) > 0
-  res.json({ code: paid ? 'COMM_200' : 'FAIL', msg: paid ? '已支付' : '未支付', data: { paid } })
-})
+  if (Number(order.status) === 5) {
+    // 订单已取消/退款：通知设备端强制关闭任务
+    return res.json({
+      code: 'COMM_200',
+      data: { keyEvent: { eventName: 'forceCloseTask', taskSubStatus: 201, eventDesc: '订单已取消/退款' } },
+      msg: 'ok'
+    })
+  }
+  // 订单正常：无强制关闭事件
+  res.json({ code: 'COMM_200', data: null, msg: 'ok' })
+}
+app.get('/api/platform/check-order', handleCheckOrder)
+app.post('/api/platform/check-order', handleCheckOrder)
 
 // 设备异常上报回调（T 任务类 / R 机器类 / I IOT 类 / N 导航类）
 app.post('/api/platform/callback/exception', (req, res) => {
@@ -572,7 +595,7 @@ app.listen(PORT, () => {
   if (process.env.PLATFORM_MOCK === 'true') {
     console.log('[lingdong-backend] 配送层：本地 Mock 状态机（PLATFORM_MOCK=true）')
   } else if (platform.platformReady()) {
-    console.log('[lingdong-backend] 配送层：开放物流平台真实模式（test-robox）')
+    console.log('[lingdong-backend] 配送层：开放物流平台真实模式（' + (process.env.PLATFORM_BASE || 'https://test-robox.eventec.cn/service-open-logis') + '）')
   } else {
     console.warn('[lingdong-backend] 配送层：未配置 PLATFORM_APPID/PLATFORM_SECRET，真实配送未启用')
   }

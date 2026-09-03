@@ -4,6 +4,7 @@
 //   - 任务状态同步 deliveryTask/basicList（轮询兜底）+ feedbackDeliveryTaskUrl 回调（见 server.js）
 //   - 机器人实时位置 eviz / iotGatewayProxy
 //   - 平台点位同步 buildingList / landmarkInfo
+// 字段已按 Apifox「开放物流平台」open-logis_1.0 导出文档（接口\默认模块.openapi.json）核对校正。
 // 本地无平台凭据、需要纯本地演示时：显式设置 PLATFORM_MOCK=true 使用本地模拟状态机。
 const http = require('http')
 const https = require('https')
@@ -96,7 +97,8 @@ function platformReady() {
 }
 
 // ---------------- 点位同步：buildingList + landmarkInfo -> landmarks 表 ----------------
-// 将平台真实点位（含 platform_building_id / platform_map_id / platform_landmark_id）写入本地 landmarks 表
+// 将平台真实点位（含 platform_building_id / platform_map_id / platform_landmark_id）写入本地 landmarks 表。
+// 按平台 landmarkId 幂等 upsert：已存在则更新名称/映射，不存在则新增；并清理无平台映射的历史演示点位。
 async function syncLandmarks(store) {
   if (!platformReady()) return { ok: false, msg: '未配置平台凭据' }
   try {
@@ -107,24 +109,36 @@ async function syncLandmarks(store) {
     }
     const building = list[0]
     const buildingId = building.buildingId
-    // 拉取配送点位（deliverPoint）与上货点位
     const lm = await requestPlatform('GET', '/open-api/v1/building/landmarkInfo?buildingId=' + encodeURIComponent(buildingId) + '&type=deliverPoint')
     const points = (lm && lm.data) || []
     if (!Array.isArray(points)) return { ok: false, msg: '点位数据格式异常' }
-    const upd = store.prepare('UPDATE landmarks SET platform_building_id=?, platform_map_id=?, platform_landmark_id=? WHERE name=?')
+
+    let inserted = 0
     let updated = 0
-    points.forEach((p) => {
-      if (!p || !p.landmarkName) return
-      const r = upd.run(buildingId, p.mapId || '', p.landmarkId || '', p.landmarkName)
-      if (r.changes) updated++
-      // 名称不匹配的：仍写入映射（保证 key 唯一性，用一个可检索的别名插入）
-    })
-    // 上货点：取「零栋铺子（取餐点）」对应的点位（名称可能不同，按 type 或名称含关键字匹配）
-    const loading = points.find((p) => p.type === 'loadingPoint' || /上货|取餐|店铺|铺子/.test(p.landmarkName || ''))
-    if (loading) {
-      upd.run(buildingId, loading.mapId || '', loading.landmarkId || '', '零栋铺子（取餐点）')
+    let sort = 1
+    const isLoading = (p) => /上货|商铺|店铺|铺子/.test(p.landmarkName || '')
+    for (const p of points) {
+      if (!p || !p.landmarkName) continue
+      const lmId = p.landmarkId || ''
+      const type = isLoading(p) ? 'loadingPoint' : 'deliverPoint'
+      const exist = lmId ? store.prepare('SELECT id FROM landmarks WHERE platform_landmark_id=?').get(lmId) : null
+      if (exist) {
+        const r = store.prepare('UPDATE landmarks SET name=?, building=?, floor=?, type=?, sort=?, platform_building_id=?, platform_map_id=? WHERE id=?')
+          .run(p.landmarkName, building.buildingName || '', p.floor || '', type, sort, buildingId, p.mapId || '', exist.id)
+        if (r.changes) updated++
+      } else {
+        store.prepare('INSERT INTO landmarks (name, building, floor, type, sort, platform_building_id, platform_map_id, platform_landmark_id) VALUES (?,?,?,?,?,?,?,?)')
+          .run(p.landmarkName, building.buildingName || '', p.floor || '', type, sort, buildingId, p.mapId || '', lmId)
+        inserted++
+      }
+      sort++
     }
-    return { ok: true, buildingId, count: points.length, updated }
+    // 清理无平台映射的历史演示点位（仅当本次成功拉到有效点位时执行）
+    let removed = 0
+    if (points.length > 0) {
+      removed = store.prepare("DELETE FROM landmarks WHERE platform_landmark_id='' OR platform_landmark_id IS NULL").run().changes
+    }
+    return { ok: true, buildingId, buildingName: building.buildingName, count: points.length, inserted, updated, removed }
   } catch (e) {
     return { ok: false, msg: e.message }
   }
@@ -177,7 +191,7 @@ async function realDispatch(store, taskId, order, loading, unloading) {
   const body = {
     principalId: PRINCIPAL_ID,
     buildingId: u.platform_building_id || l.platform_building_id || '',
-    stockType: 0,
+    stockType: 1, // 舱位类型：0 大舱 1 中舱 2 小舱（对接文档：单舱机型默认中舱）
     loadingMapId: l.platform_map_id,
     loadingLandmarkId: l.platform_landmark_id,
     unloadingMapId: u.platform_map_id,
@@ -198,7 +212,7 @@ async function realDispatch(store, taskId, order, loading, unloading) {
     const r = await requestPlatform('POST', '/open-api/v1/deliveryTask/queue/create', body)
     const ok = r && (r.code === 'COMM_200' || r.success === true)
     if (ok) {
-      const pid = (r.data && (r.data.id || r.data.taskId)) || ''
+      const pid = (r.data && (r.data.id || r.data.taskId || r.data.deliveryTaskId)) || ''
       if (pid) {
         store.prepare("UPDATE delivery_tasks SET platform_task_id=?, task_status=0, status_text='排队中', updated_at=datetime('now','localtime') WHERE id=?")
           .run(String(pid), taskId)
@@ -239,26 +253,27 @@ function updateTask(store, taskId, text, status) {
   }
 }
 
-// 轮询兜底：basicList 批量查询活动任务并同步状态
+// 轮询兜底：basicList 按配送任务ID批量查询并同步状态
+// （真实接口字段已按 Apifox open-logis_1.0 核对：查询参数为 idList，返回 data 数组即任务本体，无 task 包装）
 async function syncTaskStatus(store, taskId) {
   if (MOCK || !platformReady()) return
   const t = store.prepare('SELECT d.*, o.order_no FROM delivery_tasks d LEFT JOIN orders o ON o.id=d.order_id WHERE d.id=?').get(taskId)
   if (!t || t.task_status >= 80 || (t.task_status >= 90 && t.task_status !== 120)) return
+  if (!t.platform_task_id) return
   try {
-    const q = '/open-api/v1/deliveryTask/basicList?principalId=' + encodeURIComponent(PRINCIPAL_ID)
-      + (t.platform_task_id ? '&taskId=' + encodeURIComponent(t.platform_task_id) : '')
+    const q = '/open-api/v1/deliveryTask/basicList?idList=' + encodeURIComponent(t.platform_task_id)
     const r = await requestPlatform('GET', q)
     if (r && r.code === 'COMM_200') {
-      const data = r.data || {}
-      const list = Array.isArray(data) ? data : (data.data || [])
-      const item = list.find((x) => x.task && String(x.task.id) === String(t.platform_task_id))
-        || list.find((x) => x.task && x.task.outOrderNo && t.order_no && x.task.outOrderNo.indexOf(t.order_no) > -1)
-      if (item && item.task && item.task.taskStatus !== undefined) {
-        const st = item.task.taskStatus
+      const data = r.data
+      const list = Array.isArray(data) ? data : (data && Array.isArray(data.data) ? data.data : [])
+      const item = list.find((x) => x && String(x.id) === String(t.platform_task_id))
+        || list.find((x) => x && x.outOrderNo && t.order_no && String(x.outOrderNo).indexOf(t.order_no) > -1)
+      if (item && item.taskStatus !== undefined) {
+        const st = item.taskStatus
         applyStatus(store, taskId, st, STATUS_TEXT[st] || ('状态 ' + st))
-        // 记录设备 SN 供 eviz 使用
-        if (item.task.deviceSn && !t.device_sn) {
-          store.prepare('UPDATE delivery_tasks SET device_sn=? WHERE id=?').run(item.task.deviceSn, taskId)
+        // 记录设备 SN 供位置接口使用
+        if (item.deviceSn && !t.device_sn) {
+          store.prepare('UPDATE delivery_tasks SET device_sn=? WHERE id=?').run(item.deviceSn, taskId)
         }
       }
     }

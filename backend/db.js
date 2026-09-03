@@ -155,15 +155,22 @@ function seed(db) {
   const count = db.prepare('SELECT COUNT(*) AS c FROM landmarks').get().c
   if (count > 0) return
 
-  const insLandmark = db.prepare('INSERT INTO landmarks (name, building, floor, type, sort) VALUES (?,?,?,?,?)')
+  // 真实点位（四川师范大学成龙校区 · 正式环境，2026-08 与平台核对）：
+  // 名称以平台 landmarkName 为准；platform_* 字段直接写入，保证新环境无需再手动同步。
+  const BID = '1257237128126592_zcsdb3dd6396c824'
+  const MID = '1257237128126592_zcsdb3dd6396c824_1d-1'
+  const insLandmark = db.prepare('INSERT INTO landmarks (name, building, floor, type, sort, platform_building_id, platform_map_id, platform_landmark_id) VALUES (?,?,?,?,?,?,?,?)')
   ;[
-    ['零栋铺子（取餐点）', '零栋', '1F', 'loadingPoint', 1],
-    ['东苑 3 栋', '东苑', '1F', 'deliverPoint', 2],
-    ['东苑 7 栋', '东苑', '1F', 'deliverPoint', 3],
-    ['西苑 5 栋', '西苑', '1F', 'deliverPoint', 4],
-    ['西苑 9 栋', '西苑', '1F', 'deliverPoint', 5],
-    ['第一教学楼', '教学区', '1F', 'deliverPoint', 6],
-    ['图书馆门口', '教学区', '1F', 'deliverPoint', 7]
+    ['商铺上货', '四川师范大学成龙校区', '1', 'loadingPoint', 1, BID, MID, '71bb894d0f6548e98fa8580429307a10'],
+    ['东苑1栋', '四川师范大学成龙校区', '1', 'deliverPoint', 2, BID, MID, '05f66b224f1148c78a5a1cb63b284702'],
+    ['东苑2栋', '四川师范大学成龙校区', '1', 'deliverPoint', 3, BID, MID, '87987c7a7d7145b8ba43738b046f6668'],
+    ['东苑3栋', '四川师范大学成龙校区', '1', 'deliverPoint', 4, BID, MID, 'eb064f9c5a8b4e3c906ca0008bf66395'],
+    ['东苑4栋', '四川师范大学成龙校区', '1', 'deliverPoint', 5, BID, MID, 'b0de449f2ccd4f20a6ccb0e9397e73cb'],
+    ['东苑5栋', '四川师范大学成龙校区', '1', 'deliverPoint', 6, BID, MID, '2da7414ef2ee405d9b613a620d08d5e0'],
+    ['东苑7栋', '四川师范大学成龙校区', '1', 'deliverPoint', 7, BID, MID, 'fe0ad571bb124217ba16243cc38030a2'],
+    ['东苑11栋', '四川师范大学成龙校区', '1', 'deliverPoint', 8, BID, MID, '183cd72d16a14903aba7601dda4b9224'],
+    ['东苑12栋', '四川师范大学成龙校区', '1', 'deliverPoint', 9, BID, MID, '1dbf6004fab6426c8485a552169a2325'],
+    ['东苑13栋', '四川师范大学成龙校区', '1', 'deliverPoint', 10, BID, MID, 'e82ce545658e415d92bfe45d96588e2e']
   ].forEach(r => insLandmark.run(...r))
 
   const insGoods = db.prepare('INSERT INTO goods (name, price, original_price, image, category, stock, description, sales) VALUES (?,?,?,?,?,?,?,?)')
