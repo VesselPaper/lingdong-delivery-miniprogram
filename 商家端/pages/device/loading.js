@@ -49,7 +49,17 @@ Page({
     wx.scanCode({
       scanType: ['qrCode'],
       success: (r) => {
-        this.setData({ deviceSn: String(r.result || '').trim() })
+        const sn = String(r.result || '').trim()
+        if (!sn) {
+          wx.showToast({ title: '未识别到有效二维码', icon: 'none' })
+          return
+        }
+        // 设备编号形如 R105A2601A76GK00K00（字母+数字），识别到其它内容视为无效二维码
+        if (!/^[A-Za-z0-9_-]{10,}$/.test(sn)) {
+          wx.showToast({ title: '二维码无效，请扫描机器人屏幕上的二维码', icon: 'none' })
+          return
+        }
+        this.setData({ deviceSn: sn })
         this.doScan()
       },
       fail: () => {}
