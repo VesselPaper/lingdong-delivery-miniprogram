@@ -7,7 +7,7 @@
         <t-icon name="shop-4" size="56rpx" color="#3078C0" />
       </view>
       <view class="shop-info">
-        <view class="shop-name">SCSFDXSP</view>
+        <view class="shop-name">零栋铺子</view>
         <view class="shop-sub">四川师范大学商铺</view>
       </view>
     </view>
@@ -23,7 +23,7 @@
     <view class="card menu-card" bindtap="showAgreement">
       <view class="menu-row">
         <t-icon name="file" size="40rpx" color="#333333" />
-        <view class="menu-label">享递用户协议</view>
+        <view class="menu-label">零栋用户协议</view>
         <t-icon name="chevron-right" size="36rpx" color="#666666" />
       </view>
     </view>
@@ -31,7 +31,7 @@
     <view class="card menu-card" bindtap="showPrivacy">
       <view class="menu-row">
         <t-icon name="info-circle" size="40rpx" color="#333333" />
-        <view class="menu-label">享递隐私声明</view>
+        <view class="menu-label">零栋隐私声明</view>
         <t-icon name="chevron-right" size="36rpx" color="#666666" />
       </view>
     </view>
