@@ -26,7 +26,7 @@
   <view class="card scan-card" wx:if="{{phase === 'idle'}}">
     <view class="scan-row" bindtap="scanRobot">
       <t-icon name="scan" size="40rpx" color="#3078C0" />
-      <text class="scan-row-text">扫码快捷定位机器人（可选项）</text>
+      <text class="scan-row-text">开仓上货 · 扫描机器人二维码</text>
       <text class="scan-row-arrow text-weak">›</text>
     </view>
   </view>
