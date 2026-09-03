@@ -61,10 +61,6 @@
       <t-icon name="cart" size="36rpx" color="{{active === '3' ? '#3078C0' : '#999999'}}" />
       <text>待取货</text>
     </view>
-    <view class="status-item {{active === '4' ? 'on' : ''}}" bindtap="onTab" data-name="4">
-      <t-icon name="service" size="36rpx" color="{{active === '4' ? '#3078C0' : '#999999'}}" />
-      <text>售后</text>
-    </view>
     <view class="status-filter" bindtap="openFilter">
       <t-icon name="filter" size="32rpx" color="#ffffff" />
       <text>筛选</text>

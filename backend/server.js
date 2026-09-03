@@ -420,10 +420,13 @@ app.get('/api/merchant/stats', merchantGuard, (req, res) => {
 })
 
 app.get('/api/merchant/orders', merchantGuard, (req, res) => {
-  const { status = '' } = req.query
+  const { status = '', scope = '' } = req.query
   let sql = 'SELECT * FROM orders'
   const args = []
-  if (status !== '' && status !== undefined) { sql += ' WHERE status=?'; args.push(Number(status)) }
+  // 当前任务：仅执行中的订单（待接单/配送中/等待取餐）；历史订单：已完成/已取消/配送异常
+  if (scope === 'active') sql += ' WHERE status IN (1,2,3)'
+  else if (scope === 'history') sql += ' WHERE status IN (4,5,6)'
+  else if (status !== '' && status !== undefined) { sql += ' WHERE status=?'; args.push(Number(status)) }
   sql += ' ORDER BY id DESC'
   const rows = store.prepare(sql).all(...args).map((o) => ({ ...o, status_text: ORDER_STATUS[o.status] || '' }))
   ok(res, rows)

@@ -28,7 +28,8 @@ Page({
 
   async load() {
     try {
-      const orders = await request.get(api.orders + '?status=4')
+      // 历史订单：已完成/已取消/配送异常
+      const orders = await request.get(api.orders + '?scope=history')
       // 真实业务：订单状态 0=待支付，status>0 即已支付收款
       const list = orders.map((o) => ({ ...o, payed: Number(o.status) > 0 }))
       this.setData({ orders: list }, () => this.applyFilter())

@@ -40,7 +40,8 @@ Page({
 
   async load() {
     try {
-      const qs = this.data.active !== '' ? '?status=' + this.data.active : ''
+      // 当前任务：全部 tab 只显示执行中的订单（待接单/配送中/等待取餐）；具体 tab 按状态过滤
+      const qs = this.data.active !== '' ? '?status=' + this.data.active : '?scope=active'
       const orders = await request.get(api.orders + qs)
       // 真实业务：订单状态 0=待支付，status>0 即已支付收款
       const list = orders.map((o) => ({ ...o, payed: Number(o.status) > 0 }))
