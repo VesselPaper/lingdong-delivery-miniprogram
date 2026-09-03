@@ -12,6 +12,15 @@
   padding: 8rpx 32rpx 0;
 }
 
+/* 6 个固定分类 tab：均分整行，避免总宽超出屏幕把「已完成」截字 */
+.tabs-area .nav-item {
+  flex: 1;
+  margin-right: 0;
+  padding: 20rpx 0;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .list {
   padding: 20rpx 24rpx 48rpx;
 }
