@@ -5,8 +5,10 @@ Page({
   data: {
     deviceSn: '',
     order: null,
-    phase: 'idle', // idle 待扫码 | scanned 已识别(可开舱) | open 已开舱(可关舱) | loaded 已关舱(可派发) | dispatched 已派发
-    statusText: '请扫描机器人屏幕上的二维码',
+    phase: 'idle', // idle 待选择 | scanned 已选择(可开舱) | open 已开舱(可关舱) | loaded 已关舱(可派发) | dispatched 已派发
+    statusText: '请选择待上货任务，或扫描机器人二维码定位',
+    pending: [],
+    pendingError: '',
     sliderX: 0,
     sliderAreaW: 600,
     sliderThumbW: 120,
@@ -14,6 +16,35 @@ Page({
     countdownText: ''
   },
   timer: null,
+
+  onShow() {
+    this.loadPending()
+  },
+
+  // 待上货任务列表（主入口）：机器人已到上货点/上货中的任务
+  async loadPending() {
+    try {
+      const pending = await request.get(api.devicePending, {}, { silent: true })
+      this.setData({ pending, pendingError: '' })
+    } catch (e) {
+      this.setData({ pending: [], pendingError: (e && e.message) || '获取待上货任务失败' })
+    }
+  },
+
+  selectTask(e) {
+    const item = this.data.pending[e.currentTarget.dataset.index]
+    if (!item) return
+    if (!item.device_sn) {
+      wx.showToast({ title: '机器人编号未同步，请稍后重试', icon: 'none' })
+      return
+    }
+    this.setData({
+      deviceSn: item.device_sn,
+      order: item,
+      phase: 'scanned',
+      statusText: '已选择待上货订单，点击「打开舱门」放入货品'
+    })
+  },
 
   onReady() {
     // movable-view 的 x 单位是 px，需要按屏幕宽度换算
@@ -147,6 +178,7 @@ Page({
 
   reset() {
     this.clearTimer()
-    this.setData({ deviceSn: '', order: null, phase: 'idle', sliderX: 0, countdown: 0, countdownText: '', statusText: '请扫描机器人屏幕上的二维码' })
+    this.setData({ deviceSn: '', order: null, phase: 'idle', sliderX: 0, countdown: 0, countdownText: '', statusText: '请选择待上货任务，或扫描机器人二维码定位' })
+    this.loadPending()
   }
 })

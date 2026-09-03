@@ -617,6 +617,17 @@ app.post('/api/merchant/device/scan', merchantGuard, async (req, res) => {
   })
 })
 
+// 待上货任务列表：机器人已到上货点/上货中（含排队中未拉取），供商家列表选择上货
+app.get('/api/merchant/device/pending', merchantGuard, (req, res) => {
+  const rows = store.prepare(`
+    SELECT d.id AS task_id, d.platform_task_id, d.device_sn, d.task_status, d.status_text,
+           o.order_no, o.pickup_code, o.landmark_name AS delivery_landmark, o.contact_name, o.contact_phone
+    FROM delivery_tasks d JOIN orders o ON o.id = d.order_id
+    WHERE d.task_status IN (0,10,20,30,40)
+    ORDER BY (d.task_status >= 30) DESC, d.task_status ASC, d.id DESC`).all()
+  ok(res, rows)
+})
+
 // 打开舱门（上货验证，验证通过自动开舱）
 app.post('/api/merchant/device/open-bin', merchantGuard, async (req, res) => {
   const task = getLoadingTask(req.body)

@@ -4,12 +4,30 @@
     <view class="load-status {{phase === 'dispatched' ? 'on' : ''}}">{{statusText}}</view>
   </view>
 
-  <!-- 扫码 -->
+  <!-- 待上货任务列表（主入口） -->
+  <view class="card" wx:if="{{phase === 'idle'}}">
+    <view class="section-title">待上货任务</view>
+    <view class="pending-item" wx:for="{{pending}}" wx:key="task_id" bindtap="selectTask" data-index="{{index}}">
+      <view class="pending-top">
+        <text class="pending-order">{{item.order_no}}</text>
+        <text class="pending-status">{{item.status_text}}</text>
+      </view>
+      <view class="pending-line text-sub text-sm"><text>取餐码</text><text class="pickup-code">{{item.pickup_code}}</text></view>
+      <view class="pending-line text-sub text-sm"><text>送达</text><text>{{item.delivery_landmark}}</text></view>
+      <view class="pending-line text-sub text-sm" wx:if="{{item.device_sn}}"><text>机器人</text><text>{{item.device_sn}}</text></view>
+    </view>
+    <view class="pending-error text-weak text-sm" wx:if="{{pendingError}}">{{pendingError}}</view>
+    <view class="empty" wx:if="{{!pending.length && !pendingError}}">
+      <view class="empty-text">暂无待上货任务</view>
+    </view>
+  </view>
+
+  <!-- 扫码快捷定位（可选项） -->
   <view class="card scan-card" wx:if="{{phase === 'idle'}}">
-    <view class="scan-big" bindtap="scanRobot">
-      <t-icon name="scan" size="120rpx" color="#3078C0" />
-      <text class="scan-big-text">扫描机器人屏幕二维码</text>
-      <text class="scan-big-sub text-weak text-sm">识别后将自动匹配待上货订单</text>
+    <view class="scan-row" bindtap="scanRobot">
+      <t-icon name="scan" size="40rpx" color="#3078C0" />
+      <text class="scan-row-text">扫码快捷定位机器人（可选项）</text>
+      <text class="scan-row-arrow text-weak">›</text>
     </view>
   </view>
 

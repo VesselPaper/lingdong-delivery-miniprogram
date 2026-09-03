@@ -23,24 +23,60 @@
 }
 
 .scan-card {
-  padding: 0;
+  margin-top: 20rpx;
 }
 
-.scan-big {
+.scan-row {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  padding: 120rpx 0;
+  padding: 28rpx 8rpx;
 }
 
-.scan-big-text {
-  margin-top: 24rpx;
-  font-size: 30rpx;
-  color: #333;
+.scan-row-text {
+  flex: 1;
+  margin-left: 16rpx;
+  font-size: 28rpx;
+  color: #3078C0;
 }
 
-.scan-big-sub {
-  margin-top: 12rpx;
+.scan-row-arrow {
+  font-size: 40rpx;
+}
+
+.pending-item {
+  padding: 24rpx 8rpx;
+  border-bottom: 1rpx solid #F0F2F5;
+}
+
+.pending-item:last-child {
+  border-bottom: none;
+}
+
+.pending-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pending-order {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #111111;
+}
+
+.pending-status {
+  font-size: 24rpx;
+  color: #3078C0;
+}
+
+.pending-line {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8rpx;
+}
+
+.pending-error {
+  padding: 16rpx 8rpx;
 }
 
 .pickup-code {
