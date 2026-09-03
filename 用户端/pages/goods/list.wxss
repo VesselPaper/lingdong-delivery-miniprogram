@@ -110,6 +110,11 @@
 .main {
   flex: 1;
   height: 100%;
+}
+
+/* padding 放在内层容器上：scroll-view 自身带 padding 时，
+   内层内容宽度不会减去 padding，卡片会向右溢出屏幕 */
+.main-inner {
   padding: 0 24rpx;
   box-sizing: border-box;
 }

@@ -404,8 +404,11 @@
 .tsheet-times {
   flex: 1;
   height: 100%;
+}
+
+/* scroll-view 自身带 padding 会让内容溢出，改放到内层容器 */
+.tsheet-times-inner {
   padding-left: 24rpx;
-  box-sizing: border-box;
 }
 
 .tsheet-time {
