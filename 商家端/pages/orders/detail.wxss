@@ -94,6 +94,7 @@
 
 .foot-actions {
   display: flex;
+  flex-direction: column;
   gap: 24rpx;
   margin-top: 16rpx;
 }

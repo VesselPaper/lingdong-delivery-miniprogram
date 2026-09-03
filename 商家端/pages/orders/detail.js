@@ -63,12 +63,14 @@ Page({
 
   // 测试辅助：真实模式无真机器人时，把卡在配送中的订单标记为已送达，用户端可继续取餐完成
   testComplete() {
+    console.log('[detail] testComplete clicked, id=' + this.data.id)
     wx.showModal({
       title: '测试完成配送',
       content: '测试模式：直接标记该订单为已送达（用户端可继续取餐完成）。此操作仅测试用，不会真实下发任务。',
       confirmText: '标记已送达',
       confirmColor: '#3078C0',
       success: async (r) => {
+        console.log('[detail] testComplete confirm=' + r.confirm)
         if (!r.confirm) return
         try {
           wx.showLoading({ title: '标记中' })
