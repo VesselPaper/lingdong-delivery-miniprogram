@@ -1,60 +1,32 @@
 <view class="load-page">
-  <!-- ========== 批次列表（主入口：组单中 + 待上货） ========== -->
-  <block wx:if="{{!batch}}">
-    <search-box value="{{keyword}}" placeholder="搜索批次 / 订单 / 商品 / 点位" bind:input="onSearch" />
+  <!-- 批次列表：组单中（可派车）+ 待上货（选择上货） -->
+  <search-box value="{{keyword}}" placeholder="搜索批次 / 订单 / 商品 / 点位" bind:input="onSearch" />
 
-    <view class="card" wx:if="{{loadingList}}">
-      <view class="empty"><view class="empty-text">加载中…</view></view>
-    </view>
+  <view class="card" wx:if="{{loadingList}}">
+    <view class="empty"><view class="empty-text">加载中…</view></view>
+  </view>
 
-    <!-- 组单中批次：派车配送 -->
-    <block wx:if="{{openBatches.length}}">
-      <view class="section-label">组单中</view>
-      <batch-card
-        wx:for="{{openBatches}}" wx:key="id"
-        b="{{item}}" action="dispatch" showGoods="{{true}}"
-        bind:dispatch="dispatchBatch" />
-    </block>
-
-    <!-- 待上货批次：选择该批次上货（无分类标题，列表直接展示） -->
+  <!-- 组单中批次：派车配送 -->
+  <block wx:if="{{openBatches.length}}">
+    <view class="section-label">组单中</view>
     <batch-card
-      wx:for="{{readyBatches}}" wx:key="id"
-      b="{{item}}" action="select" showGoods="{{true}}"
-      bind:select="selectBatch" />
-
-    <empty-view
-      show="{{!loadingList && !openBatches.length && !readyBatches.length && !keyword}}"
-      text="暂无待上货批次。新订单接单后自动组单，派车后在此上货。"
-      icon="app" />
-    <empty-view
-      show="{{keyword && !openBatches.length && !readyBatches.length && !loadingList}}"
-      text="未找到匹配的批次 / 订单 / 商品"
-      icon="search" />
+      wx:for="{{openBatches}}" wx:key="id"
+      b="{{item}}" action="dispatch" showGoods="{{true}}"
+      bind:dispatch="dispatchBatch" />
   </block>
 
-  <!-- ========== 已选批次（单批次详情，显示批次编号 + 上货流程） ========== -->
-  <block wx:if="{{batch}}">
-    <batch-card b="{{batch}}" showNo="{{true}}" showGoods="{{true}}" />
+  <!-- 待上货批次：选择该批次上货（无分类标题，列表直接展示） -->
+  <batch-card
+    wx:for="{{readyBatches}}" wx:key="id"
+    b="{{item}}" action="select" showGoods="{{true}}"
+    bind:select="selectBatch" />
 
-    <view class="foot-actions">
-      <view class="btn btn-block" hover-class="btn-hover" wx:if="{{phase === 'scanned'}}" bindtap="openBin">模拟打开舱门</view>
-      <view class="btn btn-block" hover-class="btn-hover" wx:if="{{phase === 'open'}}" bindtap="closeBin">关闭舱门</view>
-
-      <view class="dispatch-zone" wx:if="{{phase === 'loaded'}}">
-        <view class="dispatch-hint {{countdown > 0 ? '' : 'warn'}}">{{countdownText || '请尽快开始配送'}}</view>
-        <movable-area class="slider-area" style="width:{{sliderAreaW}}px;height:100rpx">
-          <movable-view class="slider-thumb" style="width:{{sliderThumbW}}px;height:100rpx"
-            direction="horizontal" x="{{sliderX}}" bindchange="onSliderChange" bindtouchend="onSliderEnd">
-            <text class="slider-arrow">→</text>
-          </movable-view>
-        </movable-area>
-        <view class="dispatch-label text-weak text-sm">向右滑动立即配送</view>
-      </view>
-
-      <view class="success-box" wx:if="{{phase === 'dispatched'}}">
-        <view class="success-icon"><t-icon name="check-circle-filled" size="96rpx" color="#2BA471" /></view>
-        <view class="success-text">机器人已出发，将按路线依次配送</view>
-      </view>
-    </view>
-  </block>
+  <empty-view
+    show="{{!loadingList && !openBatches.length && !readyBatches.length && !keyword}}"
+    text="暂无待上货批次。新订单接单后自动组单，派车后在此上货。"
+    icon="app" />
+  <empty-view
+    show="{{keyword && !openBatches.length && !readyBatches.length && !loadingList}}"
+    text="未找到匹配的批次 / 订单 / 商品"
+    icon="search" />
 </view>

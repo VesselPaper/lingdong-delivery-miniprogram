@@ -1,0 +1,30 @@
+<view class="batch-detail-page">
+  <block wx:if="{{batch}}">
+    <!-- 单批次详情：完整批次编号弱化展示 + 订单/商品完整展示 -->
+    <batch-card b="{{batch}}" showNo="{{true}}" showGoods="{{true}}" />
+
+    <view class="foot-actions">
+      <view class="btn btn-block" hover-class="btn-hover" wx:if="{{phase === 'scanned'}}" bindtap="openBin">模拟打开舱门</view>
+      <view class="btn btn-block" hover-class="btn-hover" wx:if="{{phase === 'open'}}" bindtap="closeBin">关闭舱门</view>
+
+      <view class="dispatch-zone" wx:if="{{phase === 'loaded'}}">
+        <view class="dispatch-hint {{countdown > 0 ? '' : 'warn'}}">{{countdownText || '请尽快开始配送'}}</view>
+        <movable-area class="slider-area" style="width:{{sliderAreaW}}px;height:100rpx">
+          <movable-view class="slider-thumb" style="width:{{sliderThumbW}}px;height:100rpx"
+            direction="horizontal" x="{{sliderX}}" bindchange="onSliderChange" bindtouchend="onSliderEnd">
+            <text class="slider-arrow">→</text>
+          </movable-view>
+        </movable-area>
+        <view class="dispatch-label text-weak text-sm">向右滑动立即配送</view>
+      </view>
+
+      <view class="success-box" wx:if="{{phase === 'dispatched'}}">
+        <view class="success-icon"><t-icon name="check-circle-filled" size="96rpx" color="#2BA471" /></view>
+        <view class="success-text">机器人已出发，将按路线依次配送</view>
+      </view>
+    </view>
+  </block>
+  <view class="card" wx:else>
+    <view class="empty"><view class="empty-text">加载中…</view></view>
+  </view>
+</view>

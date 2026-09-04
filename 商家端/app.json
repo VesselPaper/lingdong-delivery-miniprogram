@@ -12,6 +12,7 @@
     "pages/orders/cancelRequests",
     "pages/orders/cancelRequestDetail",
     "pages/device/loading",
+    "pages/device/batchDetail",
     "pages/goods/list",
     "pages/goods/edit",
     "pages/activity/list",
