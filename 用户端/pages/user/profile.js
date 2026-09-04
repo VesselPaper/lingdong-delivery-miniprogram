@@ -4,11 +4,13 @@ const request = require('../../utils/request')
 Page({
   data: {
     user: {},
-    userInitial: '零'
+    userInitial: '零',
+    orderBadge: { unread: false, count: 0 }
   },
 
   onShow() {
     this.load()
+    this.loadBadge()
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 3 })
     }
@@ -22,6 +24,14 @@ Page({
     } catch (e) {
       this.setData({ user: {}, userInitial: '零' })
     }
+  },
+
+  // 订单红点：订单到达（待接单）/状态已接单（配送中）等未读动态提示
+  async loadBadge() {
+    try {
+      const badge = await request.get(api.orderBadge, {}, { silent: true })
+      this.setData({ orderBadge: badge || { unread: false, count: 0 } })
+    } catch (e) { /* 忽略 */ }
   },
 
   goLogin() {

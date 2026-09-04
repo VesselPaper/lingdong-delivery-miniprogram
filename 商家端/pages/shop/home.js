@@ -5,13 +5,29 @@ const shopState = require('../../utils/shopState')
 Page({
   data: {
     stats: { pending: 0, delivering: 0 },
-    shopOpen: true
+    shopOpen: true,
+    pendingBatchCount: 0
   },
 
   async onShow() {
     await shopState.loadShop()
     this.setData({ shopOpen: shopState.isOpen() })
     this.load()
+    this.loadPendingBatches()
+  },
+
+  // 待上货/组单中批次数量（配单入口角标）
+  async loadPendingBatches() {
+    try {
+      const data = await request.get(api.devicePending, {}, { silent: true })
+      const cnt = ((data.open_batches || []).length + (data.ready_batches || []).length)
+      this.setData({ pendingBatchCount: cnt })
+    } catch (e) { /* 忽略 */ }
+  },
+
+  // 去配单 / 上货（一车多单批次页）
+  goLoading() {
+    wx.navigateTo({ url: '/pages/device/loading' })
   },
 
   async load() {

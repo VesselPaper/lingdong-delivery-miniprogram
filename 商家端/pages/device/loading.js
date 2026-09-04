@@ -1,14 +1,20 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
 
+// 上货操作（一车多单 · 配送批次）
+// 流程：批次列表 →（组单中批次「派车配送」/ 待上货批次「选择」或「模拟扫码」）
+//      → 已选批次（可开舱）→ 开舱放货 → 关舱 → 立即配送（整批出发）
 Page({
   data: {
     deviceSn: '',
-    order: null,
-    phase: 'idle', // idle 待选择 | scanned 已选择(可开舱) | open 已开舱(可关舱) | loaded 已关舱(可派发) | dispatched 已派发
-    statusText: '请选择待上货任务，或扫描机器人二维码定位',
-    pending: [],
+    batch: null,
+    phase: 'idle', // idle 批次列表 | scanned 已选批次(可开舱) | open 已开舱 | loaded 已关舱(可派发) | dispatched 已派发
+    statusText: '请选择待上货批次，或为组单中的批次派车',
+    openBatches: [],
+    readyBatches: [],
+    activeBatches: [],
     pendingError: '',
+    loadingList: true,
     sliderX: 0,
     sliderAreaW: 600,
     sliderThumbW: 120,
@@ -21,33 +27,24 @@ Page({
     this.loadPending()
   },
 
-  // 待上货任务列表（主入口）：机器人已到上货点/上货中的任务
+  // 批次列表主入口
   async loadPending() {
     try {
-      const pending = await request.get(api.devicePending, {}, { silent: true })
-      this.setData({ pending, pendingError: '' })
+      this.setData({ loadingList: true })
+      const data = await request.get(api.devicePending, {}, { silent: true })
+      this.setData({
+        openBatches: data.open_batches || [],
+        readyBatches: data.ready_batches || [],
+        activeBatches: data.active_batches || [],
+        pendingError: '',
+        loadingList: false
+      })
     } catch (e) {
-      this.setData({ pending: [], pendingError: (e && e.message) || '获取待上货任务失败' })
+      this.setData({ loadingList: false, openBatches: [], readyBatches: [], activeBatches: [], pendingError: (e && e.message) || '获取批次失败' })
     }
-  },
-
-  selectTask(e) {
-    const item = this.data.pending[e.currentTarget.dataset.index]
-    if (!item) return
-    if (!item.device_sn) {
-      wx.showToast({ title: '机器人编号未同步，请稍后重试', icon: 'none' })
-      return
-    }
-    this.setData({
-      deviceSn: item.device_sn,
-      order: item,
-      phase: 'scanned',
-      statusText: '已选择待上货订单，点击「打开舱门」放入货品'
-    })
   },
 
   onReady() {
-    // movable-view 的 x 单位是 px，需要按屏幕宽度换算
     const win = wx.getSystemInfoSync()
     const areaPx = Math.round(600 * win.windowWidth / 750)
     const thumbPx = Math.round(120 * win.windowWidth / 750)
@@ -75,47 +72,90 @@ Page({
     }, 1000)
   },
 
-  // 扫码识别机器人（二维码内容为设备编号 deviceSn）
-  scanRobot() {
-    wx.scanCode({
-      scanType: ['qrCode'],
-      success: (r) => {
-        const sn = String(r.result || '').trim()
-        if (!sn) {
-          wx.showToast({ title: '未识别到有效二维码', icon: 'none' })
-          return
-        }
-        // 设备编号形如 R105A2601A76GK00K00（字母+数字），识别到其它内容视为无效二维码
-        if (!/^[A-Za-z0-9_-]{10,}$/.test(sn)) {
-          wx.showToast({ title: '二维码无效，请扫描机器人屏幕上的二维码', icon: 'none' })
-          return
-        }
-        this.setData({ deviceSn: sn })
-        this.doScan()
-      },
-      fail: () => {}
+  // 从待上货批次列表直接选择（等同扫码定位）
+  selectBatch(e) {
+    const idx = Number(e.currentTarget.dataset.index)
+    const item = this.data.readyBatches[idx]
+    if (!item) return
+    this.selectBatchItem(item)
+  },
+
+  selectBatchItem(item) {
+    const sn = item.device_sn || 'SIMROBOT' + String(item.id).padStart(4, '0')
+    this.setData({
+      deviceSn: sn,
+      batch: item,
+      phase: 'scanned',
+      statusText: '已选择批次，点击「打开舱门」放入本批 ' + (item.total_orders || 0) + ' 单货品'
     })
   },
 
-  async doScan() {
-    if (!this.data.deviceSn) return wx.showToast({ title: '未识别到设备号', icon: 'none' })
+  // 模拟扫码识别机器人（测试阶段：不真扫码，定位待上货批次）
+  simulateScanRobot() {
+    if (!this.data.readyBatches.length) {
+      if (this.data.openBatches.length) {
+        wx.showToast({ title: '组单中的批次请先「派车配送」', icon: 'none' })
+      } else {
+        wx.showToast({ title: '暂无待上货批次', icon: 'none' })
+      }
+      return
+    }
+    const item = this.data.readyBatches[0]
+    // 测试阶段：用固定模拟设备号定位（真实机器人接入后替换为真实扫码）
+    const sn = item.device_sn || 'SIMROBOT0001'
     wx.showLoading({ title: '识别机器人' })
+    request.post(api.deviceScan, { deviceSn: sn })
+      .then((res) => {
+        wx.hideLoading()
+        this.setData({
+          deviceSn: sn,
+          batch: res,
+          phase: 'scanned',
+          statusText: '已识别机器人，批次 ' + res.batch_no + ' 共 ' + (res.total_orders || 0) + ' 单，点击「打开舱门」放货'
+        })
+      })
+      .catch((e) => {
+        wx.hideLoading()
+        // 扫码失败（如真实模式无该设备）→ 回退为直接选择待上货批次
+        wx.showToast({ title: (e && e.message) || '识别失败，已直接选择批次', icon: 'none' })
+        this.selectBatchItem(item)
+      })
+  },
+
+  // 组单中的批次 → 派车配送（创建全部平台任务）
+  async dispatchBatch(e) {
+    const id = Number(e.currentTarget.dataset.id)
+    const item = this.data.openBatches.find((b) => b.id === id)
+    if (!item) return
+    const res = await new Promise((resolve) => {
+      wx.showModal({
+        title: '为该批次派车配送？',
+        content: '批次 ' + (item.batch_no || '') + ' 共 ' + (item.total_orders || 0) + ' 单。派车后机器人将按规划路线依次配送，请准备好货品后开舱上货。',
+        confirmText: '派车',
+        confirmColor: '#3078C0',
+        success: (r) => resolve(r.confirm)
+      })
+    })
+    if (!res) return
+    wx.showLoading({ title: '派车中' })
     try {
-      const order = await request.post(api.deviceScan, { deviceSn: this.data.deviceSn })
-      this.setData({ order, phase: 'scanned', statusText: '已识别机器人，点击「打开舱门」放入货品' })
+      await request.post(api.batchDispatch, { batch_id: id })
       wx.hideLoading()
+      wx.showToast({ title: '已派车，机器人前往上货点', icon: 'success' })
+      this.loadPending()
     } catch (e) {
       wx.hideLoading()
-      wx.showToast({ title: (e && e.message) || '识别失败', icon: 'none' })
+      wx.showToast({ title: (e && e.message) || '派车失败', icon: 'none' })
     }
   },
 
+  // 开舱（整批验证）
   async openBin() {
-    if (!this.data.order) return
+    if (!this.data.batch) return
     wx.showLoading({ title: '开舱中' })
     try {
-      await request.post(api.deviceOpenBin, { task_id: this.data.order.task_id })
-      this.setData({ phase: 'open', statusText: '舱门已打开，请放入货品' })
+      await request.post(api.batchOpenBin, { batch_id: this.data.batch.id })
+      this.setData({ phase: 'open', statusText: '舱门已打开，请放入本批全部货品' })
       wx.hideLoading()
     } catch (e) {
       wx.hideLoading()
@@ -123,21 +163,22 @@ Page({
     }
   },
 
+  // 关舱（原地等待）
   async closeBin() {
-    if (!this.data.order) return
+    if (!this.data.batch) return
     wx.showLoading({ title: '关舱中' })
     try {
-      await request.post(api.deviceCloseBin, { task_id: this.data.order.task_id })
+      await request.post(api.batchCloseBin, { batch_id: this.data.batch.id })
       wx.hideLoading()
       wx.showModal({
         title: '是否立即配送？',
-        content: '选择「否」可稍后在页面下方滑动「立即配送」开始',
+        content: '本批 ' + (this.data.batch.total_orders || 0) + ' 单已装车。选择「否」可稍后滑动「立即配送」开始。',
         confirmText: '立即配送',
         cancelText: '稍后',
         confirmColor: '#3078C0',
         success: (r) => {
           if (r.confirm) {
-            this.dispatch()
+            this.dispatchAll()
           } else {
             this.setData({ phase: 'loaded', statusText: '已关舱，机器人原地等待' })
             this.startCountdown(180)
@@ -150,13 +191,14 @@ Page({
     }
   },
 
-  async dispatch() {
-    if (!this.data.order || this.data.phase === 'dispatched') return
+  // 开始配送（整批确认上货）
+  async dispatchAll() {
+    if (!this.data.batch || this.data.phase === 'dispatched') return
     wx.showLoading({ title: '开始配送' })
     try {
-      await request.post(api.deviceDispatch, { task_id: this.data.order.task_id })
+      await request.post(api.batchDispatchAll, { batch_id: this.data.batch.id })
       this.clearTimer()
-      this.setData({ phase: 'dispatched', sliderX: 0, statusText: '机器人已出发配送' })
+      this.setData({ phase: 'dispatched', sliderX: 0, statusText: '机器人已出发，将按路线依次配送' })
       wx.hideLoading()
     } catch (e) {
       wx.hideLoading()
@@ -170,7 +212,7 @@ Page({
   onSliderEnd() {
     const maxX = this.data.sliderAreaW - this.data.sliderThumbW - 20
     if (this.data.sliderX >= maxX) {
-      this.dispatch()
+      this.dispatchAll()
     } else {
       this.setData({ sliderX: 0 })
     }
@@ -178,7 +220,7 @@ Page({
 
   reset() {
     this.clearTimer()
-    this.setData({ deviceSn: '', order: null, phase: 'idle', sliderX: 0, countdown: 0, countdownText: '', statusText: '请选择待上货任务，或扫描机器人二维码定位' })
+    this.setData({ deviceSn: '', batch: null, phase: 'idle', sliderX: 0, countdown: 0, countdownText: '', statusText: '请选择待上货批次，或为组单中的批次派车' })
     this.loadPending()
   }
 })

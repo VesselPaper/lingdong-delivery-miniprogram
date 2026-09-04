@@ -42,6 +42,11 @@
   <view class="card func-card">
     <view class="func-title">常用功能</view>
     <view class="func-grid">
+      <view class="func-item" bindtap="goLoading">
+        <t-icon name="scan" size="56rpx" color="#3078C0" />
+        <view class="func-text">配单/上货</view>
+        <view class="func-badge" wx:if="{{pendingBatchCount}}">{{pendingBatchCount}}</view>
+      </view>
       <view class="func-item" bindtap="goGoods">
         <t-icon name="cart" size="56rpx" color="#333333" />
         <view class="func-text">商品管理</view>

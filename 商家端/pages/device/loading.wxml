@@ -1,68 +1,131 @@
 <view class="load-page">
   <view class="load-head">
-    <view class="load-title">上货操作</view>
+    <view class="load-title">配单 / 上货</view>
     <view class="load-status {{phase === 'dispatched' ? 'on' : ''}}">{{statusText}}</view>
   </view>
 
-  <!-- 待上货任务列表（主入口） -->
-  <view class="card" wx:if="{{phase === 'idle'}}">
-    <view class="section-title">待上货任务</view>
-    <view class="pending-item" wx:for="{{pending}}" wx:key="task_id" bindtap="selectTask" data-index="{{index}}">
-      <view class="pending-top">
-        <text class="pending-order">{{item.order_no}}</text>
-        <text class="pending-status">{{item.status_text}}</text>
+  <!-- ========== 批次列表（主入口） ========== -->
+  <block wx:if="{{phase === 'idle'}}">
+    <view class="card" wx:if="{{loadingList}}">
+      <view class="empty"><view class="empty-text">加载中…</view></view>
+    </view>
+
+    <!-- 组单中批次：可派车 -->
+    <view class="card" wx:if="{{openBatches.length}}">
+      <view class="section-title">组单中批次（可派车）<text class="section-sub">一车最多 12 单</text></view>
+      <view class="batch-item" wx:for="{{openBatches}}" wx:key="id" wx:for-item="b">
+        <view class="batch-top">
+          <text class="batch-no">{{b.batch_no}}</text>
+          <text class="tag tag-blue">{{b.total_orders}} 单</text>
+        </view>
+        <view class="batch-line text-sub text-sm"><text>送达点位</text><text>{{b.route_stops_text}}</text></view>
+        <view class="order-tags" wx:if="{{b.orders.length}}">
+          <text class="order-tag" wx:for="{{b.orders}}" wx:for-item="o" wx:key="id">{{o.landmark_name}}</text>
+        </view>
+        <view class="btn btn-block btn-sm dispatch-btn" data-id="{{b.id}}" bindtap="dispatchBatch">派车配送</view>
       </view>
-      <view class="pending-line text-sub text-sm"><text>取餐码</text><text class="pickup-code">{{item.pickup_code}}</text></view>
-      <view class="pending-line text-sub text-sm"><text>送达</text><text>{{item.delivery_landmark}}</text></view>
-      <view class="pending-line text-sub text-sm" wx:if="{{item.device_sn}}"><text>机器人</text><text>{{item.device_sn}}</text></view>
-    </view>
-    <view class="pending-error text-weak text-sm" wx:if="{{pendingError}}">{{pendingError}}</view>
-    <view class="empty" wx:if="{{!pending.length && !pendingError}}">
-      <view class="empty-text">暂无待上货任务</view>
-    </view>
-  </view>
-
-  <!-- 扫码快捷定位（可选项） -->
-  <view class="card scan-card" wx:if="{{phase === 'idle'}}">
-    <view class="scan-row" bindtap="scanRobot">
-      <t-icon name="scan" size="40rpx" color="#3078C0" />
-      <text class="scan-row-text">开仓上货 · 扫描机器人二维码</text>
-      <text class="scan-row-arrow text-weak">›</text>
-    </view>
-  </view>
-
-  <!-- 订单信息 -->
-  <view class="card" wx:if="{{order}}">
-    <view class="section-title">待上货订单</view>
-    <view class="info-row text-sub"><text>订单号</text><text>{{order.order_no}}</text></view>
-    <view class="info-row text-sub"><text>取餐码</text><text class="pickup-code">{{order.pickup_code}}</text></view>
-    <view class="info-row text-sub"><text>送达点位</text><text>{{order.delivery_landmark}}</text></view>
-    <view class="info-row text-sub"><text>收餐人</text><text>{{order.contact_name}} {{order.contact_phone}}</text></view>
-    <view class="info-row text-sub"><text>任务状态</text><text>{{order.status_text}}</text></view>
-    <view class="info-row text-sub" wx:if="{{order.control_msg}}"><text>控制权</text><text class="text-weak">{{order.control_msg}}</text></view>
-  </view>
-
-  <!-- 操作 -->
-  <view class="foot-actions" wx:if="{{order}}">
-    <view class="btn btn-block" wx:if="{{phase === 'scanned'}}" bindtap="openBin">打开舱门</view>
-    <view class="btn btn-block" wx:if="{{phase === 'open'}}" bindtap="closeBin">关闭舱门</view>
-
-    <view class="dispatch-zone" wx:if="{{phase === 'loaded'}}">
-      <view class="dispatch-hint {{countdown > 0 ? '' : 'warn'}}">{{countdownText || '请尽快开始配送'}}</view>
-      <movable-area class="slider-area" style="width:{{sliderAreaW}}px;height:100rpx">
-        <movable-view class="slider-thumb" style="width:{{sliderThumbW}}px;height:100rpx"
-          direction="horizontal" x="{{sliderX}}" bindchange="onSliderChange" bindtouchend="onSliderEnd">
-          <text class="slider-arrow">→</text>
-        </movable-view>
-      </movable-area>
-      <view class="dispatch-label text-weak text-sm">向右滑动立即配送</view>
+      <view class="pending-error text-weak text-sm" wx:if="{{pendingError}}">{{pendingError}}</view>
     </view>
 
-    <view class="success-box" wx:if="{{phase === 'dispatched'}}">
-      <view class="success-icon"><t-icon name="check-circle-filled" size="96rpx" color="#2BA471" /></view>
-      <view class="success-text">机器人已出发配送</view>
+    <!-- 待上货批次：已派车，可上货 -->
+    <view class="card" wx:if="{{readyBatches.length}}">
+      <view class="section-title">待上货批次（机器人前往上货点）</view>
+      <view class="batch-item" wx:for="{{readyBatches}}" wx:key="id" wx:for-item="b">
+        <view class="batch-top">
+          <text class="batch-no">{{b.batch_no}}</text>
+          <text class="tag tag-green">{{b.total_orders}} 单</text>
+          <text class="batch-status text-weak">{{b.status_text}}</text>
+        </view>
+        <view class="batch-line text-sub text-sm"><text>机器人</text><text>{{b.device_sn || '待识别'}}</text></view>
+        <view class="route-line text-sub text-sm" wx:if="{{b.route.length}}">
+          <text class="route-label">路线</text>
+          <text class="route-value">{{b.route_text}}</text>
+        </view>
+        <view class="order-tags" wx:if="{{b.orders.length}}">
+          <text class="order-tag" wx:for="{{b.orders}}" wx:for-item="o" wx:key="id">{{o.landmark_name}}·{{o.pickup_code}}</text>
+        </view>
+        <view class="btn btn-block btn-sm select-btn" data-index="{{index}}" bindtap="selectBatch">选择该批次上货</view>
+      </view>
     </view>
 
-    <view class="btn btn-outline btn-block" wx:if="{{phase !== 'idle'}}" bindtap="reset">重新扫码</view>
-  </view>
+    <view class="empty" wx:if="{{!openBatches.length && !readyBatches.length && !loadingList}}">
+      <view class="empty-text">暂无批次。新订单接单后将自动进入「组单中」批次，或在订单页接单后直达本页。</view>
+    </view>
+
+    <!-- 模拟扫码（测试阶段） -->
+    <view class="card scan-card" wx:if="{{readyBatches.length}}">
+      <view class="scan-row" bindtap="simulateScanRobot">
+        <t-icon name="scan" size="40rpx" color="#3078C0" />
+        <text class="scan-row-text">模拟扫码识别机器人</text>
+        <text class="scan-row-arrow text-weak">›</text>
+      </view>
+    </view>
+
+    <!-- 配送中批次（参考） -->
+    <view class="card" wx:if="{{activeBatches.length}}">
+      <view class="section-title">配送中批次</view>
+      <view class="batch-item" wx:for="{{activeBatches}}" wx:key="id" wx:for-item="b">
+        <view class="batch-top">
+          <text class="batch-no">{{b.batch_no}}</text>
+          <text class="tag tag-orange">{{b.total_orders}} 单</text>
+        </view>
+        <view class="batch-line text-sub text-sm"><text>进度</text><text>已取 {{b.picked_orders}} / {{b.total_orders}} 单</text></view>
+        <view class="route-line text-sub text-sm" wx:if="{{b.route.length}}">
+          <text class="route-label">路线</text>
+          <text class="route-value">{{b.route_text}}</text>
+        </view>
+      </view>
+    </view>
+  </block>
+
+  <!-- ========== 已选批次（扫码后） ========== -->
+  <block wx:if="{{batch}}">
+    <view class="card">
+      <view class="section-title">批次 {{batch.batch_no}}</view>
+      <view class="info-row text-sub"><text>机器人</text><text>{{batch.device_sn || deviceSn}}</text></view>
+      <view class="info-row text-sub"><text>本批订单</text><text>{{batch.total_orders}} 单</text></view>
+      <view class="info-row text-sub"><text>状态</text><text>{{batch.status_text}}</text></view>
+      <view class="info-row text-sub" wx:if="{{batch.control_msg}}"><text>控制权</text><text class="text-weak">{{batch.control_msg}}</text></view>
+
+      <view class="route-line text-sub text-sm" wx:if="{{batch.route.length}}">
+        <text class="route-label">配送路线</text>
+        <text class="route-value">{{batch.route_text}}</text>
+      </view>
+
+      <view class="section-title sub">本批订单清单（逐单取餐码）</view>
+      <view class="pending-item" wx:for="{{batch.orders}}" wx:key="id" wx:for-item="o">
+        <view class="pending-top">
+          <text class="pending-order">{{o.order_no}}</text>
+          <text class="pending-status">{{o.landmark_name}}</text>
+        </view>
+        <view class="pending-line text-sub text-sm"><text>取餐码</text><text class="pickup-code">{{o.pickup_code}}</text></view>
+        <view class="pending-line text-sub text-sm"><text>收餐人</text><text>{{o.contact_name}} {{o.contact_phone}}</text></view>
+        <view class="pending-line text-sub text-sm" wx:if="{{o.task && o.task.status_text}}"><text>任务</text><text>{{o.task.status_text}}</text></view>
+      </view>
+    </view>
+
+    <!-- 操作 -->
+    <view class="foot-actions" wx:if="{{batch}}">
+      <view class="btn btn-block" wx:if="{{phase === 'scanned'}}" bindtap="openBin">打开舱门（整批 {{batch.total_orders}} 单）</view>
+      <view class="btn btn-block" wx:if="{{phase === 'open'}}" bindtap="closeBin">关闭舱门</view>
+
+      <view class="dispatch-zone" wx:if="{{phase === 'loaded'}}">
+        <view class="dispatch-hint {{countdown > 0 ? '' : 'warn'}}">{{countdownText || '请尽快开始配送'}}</view>
+        <movable-area class="slider-area" style="width:{{sliderAreaW}}px;height:100rpx">
+          <movable-view class="slider-thumb" style="width:{{sliderThumbW}}px;height:100rpx"
+            direction="horizontal" x="{{sliderX}}" bindchange="onSliderChange" bindtouchend="onSliderEnd">
+            <text class="slider-arrow">→</text>
+          </movable-view>
+        </movable-area>
+        <view class="dispatch-label text-weak text-sm">向右滑动立即配送</view>
+      </view>
+
+      <view class="success-box" wx:if="{{phase === 'dispatched'}}">
+        <view class="success-icon"><t-icon name="check-circle-filled" size="96rpx" color="#2BA471" /></view>
+        <view class="success-text">机器人已出发，将按路线依次配送</view>
+      </view>
+
+      <view class="btn btn-outline btn-block" wx:if="{{phase !== 'idle'}}" bindtap="reset">返回批次列表</view>
+    </view>
+  </block>
 </view>

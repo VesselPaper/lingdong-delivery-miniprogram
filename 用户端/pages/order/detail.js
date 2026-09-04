@@ -15,6 +15,8 @@ Page({
 
   onShow() {
     this.load()
+    // 查看订单详情视为已读动态（清除我的页红点）
+    request.post(api.orderMarkRead, {}, { silent: true }).catch(() => {})
   },
 
   async load() {
@@ -69,24 +71,9 @@ Page({
     } catch (e) { /* handled */ }
   },
 
-  scanPickup() {
-    wx.scanCode({
-      onlyFromCamera: false,
-      success: (res) => this.confirmReceive(res.result),
-      fail: () => {}
-    })
-  },
-
-  inputCode() {
-    wx.showModal({
-      title: '输入取餐码',
-      editable: true,
-      placeholderText: '请输入机器人屏幕上的取餐码',
-      confirmColor: '#2E7CF6',
-      success: (r) => {
-        if (r.confirm && r.content) this.confirmReceive(String(r.content).trim())
-      }
-    })
+  // 模拟扫码取餐（测试阶段）：直接进入取餐页（开舱/取餐/关舱逻辑在取餐页）
+  simulatePickup() {
+    wx.navigateTo({ url: '/pages/delivery/pickup?order_id=' + this.data.id })
   },
 
   goTrack() {

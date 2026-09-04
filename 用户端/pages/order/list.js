@@ -15,6 +15,12 @@ Page({
       this.setData({ active: String(tab) })
     }
     this.loadOrders()
+    this.markRead()
+  },
+
+  // 进入订单列表视为已读订单动态（清除我的页红点）
+  markRead() {
+    request.post(api.orderMarkRead, {}, { silent: true }).catch(() => {})
   },
 
   onTab(e) {

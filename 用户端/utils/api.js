@@ -26,6 +26,9 @@ const api = {
   orderCancel: '/order/cancel',
   cancelRequest: '/order/cancel-request',
   cancelRequestList: '/order/cancel-request/list',
+  // 我的页订单红点（未读动态）
+  orderBadge: '/user/order/badge',
+  orderMarkRead: '/user/order/mark-read',
 
   // 配送
   deliveryTrack: '/delivery/track',

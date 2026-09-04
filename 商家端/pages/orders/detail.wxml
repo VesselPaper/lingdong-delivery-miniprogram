@@ -13,6 +13,10 @@
     <view class="info-row text-sub"><text>收餐人</text><text>{{order.contact_name}} {{order.contact_phone}}</text></view>
     <view class="info-row text-sub" wx:if="{{order.remark}}"><text>备注</text><text>{{order.remark}}</text></view>
     <view class="info-row text-sub"><text>下单时间</text><text>{{order.created_at}}</text></view>
+    <view class="info-row text-sub" wx:if="{{order.batch}}">
+      <text>配送批次</text>
+      <text>{{order.batch.batch_no}}（{{order.batch.total_orders}}单 · {{order.batch.status_text}}）</text>
+    </view>
   </view>
 
   <view class="card">
@@ -46,7 +50,7 @@
     <view class="btn btn-sm btn-block" wx:if="{{order.status === 1 && shopOpen}}" bindtap="confirmOrder">接单并装车</view>
     <view class="btn btn-sm btn-block btn-disabled" wx:if="{{order.status === 1 && !shopOpen}}">歇业中，暂不可接单</view>
     <block wx:if="{{order.status === 2}}">
-      <view class="btn btn-sm btn-block" bindtap="goLoad">开仓上货</view>
+      <view class="btn btn-sm btn-block" bindtap="goLoad">去配单 / 上货</view>
       <view class="btn btn-outline btn-sm btn-block test-btn" catchtap="testComplete">测试完成配送</view>
     </block>
     <view class="btn btn-outline btn-sm btn-block" wx:if="{{order.status !== 1 && order.status !== 2}}" bindtap="back">返回列表</view>

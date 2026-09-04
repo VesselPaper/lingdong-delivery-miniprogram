@@ -56,8 +56,7 @@
     <view class="btn btn-sm" style="flex:1;" wx:if="{{order.status === 0}}" bindtap="payOrder">立即支付</view>
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 1 && order.direct_cancelable}}" bindtap="cancelOrder">取消订单</view>
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 1 && order.request_cancelable}}" bindtap="goCancelRequest">提交取消申请</view>
-    <view class="btn btn-sm" style="flex:1;" wx:if="{{order.status === 3}}" bindtap="scanPickup">扫码取餐</view>
-    <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 3}}" bindtap="inputCode">输入取餐码</view>
+    <view class="btn btn-sm" style="flex:1;" wx:if="{{order.status === 3}}" bindtap="simulatePickup">模拟扫码取餐</view>
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 2}}" bindtap="goTrack">查看配送位置</view>
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 3 || order.status === 4 || order.status === 6}}" bindtap="goRefund">退款/投诉</view>
   </view>

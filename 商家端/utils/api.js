@@ -20,6 +20,13 @@ const api = {
   deviceOpenBin: '/merchant/device/open-bin',
   deviceCloseBin: '/merchant/device/close-bin',
   deviceDispatch: '/merchant/device/dispatch',
+  // 一车多单：配送批次
+  batchList: '/merchant/delivery/batch/list',
+  batchDetail: '/merchant/delivery/batch/detail',
+  batchDispatch: '/merchant/delivery/batch/dispatch',
+  batchOpenBin: '/merchant/device/batch/open-bin',
+  batchCloseBin: '/merchant/device/batch/close-bin',
+  batchDispatchAll: '/merchant/device/batch/dispatch',
   refunds: '/merchant/refunds',
   refundDetail: '/merchant/refund/detail',
   refundHandle: '/merchant/refund/handle',

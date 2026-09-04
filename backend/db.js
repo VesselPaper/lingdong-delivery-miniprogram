@@ -4,7 +4,8 @@ const path = require('path')
 const fs = require('fs')
 
 const DATA_DIR = path.join(__dirname, 'data')
-const DB_PATH = path.join(DATA_DIR, 'lingdong.db')
+// 数据库路径：默认 backend/data/lingdong.db；可用 LINGDONG_DB 覆盖（多实例/测试隔离用）
+const DB_PATH = process.env.LINGDONG_DB ? path.resolve(process.env.LINGDONG_DB) : path.join(DATA_DIR, 'lingdong.db')
 
 function init() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
@@ -76,6 +77,8 @@ function init() {
       remark TEXT,
       pickup_code TEXT,
       delivery_task_id INTEGER,
+      batch_id INTEGER DEFAULT NULL,
+      picked_up_at TEXT,
       created_at TEXT DEFAULT (datetime('now','localtime')),
       updated_at TEXT DEFAULT (datetime('now','localtime'))
     );
@@ -88,9 +91,25 @@ function init() {
       price REAL,
       quantity INTEGER
     );
+    CREATE TABLE IF NOT EXISTS delivery_batches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      batch_no TEXT UNIQUE,
+      status INTEGER DEFAULT 0,
+      status_text TEXT DEFAULT '组单中',
+      device_sn TEXT DEFAULT '',
+      loading_landmark_id TEXT DEFAULT '',
+      route TEXT DEFAULT '[]',
+      total_orders INTEGER DEFAULT 0,
+      picked_orders INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      updated_at TEXT DEFAULT (datetime('now','localtime')),
+      dispatched_at TEXT,
+      completed_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS delivery_tasks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER,
+      batch_id INTEGER DEFAULT NULL,
       platform_task_id TEXT,
       device_sn TEXT,
       task_status INTEGER DEFAULT 0,
@@ -149,13 +168,25 @@ function migrate(db) {
   const add = [
     ['platform_building_id', 'TEXT DEFAULT \'\''],
     ['platform_map_id', 'TEXT DEFAULT \'\''],
-    ['platform_landmark_id', 'TEXT DEFAULT \'\'']
+    ['platform_landmark_id', 'TEXT DEFAULT \'\''],
+    ['pos_x', 'REAL DEFAULT 0'],
+    ['pos_y', 'REAL DEFAULT 0']
   ]
   add.forEach(([name, def]) => {
     if (!cols.includes(name)) {
       db.exec(`ALTER TABLE landmarks ADD COLUMN ${name} ${def}`)
     }
   })
+  // orders：批次/取餐标记（一车多单）
+  const orderCols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name)
+  if (!orderCols.includes('batch_id')) db.exec("ALTER TABLE orders ADD COLUMN batch_id INTEGER DEFAULT NULL")
+  if (!orderCols.includes('picked_up_at')) db.exec("ALTER TABLE orders ADD COLUMN picked_up_at TEXT")
+  // delivery_tasks：批次归属
+  const taskCols = db.prepare('PRAGMA table_info(delivery_tasks)').all().map((c) => c.name)
+  if (!taskCols.includes('batch_id')) db.exec("ALTER TABLE delivery_tasks ADD COLUMN batch_id INTEGER DEFAULT NULL")
+  // users：订单消息已读时间（我的页红点）
+  const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
+  if (!userCols.includes('order_read_at')) db.exec("ALTER TABLE users ADD COLUMN order_read_at TEXT")
   // 历史数据修正：地址 landmark_id 若存成 "2.0" 这类数值文本，规范化为 "2"
   const addrRows = db.prepare('SELECT id, landmark_id FROM addresses').all()
   addrRows.forEach((r) => {

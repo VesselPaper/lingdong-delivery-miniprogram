@@ -52,7 +52,8 @@ Page({
     try {
       const data = await request.get(api.deliveryTrack + '?order_id=' + this.data.orderId)
       const task = data.task || null
-      const taskText = task ? task.status_text : data.order_status_text
+      // 服务端已给出更准确的状态文案（含组单中/待上货等批次阶段）
+      const taskText = data.task_text || (task ? task.status_text : data.order_status_text)
       const stepMap = { 0: 0, 10: 1, 20: 2, 30: 2, 50: 3, 60: 3, 70: 4, 80: 4 }
       const step = task ? (stepMap[task.task_status] || 0) : 0
       const percent = task ? Math.min(100, step * 25) : 0
@@ -65,6 +66,7 @@ Page({
       this.setData({
         order: data,
         task,
+        batch: data.batch || null,
         taskText,
         progressPercent: percent,
         progressStep: step,
@@ -83,37 +85,9 @@ Page({
     wx.switchTab({ url: '/pages/index/index' })
   },
 
-  async confirmReceive(code) {
-    try {
-      await request.post(api.deliveryConfirm, { order_id: this.data.orderId, scan_code: code || '' })
-      wx.showToast({ title: '取餐成功', icon: 'success' })
-      this.load()
-    } catch (e) { /* handled */ }
-  },
-
-  scanPickup() {
-    wx.scanCode({
-      onlyFromCamera: false,
-      success: (res) => this.confirmReceive(res.result),
-      fail: () => {}
-    })
-  },
-
-  // 模拟扫码取餐：模拟已扫到机器人二维码，跳转到取餐页（开舱/取餐/关舱逻辑在取餐页）
+  // 模拟扫码取餐（测试阶段）：不真扫码，直接进入取餐页（开舱/取餐/关舱逻辑在取餐页）
   simulatePickup() {
     if (!this.data.orderId) return wx.showToast({ title: '暂无可取餐订单', icon: 'none' })
     wx.navigateTo({ url: '/pages/delivery/pickup?order_id=' + this.data.orderId })
-  },
-
-  inputCode() {
-    wx.showModal({
-      title: '输入取餐码',
-      editable: true,
-      placeholderText: '请输入机器人屏幕上的取餐码',
-      confirmColor: '#2E7CF6',
-      success: (r) => {
-        if (r.confirm && r.content) this.confirmReceive(String(r.content).trim())
-      }
-    })
   }
 })

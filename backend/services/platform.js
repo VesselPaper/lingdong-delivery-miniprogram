@@ -125,14 +125,17 @@ async function syncLandmarks(store) {
       if (!p || !p.landmarkName) continue
       const lmId = p.landmarkId || ''
       const type = isLoading(p) ? 'loadingPoint' : 'deliverPoint'
+      const pose = Array.isArray(p.pose) ? p.pose : []
+      const posX = pose.length > 0 ? Number(pose[0]) : 0
+      const posY = pose.length > 1 ? Number(pose[1]) : 0
       const exist = lmId ? store.prepare('SELECT id FROM landmarks WHERE platform_landmark_id=?').get(lmId) : null
       if (exist) {
-        const r = store.prepare('UPDATE landmarks SET name=?, building=?, floor=?, type=?, sort=?, platform_building_id=?, platform_map_id=? WHERE id=?')
-          .run(p.landmarkName, building.buildingName || '', p.floor || '', type, sort, buildingId, p.mapId || '', exist.id)
+        const r = store.prepare('UPDATE landmarks SET name=?, building=?, floor=?, type=?, sort=?, platform_building_id=?, platform_map_id=?, pos_x=?, pos_y=? WHERE id=?')
+          .run(p.landmarkName, building.buildingName || '', p.floor || '', type, sort, buildingId, p.mapId || '', posX, posY, exist.id)
         if (r.changes) updated++
       } else {
-        store.prepare('INSERT INTO landmarks (name, building, floor, type, sort, platform_building_id, platform_map_id, platform_landmark_id) VALUES (?,?,?,?,?,?,?,?)')
-          .run(p.landmarkName, building.buildingName || '', p.floor || '', type, sort, buildingId, p.mapId || '', lmId)
+        store.prepare('INSERT INTO landmarks (name, building, floor, type, sort, platform_building_id, platform_map_id, platform_landmark_id, pos_x, pos_y) VALUES (?,?,?,?,?,?,?,?,?,?)')
+          .run(p.landmarkName, building.buildingName || '', p.floor || '', type, sort, buildingId, p.mapId || '', lmId, posX, posY)
         inserted++
       }
       sort++
@@ -167,6 +170,154 @@ function createQueueTask(store, order) {
     realDispatch(store, taskId, order, loading, unloading)
   }
   return taskId
+}
+
+// 自动挑选一台可用机器人（在线且空闲/待机/充电中），供批次派车时指派
+async function pickAvailableRobot() {
+  if (MOCK || !platformReady()) return null
+  try {
+    const r = await getDeviceList()
+    if (!r.ok || !r.robots || !r.robots.length) return null
+    const free = r.robots.find((x) => x.online && ['idle', 'standby', 'charging', 'returnChargingPile', 'returnStandby'].includes(x.machine_status))
+    return free || r.robots.find((x) => x.online) || null
+  } catch (e) {
+    return null
+  }
+}
+
+// ---------------- 批次派车：为一车多单批量创建平台任务 ----------------
+// 每单一个平台任务（outOrderNo 独立、取餐码独立），同一批次所有任务共用同一设备/货仓；
+// 停靠顺序来自批次 route，按 stop 顺序创建并以 priority 递减提示平台按序配送。
+async function createTasksForBatch(store, batch, orders, route) {
+  const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get() || null
+  const stopOfOrder = new Map() // orderId -> { stop, priority }
+  route.forEach((stop) => {
+    const priority = Math.max(1, 10 - (Number(stop.stop) - 1)) // 第一站最高
+    stop.order_ids.forEach((oid) => stopOfOrder.set(oid, { stop: Number(stop.stop), priority }))
+  })
+  const results = []
+  for (const order of orders) {
+    const unloading = store.prepare('SELECT * FROM landmarks WHERE id=?').get(order.landmark_id)
+    const info = store.prepare(
+      'INSERT INTO delivery_tasks (order_id, batch_id, platform_task_id, device_sn, task_status, status_text) VALUES (?,?,?,?,?,?)'
+    ).run(order.id, batch.id, '', batch.device_sn || '', 0, '排队中')
+    const taskId = Number(info.lastInsertRowid)
+    store.prepare("UPDATE orders SET delivery_task_id=?, status=2, updated_at=datetime('now','localtime') WHERE id=?")
+      .run(taskId, order.id)
+    const stopInfo = stopOfOrder.get(order.id) || { stop: 1, priority: 10 }
+    if (MOCK) {
+      const t = { step: 0, taskId }
+      mockTasks.set(taskId, t)
+      t.timer = setTimeout(() => mockAdvance(store, taskId), 6000)
+    } else {
+      await realDispatchBatch(store, taskId, order, loading, unloading, batch, stopInfo)
+    }
+    results.push({ task_id: taskId, order_id: order.id, stop: stopInfo.stop })
+  }
+  return results
+}
+
+// 批次真实派车：与单任务 realDispatch 相同，但指定设备 + 按停靠顺序排 priority
+async function realDispatchBatch(store, taskId, order, loading, unloading, batch, stopInfo) {
+  if (!platformReady()) {
+    updateTask(store, taskId, '未配置平台凭据，任务未下发')
+    console.warn('[platform] 未配置 PLATFORM_APPID/PLATFORM_SECRET，真实配送未启用')
+    return
+  }
+  let l = loading
+  let u = unloading
+  if (!l || !u || !l.platform_landmark_id || !u.platform_landmark_id) {
+    const r = await syncLandmarks(store)
+    if (r && r.ok) {
+      l = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
+      u = store.prepare('SELECT * FROM landmarks WHERE id=?').get(order.landmark_id)
+    }
+  }
+  if (!l || !u || !l.platform_landmark_id || !u.platform_landmark_id) {
+    updateTask(store, taskId, '待配置平台点位，任务未下发')
+    console.warn('[platform] 缺少平台点位映射（platform_landmark_id），无法创建真实任务')
+    return
+  }
+  const body = {
+    principalId: PRINCIPAL_ID,
+    buildingId: u.platform_building_id || l.platform_building_id || '',
+    stockType: 1, // 舱位类型：0 大舱 1 中舱 2 小舱（对接文档：单舱机型默认中舱）
+    deviceSn: batch.device_sn || '', // 指定设备排队，保证一车多单同机
+    loadingMapId: l.platform_map_id,
+    loadingLandmarkId: l.platform_landmark_id,
+    unloadingMapId: u.platform_map_id,
+    unloadingLandmarkId: u.platform_landmark_id,
+    unloadingLandmarkName: u.name,
+    appointUnloadingPoint: 1,
+    priority: stopInfo.priority,
+    outOrderNo: [order.order_no],
+    loadingStrategy: { match: 10, strategies: { anyCode: order.pickup_code } },
+    unloadingStrategy: { match: 10, strategies: { contact: order.contact_phone || '', roomNum: order.pickup_code } },
+    feedbackDeliveryTaskUrl: CALLBACK_BASE ? CALLBACK_BASE + '/api/platform/callback/delivery' : '',
+    checkBizOrderStatusUrl: CALLBACK_BASE ? CALLBACK_BASE + '/api/platform/check-order' : '',
+    extInfo: { businessType: 'takeaway', batchNo: batch.batch_no, stop: stopInfo.stop },
+    consigneePrincipalName: order.contact_name || '',
+    consigneePrincipalPhone: order.contact_phone || ''
+  }
+  try {
+    const r = await requestPlatform('POST', '/open-api/v1/deliveryTask/queue/create', body)
+    const ok = r && (r.code === 'COMM_200' || r.success === true)
+    if (ok) {
+      const pid = (r.data && (r.data.id || r.data.taskId || r.data.deliveryTaskId)) || ''
+      if (pid) {
+        store.prepare("UPDATE delivery_tasks SET platform_task_id=?, task_status=0, status_text='排队中', updated_at=datetime('now','localtime') WHERE id=?")
+          .run(String(pid), taskId)
+      }
+      console.log('[platform] 批次任务创建成功 taskId=' + taskId + ' platformTaskId=' + pid + ' batch=' + batch.batch_no + ' stop=' + stopInfo.stop)
+    } else {
+      updateTask(store, taskId, '创建任务失败：' + ((r && r.msg) || '未知错误'))
+      console.warn('[platform] queue/create 失败', r)
+    }
+  } catch (e) {
+    updateTask(store, taskId, '创建任务异常：' + e.message)
+    console.warn('[platform] 创建排队任务异常', e.message)
+  }
+}
+
+// 批次内待上货任务列表（任务状态 < 50）
+function batchPendingTasks(store, batchId) {
+  return store.prepare(`
+    SELECT d.*, o.order_no, o.pickup_code, o.landmark_name, o.contact_name, o.contact_phone
+    FROM delivery_tasks d JOIN orders o ON o.id = d.order_id
+    WHERE d.batch_id=? AND d.task_status < 50 ORDER BY d.id ASC`).all(batchId)
+}
+
+// 批次上货验证（逐任务 loading/verify，autoOpen 开舱一次）
+async function verifyBatchLoading(store, batchId) {
+  if (MOCK) {
+    const tasks = batchPendingTasks(store, batchId)
+    return tasks.map((t) => ({ task_id: t.id, ok: true, msg: '' }))
+  }
+  const tasks = batchPendingTasks(store, batchId)
+  const out = []
+  for (const t of tasks) {
+    if (!t.platform_task_id) { out.push({ task_id: t.id, ok: false, msg: '任务未下发到平台' }); continue }
+    const r = await loadingVerify(t.device_sn, t.platform_task_id, { anyCode: t.pickup_code })
+    out.push({ task_id: t.id, ok: r.ok, msg: r.ok ? '' : r.msg })
+  }
+  return out
+}
+
+// 批次确认上货并开始配送（逐任务 loading/confirm）
+async function confirmBatchLoading(store, batchId) {
+  if (MOCK) {
+    const tasks = batchPendingTasks(store, batchId)
+    return tasks.map((t) => ({ task_id: t.id, ok: true, msg: '' }))
+  }
+  const tasks = batchPendingTasks(store, batchId)
+  const out = []
+  for (const t of tasks) {
+    if (!t.platform_task_id) { out.push({ task_id: t.id, ok: false, msg: '任务未下发到平台' }); continue }
+    if (!t.device_sn) { out.push({ task_id: t.id, ok: false, msg: '缺少设备编号' }); continue }
+    const r = await loadingConfirm(t.device_sn, t.platform_task_id, { anyCode: t.pickup_code })
+    out.push({ task_id: t.id, ok: r.ok, msg: r.ok ? '' : r.msg })
+  }
+  return out
 }
 
 // 真实模式：调用排队任务创建接口（queue/create）
@@ -246,6 +397,13 @@ function applyStatus(store, taskId, status, text) {
   else if (status >= 100 && status < 110) orderStatus = 6    // 送货失败 -> 配送异常
   if (orderStatus !== null && Number(order.status) !== orderStatus) {
     store.prepare("UPDATE orders SET status=?, updated_at=datetime('now','localtime') WHERE id=?").run(orderStatus, order.id)
+  }
+  // 一车多单联动：任务完成/取消时更新批次（取餐计数/完成判断）
+  const task = store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(taskId)
+  if (task) {
+    try {
+      require('./batch').onTaskStatus(store, task, Number(status))
+    } catch (e) { /* 批次联动异常静默 */ }
   }
 }
 
@@ -446,4 +604,4 @@ async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, applyStatus, platformReady, getDeviceList, grantControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm }
+module.exports = { createQueueTask, createTasksForBatch, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, applyStatus, platformReady, getDeviceList, grantControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm }

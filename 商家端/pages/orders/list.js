@@ -60,22 +60,9 @@ Page({
     wx.navigateTo({ url: '/pages/orders/detail?id=' + e.currentTarget.dataset.id })
   },
 
-  // 模拟扫码配单：不真扫码，从待接单订单里选一单，跳转扫码配单结果页确认接单
+  // 模拟扫码配单（测试阶段）：不真扫码，直接进入配单/上货页（一车多单批次流程）
   simulateScan() {
-    const pending = this.data.orders.filter((o) => o.status === 1)
-    if (!pending.length) {
-      wx.showToast({ title: '暂无待接单订单', icon: 'none' })
-      return
-    }
-    const pick = (m) => wx.navigateTo({ url: '/pages/orders/scanMatch?id=' + m.id })
-    if (pending.length === 1) {
-      pick(pending[0])
-      return
-    }
-    wx.showActionSheet({
-      itemList: pending.map((o) => o.order_no + ' ' + (o.landmark_name || '')),
-      success: (r) => pick(pending[r.tapIndex])
-    })
+    wx.navigateTo({ url: '/pages/device/loading' })
   },
 
   openFilter() {
@@ -108,16 +95,28 @@ Page({
     const res = await new Promise((resolve) => {
       wx.showModal({
         title: '确认接单',
-        content: '接单后机器人将前往门店装载餐品并配送',
+        content: '接单后订单并入配送批次（一车最多 12 单），派车后机器人前往门店装载配送',
         confirmColor: '#3078C0',
         success: (r) => resolve(r.confirm)
       })
     })
     if (!res) return
     try {
-      await request.post(api.orderConfirm, { id })
-      wx.showToast({ title: '已接单，机器人出发', icon: 'success' })
+      const r = await request.post(api.orderConfirm, { id })
+      wx.showToast({ title: '已接单，并入批次 ' + (r.batch_no || ''), icon: 'success' })
       this.load()
+      // 优化流程：接单后直达配单/上货页，免去「任务→商品→扫码配单」多步操作
+      const go = await new Promise((resolve2) => {
+        wx.showModal({
+          title: '订单已并入配送批次',
+          content: '是否立即前往配单页，为批次派车并上货配送？',
+          confirmText: '去配单',
+          cancelText: '稍后',
+          confirmColor: '#3078C0',
+          success: (r2) => resolve2(r2.confirm)
+        })
+      })
+      if (go) wx.navigateTo({ url: '/pages/device/loading' })
     } catch (e) { /* handled */ }
   }
 })
