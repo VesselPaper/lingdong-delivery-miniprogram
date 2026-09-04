@@ -949,6 +949,32 @@ if (!(process.env.PLATFORM_MOCK === 'true')) {
       }
     } catch (e) { /* 轮询异常静默 */ }
   }, POLL_MS)
+
+  // ---------- 超时未接单检测 ----------
+  // 机器人长时间未接单（任务卡在排队/去上货点/上货中）→ 订单标记「配送异常(6)」，由商家处理。
+  // 阈值默认 15 分钟，可用环境变量 DELIVERY_TIMEOUT_MS 覆盖；扫描间隔 DELIVERY_SCAN_MS（默认 60s）。
+  const DELIVERY_TIMEOUT_MS = Number(process.env.DELIVERY_TIMEOUT_MS || 15 * 60 * 1000)
+  const DELIVERY_SCAN_MS = Number(process.env.DELIVERY_SCAN_MS || 60 * 1000)
+  const STUCK_TASK_STATES = [0, 10, 20, 30, 40] // 排队中/任务已接收/去上货点/到达上货点/上货中（未真正开始配送）
+
+  function scanStuckDeliveries() {
+    try {
+      const cutoff = new Date(Date.now() - DELIVERY_TIMEOUT_MS)
+      const cs = cutoff.getFullYear() + '-' + String(cutoff.getMonth() + 1).padStart(2, '0') + '-' + String(cutoff.getDate()).padStart(2, '0') +
+        ' ' + String(cutoff.getHours()).padStart(2, '0') + ':' + String(cutoff.getMinutes()).padStart(2, '0') + ':' + String(cutoff.getSeconds()).padStart(2, '0')
+      const rows = store.prepare(`
+        SELECT d.id, d.order_id, d.task_status FROM delivery_tasks d JOIN orders o ON o.id = d.order_id
+        WHERE o.status = 2 AND d.task_status IN (0,10,20,30,40) AND d.updated_at < ?`).all(cs)
+      for (const r of rows) {
+        store.prepare("UPDATE orders SET status=6, updated_at=datetime('now','localtime') WHERE id=? AND status=2").run(r.order_id)
+        store.prepare("UPDATE delivery_tasks SET status_text='机器人长时间未接单（超时' + (?) + '分钟），订单已标记配送异常', updated_at=datetime('now','localtime') WHERE id=?")
+          .run(Math.round(DELIVERY_TIMEOUT_MS / 60000), r.id)
+        console.warn('[delivery] 配送超时未接单 → 配送异常 order=' + r.order_id + ' task=' + r.id + ' task_status=' + r.task_status)
+      }
+    } catch (e) { /* 扫描异常静默 */ }
+  }
+  setInterval(scanStuckDeliveries, DELIVERY_SCAN_MS)
+  scanStuckDeliveries()
 }
 
 app.listen(PORT, () => {
