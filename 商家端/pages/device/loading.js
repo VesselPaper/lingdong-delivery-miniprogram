@@ -4,6 +4,7 @@ const request = require('../../utils/request')
 // 上货操作（一车多单 · 配送批次）
 // 流程：批次列表 →（组单中批次「派车配送」/ 待上货批次「选择」或「模拟扫码」）
 //      → 已选批次（可开舱）→ 开舱放货 → 关舱 → 立即配送（整批出发）
+// 展示：与「我的任务」一致的卡片布局，批次/订单/商品三层卡面分明，商品一行一个完整展示。
 Page({
   data: {
     deviceSn: '',
@@ -33,15 +34,24 @@ Page({
       this.setData({ loadingList: true })
       const data = await request.get(api.devicePending, {}, { silent: true })
       this.setData({
-        openBatches: data.open_batches || [],
-        readyBatches: data.ready_batches || [],
-        activeBatches: data.active_batches || [],
+        openBatches: this.decorate(data.open_batches || [], 'open'),
+        readyBatches: this.decorate(data.ready_batches || [], 'ready'),
+        activeBatches: this.decorate(data.active_batches || [], 'active'),
         pendingError: '',
         loadingList: false
       })
     } catch (e) {
       this.setData({ loadingList: false, openBatches: [], readyBatches: [], activeBatches: [], pendingError: (e && e.message) || '获取批次失败' })
     }
+  },
+
+  // 为列表卡片附加操作标记与样式
+  decorate(list, kind) {
+    return list.map((b, idx) => Object.assign({}, b, {
+      action: kind === 'open' ? 'dispatch' : (kind === 'ready' ? 'select' : ''),
+      index: idx,
+      tagClass: kind === 'open' ? 'tag-blue' : (kind === 'ready' ? 'tag-green' : 'tag-orange')
+    }))
   },
 
   onReady() {
@@ -82,9 +92,12 @@ Page({
 
   selectBatchItem(item) {
     const sn = item.device_sn || 'SIMROBOT' + String(item.id).padStart(4, '0')
+    const batch = Object.assign({}, item)
+    delete batch.action
+    delete batch.index
     this.setData({
       deviceSn: sn,
-      batch: item,
+      batch,
       phase: 'scanned',
       statusText: '已选择批次，点击「打开舱门」放入本批 ' + (item.total_orders || 0) + ' 单货品'
     })
@@ -107,9 +120,12 @@ Page({
     request.post(api.deviceScan, { deviceSn: sn })
       .then((res) => {
         wx.hideLoading()
+        const batch = Object.assign({}, res)
+        delete batch.action
+        delete batch.index
         this.setData({
           deviceSn: sn,
-          batch: res,
+          batch,
           phase: 'scanned',
           statusText: '已识别机器人，批次 ' + res.batch_no + ' 共 ' + (res.total_orders || 0) + ' 单，点击「打开舱门」放货'
         })

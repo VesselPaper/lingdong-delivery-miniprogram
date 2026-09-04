@@ -181,6 +181,8 @@ function migrate(db) {
   const orderCols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name)
   if (!orderCols.includes('batch_id')) db.exec("ALTER TABLE orders ADD COLUMN batch_id INTEGER DEFAULT NULL")
   if (!orderCols.includes('picked_up_at')) db.exec("ALTER TABLE orders ADD COLUMN picked_up_at TEXT")
+  // orders：商品已售是否已结算（收货完成时已售+1/库存保留；取消退款时按此判断是否回补库存）
+  if (!orderCols.includes('goods_settled')) db.exec("ALTER TABLE orders ADD COLUMN goods_settled INTEGER DEFAULT 0")
   // delivery_tasks：批次归属
   const taskCols = db.prepare('PRAGMA table_info(delivery_tasks)').all().map((c) => c.name)
   if (!taskCols.includes('batch_id')) db.exec("ALTER TABLE delivery_tasks ADD COLUMN batch_id INTEGER DEFAULT NULL")

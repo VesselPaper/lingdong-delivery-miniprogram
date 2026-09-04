@@ -4,6 +4,65 @@
     <view class="load-status {{phase === 'dispatched' ? 'on' : ''}}">{{statusText}}</view>
   </view>
 
+  <!-- 批次卡模板：批次卡面分明，批次内每单卡面分明，每单内每个商品一行一个 -->
+  <template name="batchCard">
+    <view class="card batch-card">
+      <view class="batch-head">
+        <view class="batch-no-wrap">
+          <text class="batch-no">{{b.batch_no}}</text>
+          <text class="tag {{b.tagClass || 'tag-blue'}}">{{b.total_orders}} 单</text>
+          <text class="batch-status" wx:if="{{b.status_text}}">{{b.status_text}}</text>
+        </view>
+        <view class="batch-act" wx:if="{{b.action === 'dispatch'}}">
+          <view class="btn btn-sm dispatch-btn" catchtap="dispatchBatch" data-id="{{b.id}}">派车配送</view>
+        </view>
+        <view class="batch-act" wx:elif="{{b.action === 'select'}}">
+          <view class="btn btn-sm select-btn" catchtap="selectBatch" data-index="{{b.index}}">选择该批次上货</view>
+        </view>
+      </view>
+
+      <view class="batch-line" wx:if="{{b.device_sn}}">
+        <text class="line-label">机器人</text>
+        <text class="line-value">{{b.device_sn}}</text>
+      </view>
+      <view class="batch-line" wx:if="{{b.route_text}}">
+        <text class="line-label">路线</text>
+        <text class="line-value">{{b.route_text}}</text>
+      </view>
+      <view class="batch-line" wx:if="{{b.picked_orders !== undefined}}">
+        <text class="line-label">取餐进度</text>
+        <text class="line-value">已取 {{b.picked_orders}} / {{b.total_orders}} 单</text>
+      </view>
+
+      <!-- 批次内订单：每单一个子卡 -->
+      <view class="batch-orders">
+        <view class="b-order" wx:for="{{b.orders}}" wx:for-item="o" wx:key="id">
+          <view class="b-order-head">
+            <text class="b-order-no">{{o.order_no}}</text>
+            <text class="b-order-landmark">{{o.landmark_name}}</text>
+            <text class="b-order-status {{o.picked_up ? 'done' : ''}}">{{o.picked_up ? '已取' : (o.status_text || '')}}</text>
+          </view>
+          <view class="b-meta-line"><text class="b-meta-label">取餐码</text><text class="pickup-code">{{o.pickup_code}}</text></view>
+          <view class="b-meta-line"><text class="b-meta-label">收餐人</text><text class="b-meta-value">{{o.contact_name}} {{o.contact_phone}}</text></view>
+          <view class="b-meta-line" wx:if="{{o.created_at}}"><text class="b-meta-label">下单时间</text><text class="b-meta-value">{{o.created_at}}</text></view>
+
+          <!-- 单内商品：每行一个 -->
+          <view class="b-items">
+            <view class="b-item" wx:for="{{o.items}}" wx:for-item="it" wx:key="id">
+              <image wx:if="{{it.goods_image}}" class="b-item-img" src="{{it.goods_image}}" mode="aspectFill" />
+              <view wx:else class="b-item-img placeholder">
+                <t-icon name="app" size="24rpx" color="#BFBFBF" />
+              </view>
+              <view class="b-item-name">{{it.goods_name}}</view>
+              <text class="b-item-qty">x{{it.quantity}}</text>
+              <text class="b-item-price">¥{{it.price}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+  </template>
+
   <!-- ========== 批次列表（主入口） ========== -->
   <block wx:if="{{phase === 'idle'}}">
     <view class="card" wx:if="{{loadingList}}">
@@ -11,46 +70,17 @@
     </view>
 
     <!-- 组单中批次：可派车 -->
-    <view class="card" wx:if="{{openBatches.length}}">
+    <block wx:if="{{openBatches.length}}">
       <view class="section-title">组单中批次（可派车）<text class="section-sub">一车最多 12 单</text></view>
-      <view class="batch-item" wx:for="{{openBatches}}" wx:key="id" wx:for-item="b">
-        <view class="batch-top">
-          <text class="batch-no">{{b.batch_no}}</text>
-          <text class="tag tag-blue">{{b.total_orders}} 单</text>
-        </view>
-        <view class="batch-line text-sub text-sm"><text>送达点位</text><text>{{b.route_stops_text}}</text></view>
-        <view class="order-tags" wx:if="{{b.orders.length}}">
-          <text class="order-tag" wx:for="{{b.orders}}" wx:for-item="o" wx:key="id">{{o.landmark_name}}</text>
-        </view>
-        <view class="btn btn-block btn-sm dispatch-btn" data-id="{{b.id}}" bindtap="dispatchBatch">派车配送</view>
-      </view>
+      <template is="batchCard" wx:for="{{openBatches}}" wx:key="id" wx:for-item="b" data="{{b: b}}" />
       <view class="pending-error text-weak text-sm" wx:if="{{pendingError}}">{{pendingError}}</view>
-    </view>
+    </block>
 
     <!-- 待上货批次：已派车，可上货 -->
-    <view class="card" wx:if="{{readyBatches.length}}">
+    <block wx:if="{{readyBatches.length}}">
       <view class="section-title">待上货批次（机器人前往上货点）</view>
-      <view class="batch-item" wx:for="{{readyBatches}}" wx:key="id" wx:for-item="b">
-        <view class="batch-top">
-          <text class="batch-no">{{b.batch_no}}</text>
-          <text class="tag tag-green">{{b.total_orders}} 单</text>
-          <text class="batch-status text-weak">{{b.status_text}}</text>
-        </view>
-        <view class="batch-line text-sub text-sm"><text>机器人</text><text>{{b.device_sn || '待识别'}}</text></view>
-        <view class="route-line text-sub text-sm" wx:if="{{b.route.length}}">
-          <text class="route-label">路线</text>
-          <text class="route-value">{{b.route_text}}</text>
-        </view>
-        <view class="order-tags" wx:if="{{b.orders.length}}">
-          <text class="order-tag" wx:for="{{b.orders}}" wx:for-item="o" wx:key="id">{{o.landmark_name}}·{{o.pickup_code}}</text>
-        </view>
-        <view class="btn btn-block btn-sm select-btn" data-index="{{index}}" bindtap="selectBatch">选择该批次上货</view>
-      </view>
-    </view>
-
-    <view class="empty" wx:if="{{!openBatches.length && !readyBatches.length && !loadingList}}">
-      <view class="empty-text">暂无批次。新订单接单后将自动进入「组单中」批次，或在订单页接单后直达本页。</view>
-    </view>
+      <template is="batchCard" wx:for="{{readyBatches}}" wx:key="id" wx:for-item="b" data="{{b: b}}" />
+    </block>
 
     <!-- 模拟扫码（测试阶段） -->
     <view class="card scan-card" wx:if="{{readyBatches.length}}">
@@ -61,48 +91,20 @@
       </view>
     </view>
 
-    <!-- 配送中批次（参考） -->
-    <view class="card" wx:if="{{activeBatches.length}}">
-      <view class="section-title">配送中批次</view>
-      <view class="batch-item" wx:for="{{activeBatches}}" wx:key="id" wx:for-item="b">
-        <view class="batch-top">
-          <text class="batch-no">{{b.batch_no}}</text>
-          <text class="tag tag-orange">{{b.total_orders}} 单</text>
-        </view>
-        <view class="batch-line text-sub text-sm"><text>进度</text><text>已取 {{b.picked_orders}} / {{b.total_orders}} 单</text></view>
-        <view class="route-line text-sub text-sm" wx:if="{{b.route.length}}">
-          <text class="route-label">路线</text>
-          <text class="route-value">{{b.route_text}}</text>
-        </view>
-      </view>
+    <view class="empty" wx:if="{{!openBatches.length && !readyBatches.length && !loadingList}}">
+      <view class="empty-text">暂无批次。新订单接单后将自动进入「组单中」批次，或在订单页接单后直达本页。</view>
     </view>
+
+    <!-- 配送中批次（完整展示） -->
+    <block wx:if="{{activeBatches.length}}">
+      <view class="section-title">配送中批次</view>
+      <template is="batchCard" wx:for="{{activeBatches}}" wx:key="id" wx:for-item="b" data="{{b: b}}" />
+    </block>
   </block>
 
   <!-- ========== 已选批次（扫码后） ========== -->
   <block wx:if="{{batch}}">
-    <view class="card">
-      <view class="section-title">批次 {{batch.batch_no}}</view>
-      <view class="info-row text-sub"><text>机器人</text><text>{{batch.device_sn || deviceSn}}</text></view>
-      <view class="info-row text-sub"><text>本批订单</text><text>{{batch.total_orders}} 单</text></view>
-      <view class="info-row text-sub"><text>状态</text><text>{{batch.status_text}}</text></view>
-      <view class="info-row text-sub" wx:if="{{batch.control_msg}}"><text>控制权</text><text class="text-weak">{{batch.control_msg}}</text></view>
-
-      <view class="route-line text-sub text-sm" wx:if="{{batch.route.length}}">
-        <text class="route-label">配送路线</text>
-        <text class="route-value">{{batch.route_text}}</text>
-      </view>
-
-      <view class="section-title sub">本批订单清单（逐单取餐码）</view>
-      <view class="pending-item" wx:for="{{batch.orders}}" wx:key="id" wx:for-item="o">
-        <view class="pending-top">
-          <text class="pending-order">{{o.order_no}}</text>
-          <text class="pending-status">{{o.landmark_name}}</text>
-        </view>
-        <view class="pending-line text-sub text-sm"><text>取餐码</text><text class="pickup-code">{{o.pickup_code}}</text></view>
-        <view class="pending-line text-sub text-sm"><text>收餐人</text><text>{{o.contact_name}} {{o.contact_phone}}</text></view>
-        <view class="pending-line text-sub text-sm" wx:if="{{o.task && o.task.status_text}}"><text>任务</text><text>{{o.task.status_text}}</text></view>
-      </view>
-    </view>
+    <template is="batchCard" data="{{b: batch}}" />
 
     <!-- 操作 -->
     <view class="foot-actions" wx:if="{{batch}}">

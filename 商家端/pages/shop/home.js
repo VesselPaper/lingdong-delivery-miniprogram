@@ -4,7 +4,7 @@ const shopState = require('../../utils/shopState')
 
 Page({
   data: {
-    stats: { pending: 0, delivering: 0 },
+    stats: { pending: 0, ready_load: 0, delivering: 0, pickup: 0, exception: 0, aftersale: 0, cancel_requests: 0 },
     shopOpen: true,
     pendingBatchCount: 0
   },
@@ -16,7 +16,7 @@ Page({
     this.loadPendingBatches()
   },
 
-  // 待上货/组单中批次数量（配单入口角标）
+  // 待上货/组单中批次数量（底部「扫码上货」按钮角标）
   async loadPendingBatches() {
     try {
       const data = await request.get(api.devicePending, {}, { silent: true })
@@ -25,7 +25,7 @@ Page({
     } catch (e) { /* 忽略 */ }
   },
 
-  // 去配单 / 上货（一车多单批次页）
+  // 底部圆形按钮 / 主面板「待上货」：进入上货操作页（一车多单批次页）
   goLoading() {
     wx.navigateTo({ url: '/pages/device/loading' })
   },
@@ -41,7 +41,7 @@ Page({
     wx.navigateTo({ url: '/pages/orders/list' })
   },
 
-  // 我的任务四个分类按钮：跳转到对应订单分类（待接单1 / 异常6 / 售后5 / 未完结空=全部当前）
+  // 主面板分类跳转：待接单1 / 待取货3 / 异常6（空=全部当前）
   goOrdersTab(e) {
     const tab = e.currentTarget.dataset.tab || ''
     wx.navigateTo({ url: '/pages/orders/list' + (tab !== '' ? '?tab=' + tab : '') })
@@ -61,10 +61,6 @@ Page({
 
   goCancelRequests() {
     wx.navigateTo({ url: '/pages/orders/cancelRequests' })
-  },
-
-  goAfterSale() {
-    wx.navigateTo({ url: '/pages/orders/aftersale' })
   },
 
   goAftersale() {

@@ -58,6 +58,10 @@ Page({
     const cur = this.cartItem
     try {
       if (delta > 0) {
+        if (Number(this.data.goods.stock) <= 0) {
+          wx.showToast({ title: '商品已售罄', icon: 'none' })
+          return
+        }
         if (cur) {
           await request.put(api.cartUpdate, { id: cur.id, quantity: cur.quantity + 1 })
         } else {

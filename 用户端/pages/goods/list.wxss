@@ -219,6 +219,36 @@ page {
   text-overflow: ellipsis;
 }
 
+/* 名称 + 售罄标记同行 */
+.p-name-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.p-name-row .p-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.p-soldout {
+  flex-shrink: 0;
+  font-size: 18rpx;
+  color: #ffffff;
+  background: #E64340;
+  border-radius: 6rpx;
+  padding: 2rpx 10rpx;
+}
+
+/* 售罄置灰：加号/加购按钮灰色 */
+.stepper-btn.plus.disabled,
+.add-btn.disabled {
+  background: #E3E7EE;
+  border-color: #E3E7EE;
+  color: #B0B8C4;
+}
+
 /* 名称独占一行，价格与 -/+ 放底部一行，互不挤压 */
 .p-bottom {
   display: flex;

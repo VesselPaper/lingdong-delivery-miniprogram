@@ -70,6 +70,8 @@ function markOrderPicked(store, order) {
   if (row.picked_up_at) return
   store.prepare("UPDATE orders SET picked_up_at=datetime('now','localtime'), status=4, updated_at=datetime('now','localtime') WHERE id=?")
     .run(row.id)
+  // 收货完成：结算本单商品已售（幂等）
+  try { require('./goodsStats').settleSales(store, row.id) } catch (e) { /* 忽略 */ }
   if (row.batch_id) {
     store.prepare("UPDATE delivery_batches SET picked_orders=picked_orders+1, updated_at=datetime('now','localtime') WHERE id=?")
       .run(row.batch_id)
@@ -158,18 +160,22 @@ function planRoute(store, orders) {
   return arr.map((g, i) => ({ stop: i + 1, landmark_id: g.landmark ? g.landmark.id : g.orders[0].landmark_id, landmark_name: g.name, order_ids: g.orders.map((o) => o.id) }))
 }
 
-// 批次详情（含订单与路线），供商家/用户端展示
+// 批次详情（含订单、商品明细与路线），供商家/用户端展示
 function getBatchDetail(store, batchId) {
   const b = getBatch(store, batchId)
   if (!b) return null
   const orders = store.prepare('SELECT * FROM orders WHERE batch_id=? ORDER BY id ASC').all(batchId).map((o) => {
     const t = o.delivery_task_id ? store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(o.delivery_task_id) : null
+    // 订单商品明细：上货操作页需逐单逐商品展示（一行一个商品）
+    const items = store.prepare('SELECT id, goods_id, goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?').all(o.id)
     return {
       id: o.id, order_no: o.order_no, status: o.status, status_text: statusText(o.status),
       landmark_id: o.landmark_id, landmark_name: o.landmark_name,
       contact_name: o.contact_name, contact_phone: o.contact_phone,
       pickup_code: o.pickup_code, total_amount: o.total_amount,
+      created_at: o.created_at,
       picked_up: !!o.picked_up_at,
+      items,
       task: t ? { id: t.id, platform_task_id: t.platform_task_id, device_sn: t.device_sn, task_status: t.task_status, status_text: t.status_text } : null
     }
   })

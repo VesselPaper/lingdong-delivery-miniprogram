@@ -16,8 +16,10 @@
         <text class="orders-label">待付款</text>
       </view>
       <view class="orders-item" bindtap="goOrdersTab" data-status="2">
-        <view class="orders-icon"><t-icon name="robot-1" size="20" color="#ffffff" /></view>
-        <view class="orders-dot" wx:if="{{orderBadge.unread}}"></view>
+        <view class="orders-icon">
+          <t-icon name="robot-1" size="20" color="#ffffff" />
+          <view class="orders-dot" wx:if="{{orderBadge.unread}}"></view>
+        </view>
         <text class="orders-label">配送中</text>
       </view>
       <view class="orders-item" bindtap="goOrdersTab" data-status="3">
@@ -29,8 +31,10 @@
         <text class="orders-label">已完成</text>
       </view>
       <view class="orders-item" bindtap="goOrdersTab" data-status="">
-        <view class="orders-icon"><t-icon name="order" size="20" color="#ffffff" /></view>
-        <view class="orders-dot" wx:if="{{orderBadge.unread}}">{{orderBadge.count}}</view>
+        <view class="orders-icon">
+          <t-icon name="order" size="20" color="#ffffff" />
+          <view class="orders-dot" wx:if="{{orderBadge.unread}}">{{orderBadge.count}}</view>
+        </view>
         <text class="orders-label">全部订单</text>
       </view>
     </view>

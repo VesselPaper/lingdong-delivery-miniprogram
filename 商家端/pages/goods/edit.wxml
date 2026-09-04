@@ -6,7 +6,10 @@
     </view>
     <view class="field">
       <view class="field-label">分类</view>
-      <input class="field-input" placeholder="热卤 / 卤味 / 饮品 / 套餐" value="{{form.category}}" bind:change="onField" data-field="category" />
+      <view class="category-picker" bindtap="openCategoryPicker">
+        <text class="category-value {{form.category ? '' : 'placeholder'}}">{{form.category || '请选择分类'}}</text>
+        <t-icon name="chevron-down" size="28rpx" color="#999999" />
+      </view>
     </view>
   </view>
 
@@ -37,6 +40,7 @@
     <view class="field">
       <view class="field-label">库存</view>
       <input class="field-input" type="number" placeholder="99" value="{{form.stock}}" bind:change="onField" data-field="stock" />
+      <view class="field-hint text-weak text-sm">库存为 0 时用户端显示「售罄」且无法下单</view>
     </view>
   </view>
 
@@ -47,5 +51,28 @@
 
   <view class="bottom-bar safe-bottom">
     <view class="btn btn-block" bindtap="save">保存商品</view>
+  </view>
+
+  <!-- 分类选择弹层 -->
+  <view class="popup-mask" wx:if="{{showCategory}}" bindtap="closeCategory"></view>
+  <view class="popup-sheet" wx:if="{{showCategory}}">
+    <view class="popup-title">选择或新增分类</view>
+    <view class="chip-grid">
+      <view
+        class="chip {{form.category === item ? 'on' : ''}}"
+        wx:for="{{categories}}"
+        wx:key="*this"
+        bindtap="chooseCategory"
+        data-cat="{{item}}"
+      >{{item}}</view>
+      <view class="chip chip-new" bindtap="startNewCategory">＋ 新增分类</view>
+    </view>
+    <view class="new-cat-row" wx:if="{{addingCategory}}">
+      <input class="new-cat-input" placeholder="输入新分类名称" value="{{newCategory}}" bindinput="onNewCategory" focus />
+      <view class="btn btn-sm" bindtap="confirmNewCategory">确定</view>
+    </view>
+    <view class="popup-actions">
+      <view class="btn btn-ghost flex-1" bindtap="closeCategory">取消</view>
+    </view>
   </view>
 </view>

@@ -1,5 +1,6 @@
 .shop-home {
-  padding: 32rpx 24rpx 64rpx;
+  padding: 32rpx 24rpx 320rpx;
+  box-sizing: border-box;
 }
 
 .task-head {
@@ -20,38 +21,90 @@
   color: #F5A623;
 }
 
+.task-all {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  font-size: 24rpx;
+  color: #999999;
+}
+
+/* 主面板四态 */
 .task-grid {
   display: flex;
-  margin-top: 40rpx;
+  margin-top: 36rpx;
 }
 
 .task-item {
   flex: 1;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
 }
 
-.task-label {
+.task-icon {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 18rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6rpx;
 }
 
-.task-text {
-  font-size: 26rpx;
-}
-
-.task-blue { color: #3078C0; }
-.task-red { color: #E64340; }
-.task-orange { color: #F5A623; }
-.task-gray { color: #666666; }
+.icon-blue { background: #EAF3FF; }
+.icon-green { background: #E6F7F0; }
+.icon-orange { background: #FFF4E3; }
+.icon-violet { background: #F0ECFF; }
 
 .task-num {
-  margin-top: 20rpx;
   font-size: 40rpx;
   font-weight: 700;
   color: #111111;
+  line-height: 1;
 }
+
+.task-label {
+  font-size: 24rpx;
+}
+
+.task-blue { color: #3078C0; }
+.task-green { color: #2BA471; }
+.task-orange { color: #F5A623; }
+.task-violet { color: #7B61FF; }
+
+/* 异常 / 售后 次面板 */
+.task-sub-row {
+  display: flex;
+  margin-top: 28rpx;
+  padding-top: 24rpx;
+  border-top: 1rpx solid #F2F4F8;
+  gap: 20rpx;
+}
+
+.task-sub {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  background: #F8F9FB;
+  border-radius: 12rpx;
+  padding: 18rpx 0;
+}
+
+.task-sub-text {
+  font-size: 26rpx;
+  color: #333333;
+}
+
+.task-sub-num {
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.task-sub-num.red { color: #E64340; }
+.task-sub-num.orange { color: #F5A623; }
 
 .func-title {
   font-size: 30rpx;
@@ -62,7 +115,7 @@
 .func-grid {
   display: flex;
   flex-wrap: wrap;
-  margin-top: 40rpx;
+  margin-top: 36rpx;
 }
 
 .func-item {
@@ -89,6 +142,62 @@
   padding: 0 10rpx;
   border-radius: 16rpx;
   background: #E64340;
+  color: #ffffff;
+  font-size: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+/* 底部居中圆形「扫码上货」按钮（连接底部） */
+.load-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 200rpx;
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1rpx solid #EBEBEB;
+  box-shadow: 0 -6rpx 20rpx rgba(0, 0, 0, 0.05);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  z-index: 30;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.fab-btn {
+  position: relative;
+  width: 152rpx;
+  height: 152rpx;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #4E9AF8 0%, #3078C0 100%);
+  box-shadow: 0 10rpx 28rpx rgba(48, 120, 192, 0.4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rpx;
+  margin-top: -30rpx;
+}
+
+.fab-text {
+  font-size: 22rpx;
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.fab-badge {
+  position: absolute;
+  top: -6rpx;
+  right: -6rpx;
+  min-width: 34rpx;
+  height: 34rpx;
+  padding: 0 10rpx;
+  border-radius: 999rpx;
+  background: #E64340;
+  border: 3rpx solid #ffffff;
   color: #ffffff;
   font-size: 20rpx;
   display: flex;

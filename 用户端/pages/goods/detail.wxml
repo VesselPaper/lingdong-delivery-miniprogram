@@ -8,16 +8,20 @@
   <view class="info card">
     <view class="info-head">
       <view class="info-left">
-        <view class="name">{{goods.name}}</view>
+        <view class="name-row">
+          <view class="name">{{goods.name}}</view>
+          <view class="soldout-badge" wx:if="{{!inStock}}">售罄</view>
+        </view>
         <view class="price-row">
           <text class="price-now">¥{{goods.price}}</text>
           <text class="price-old" wx:if="{{goods.original_price}}">¥{{goods.original_price}}</text>
         </view>
+        <view class="stock-line text-weak text-sm" wx:if="{{!inStock}}">库存为 0，暂不可下单</view>
       </view>
       <view class="stepper">
         <view class="stepper-btn {{cartQty < 1 ? 'disabled' : ''}}" bindtap="onStep" data-delta="-1">-</view>
         <view class="stepper-num">{{cartQty}}</view>
-        <view class="stepper-btn plus" bindtap="onStep" data-delta="1">+</view>
+        <view class="stepper-btn plus {{!inStock ? 'disabled' : ''}}" bindtap="onStep" data-delta="1">+</view>
       </view>
     </view>
   </view>
@@ -43,6 +47,6 @@
       <text class="bar-price-old" wx:if="{{goods.original_price}}">¥{{goods.original_price}}</text>
     </view>
     <view class="bar-fee text-weak">配送费 ¥0 · 明细</view>
-    <view class="go-cart" bindtap="goCart">去结算</view>
+    <view class="go-cart {{!inStock ? 'disabled' : ''}}" bindtap="goCart">{{inStock ? '去结算' : '已售罄'}}</view>
   </view>
 </view>

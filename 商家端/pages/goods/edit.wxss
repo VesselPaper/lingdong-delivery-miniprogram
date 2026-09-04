@@ -57,3 +57,109 @@
 .img-hint {
   margin-top: 16rpx;
 }
+
+/* 分类选择器 */
+.category-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1rpx solid #E8E8E8;
+  border-radius: 12rpx;
+  padding: 20rpx 24rpx;
+  margin-top: 16rpx;
+  background: #FAFAFA;
+}
+
+.category-value {
+  font-size: 28rpx;
+  color: #111111;
+}
+
+.category-value.placeholder {
+  color: #999999;
+}
+
+.field-hint {
+  margin-top: 12rpx;
+}
+
+/* 分类弹层 */
+.popup-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 50;
+}
+
+.popup-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #ffffff;
+  border-radius: 24rpx 24rpx 0 0;
+  padding: 32rpx 32rpx calc(env(safe-area-inset-bottom) + 32rpx);
+  z-index: 51;
+}
+
+.popup-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #111111;
+  margin-bottom: 24rpx;
+}
+
+.chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.chip {
+  padding: 14rpx 28rpx;
+  border-radius: 999rpx;
+  background: #F3F4F6;
+  color: #333333;
+  font-size: 26rpx;
+  border: 2rpx solid transparent;
+}
+
+.chip.on {
+  background: #EAF3FF;
+  color: #3078C0;
+  border-color: #3078C0;
+}
+
+.chip-new {
+  background: #FFF4E3;
+  color: #F5A623;
+}
+
+.new-cat-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 24rpx;
+}
+
+.new-cat-input {
+  flex: 1;
+  border: 1rpx solid #E8E8E8;
+  border-radius: 12rpx;
+  padding: 16rpx 20rpx;
+  font-size: 28rpx;
+}
+
+.popup-actions {
+  display: flex;
+  margin-top: 32rpx;
+}
+
+.btn-ghost {
+  background: #ffffff;
+  border: 1rpx solid #D8D8D8;
+  color: #666666;
+}

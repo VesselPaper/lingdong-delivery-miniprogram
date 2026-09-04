@@ -54,6 +54,33 @@
   color: #1A1A1A;
 }
 
+.name-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.soldout-badge {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  color: #ffffff;
+  background: #E64340;
+  border-radius: 8rpx;
+  padding: 4rpx 12rpx;
+}
+
+.stock-line {
+  margin-top: 10rpx;
+}
+
+/* 售罄置灰：加号与去结算 */
+.stepper-btn.plus.disabled,
+.go-cart.disabled {
+  background: #E3E7EE;
+  border-color: #E3E7EE;
+  color: #B0B8C4;
+}
+
 .price-row {
   display: flex;
   align-items: baseline;

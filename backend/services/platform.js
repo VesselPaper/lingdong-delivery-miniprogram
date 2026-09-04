@@ -397,6 +397,14 @@ function applyStatus(store, taskId, status, text) {
   else if (status >= 100 && status < 110) orderStatus = 6    // 送货失败 -> 配送异常
   if (orderStatus !== null && Number(order.status) !== orderStatus) {
     store.prepare("UPDATE orders SET status=?, updated_at=datetime('now','localtime') WHERE id=?").run(orderStatus, order.id)
+    // 到达取餐点(3)/任务完成(4) → 本单已售结算（幂等）
+    if (orderStatus === 3 || orderStatus === 4) {
+      try { require('./goodsStats').settleSales(store, order.id) } catch (e) { /* 忽略 */ }
+    }
+    // 平台侧取消(5) → 未售出则回补库存
+    if (orderStatus === 5) {
+      try { require('./goodsStats').restoreStock(store, order.id) } catch (e) { /* 忽略 */ }
+    }
   }
   // 一车多单联动：任务完成/取消时更新批次（取餐计数/完成判断）
   const task = store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(taskId)

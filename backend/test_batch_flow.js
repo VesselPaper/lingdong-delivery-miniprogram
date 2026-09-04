@@ -74,6 +74,21 @@ function assert(cond, msg) {
       assert(p.code === 0, '支付 order=' + c.data.order_id + ' auto=' + (p.data.auto_accept ? 'yes' : 'no'))
     }
 
+    // 商品库存/销量（收货完成才结算销量，下单仅扣库存）
+    const goodsBefore = await api('GET', '/merchant/goods', null, mToken)
+    const g1 = goodsBefore.data.find((x) => x.id === 1)
+    assert(Number(g1.stock) === 96, '下单扣库存：商品1 100→96（4单各1）')
+    assert(Number(g1.sales) === 326, '下单不结算销量：商品1 sales 仍为 326')
+
+    // 商品分类接口
+    const cats = await api('GET', '/merchant/goods/categories', null, mToken)
+    assert(cats.code === 0 && cats.data.length > 0 && cats.data.indexOf('热卤') > -1, '商品分类列表可用')
+
+    // 库存接口：标记售空=0 必须保留 0（修复「设0变999」），再恢复
+    const s0 = await api('PUT', '/merchant/goods/stock', { id: 5, stock: 0 }, mToken)
+    assert(s0.code === 0 && Number(s0.data.stock) === 0, '标记售空：商品5 库存=0（不回落 999）')
+    await api('PUT', '/merchant/goods/stock', { id: 5, stock: 200 }, mToken)
+
     // 批次列表：应有一个组单中批次，4 单
     const pend = await api('GET', '/merchant/device/pending', null, mToken)
     assert(pend.code === 0, '获取待上货批次')
@@ -96,6 +111,7 @@ function assert(cond, msg) {
     assert(new Set(codes).size === codes.length, '每单独立取餐码且互不相同: ' + codes.join(','))
     const taskIds = disp.data.orders.map((o) => o.task && o.task.id)
     assert(taskIds.every(Boolean), '每单已创建配送任务')
+    assert('items' in disp.data.orders[0] && Array.isArray(disp.data.orders[0].items) && disp.data.orders[0].items.length >= 1, '批次订单含 items 商品明细（上货页逐商品展示）')
 
     // 模拟扫码识别机器人
     const scan = await api('POST', '/merchant/device/scan', { deviceSn: 'TESTROBOT001' }, mToken)
@@ -139,6 +155,11 @@ function assert(cond, msg) {
     }
     const d2 = await api('GET', '/merchant/delivery/batch/detail?batch_id=' + batchId, null, mToken)
     assert(d2.data.status === 3, '全部取完 → 批次完成 status=' + d2.data.status_text)
+
+    // 收货完成：已售结算（4 单全部取走 → sales 326+4=330）
+    const goodsAfter = await api('GET', '/merchant/goods', null, mToken)
+    const g1b = goodsAfter.data.find((x) => x.id === 1)
+    assert(Number(g1b.sales) >= 330, '收货完成结算销量：商品1 sales≥330（实际 ' + g1b.sales + '）')
 
     // 我的页红点
     const badge = await api('GET', '/user/order/badge', null, sToken)

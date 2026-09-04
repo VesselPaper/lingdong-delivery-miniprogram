@@ -113,6 +113,31 @@
   color: #111111;
 }
 
+.goods-name-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.goods-name-row .goods-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.soldout-tag {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  color: #ffffff;
+  background: #E64340;
+  border-radius: 8rpx;
+  padding: 4rpx 10rpx;
+}
+
+.action-text.text-green {
+  color: #2BA471;
+}
+
 .goods-meta {
   margin-top: 8rpx;
   font-size: 24rpx;

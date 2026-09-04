@@ -1,5 +1,5 @@
 .load-page {
-  padding: 24rpx 32rpx 60rpx;
+  padding: 24rpx 32rpx 80rpx;
 }
 
 .load-head {
@@ -43,47 +43,215 @@
   font-size: 40rpx;
 }
 
-.pending-item {
-  padding: 24rpx 8rpx;
+/* ---------- 批次卡片（卡面分明） ---------- */
+.batch-card {
+  margin-bottom: 24rpx;
+  border-radius: 24rpx;
+  box-shadow: 0 4rpx 20rpx rgba(31, 63, 122, 0.06);
+}
+
+.batch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 16rpx;
   border-bottom: 1rpx solid #F0F2F5;
 }
 
-.pending-item:last-child {
-  border-bottom: none;
-}
-
-.pending-top {
+.batch-no-wrap {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 14rpx;
+  flex-wrap: wrap;
 }
 
-.pending-order {
-  font-size: 28rpx;
+.batch-no {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #111111;
+}
+
+.batch-status {
+  font-size: 22rpx;
+  color: #999999;
+}
+
+.batch-act {
+  flex-shrink: 0;
+}
+
+.batch-line {
+  display: flex;
+  align-items: baseline;
+  padding: 8rpx 0;
+}
+
+.batch-line .line-label {
+  font-size: 24rpx;
+  color: #666666;
+  width: 110rpx;
+  flex-shrink: 0;
+}
+
+.batch-line .line-value {
+  flex: 1;
+  font-size: 24rpx;
+  color: #111111;
+  word-break: break-all;
+}
+
+/* ---------- 批次内订单（每单一个子卡） ---------- */
+.batch-orders {
+  margin-top: 16rpx;
+}
+
+.b-order {
+  background: #F8F9FB;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 16rpx;
+}
+
+.b-order:last-child {
+  margin-bottom: 0;
+}
+
+.b-order-head {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding-bottom: 12rpx;
+  border-bottom: 1rpx dashed #E3E7EE;
+}
+
+.b-order-no {
+  font-size: 26rpx;
   font-weight: 600;
   color: #111111;
 }
 
-.pending-status {
+.b-order-landmark {
+  font-size: 24rpx;
+  color: #3078C0;
+  background: #EAF3FF;
+  border-radius: 8rpx;
+  padding: 4rpx 12rpx;
+}
+
+.b-order-status {
+  margin-left: auto;
+  font-size: 22rpx;
+  color: #F5A623;
+}
+
+.b-order-status.done {
+  color: #2BA471;
+}
+
+.b-meta-line {
+  display: flex;
+  align-items: baseline;
+  padding: 6rpx 0;
+}
+
+.b-meta-label {
+  font-size: 22rpx;
+  color: #999999;
+  width: 110rpx;
+  flex-shrink: 0;
+}
+
+.b-meta-value {
+  flex: 1;
+  font-size: 22rpx;
+  color: #333333;
+}
+
+.pickup-code {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #3078C0;
+  letter-spacing: 3rpx;
+}
+
+/* ---------- 单内商品（每行一个） ---------- */
+.b-items {
+  margin-top: 8rpx;
+  padding-top: 8rpx;
+}
+
+.b-item {
+  display: flex;
+  align-items: center;
+  padding: 10rpx 0;
+  border-bottom: 1rpx solid #EEF1F5;
+}
+
+.b-item:last-child {
+  border-bottom: none;
+}
+
+.b-item-img {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 10rpx;
+  flex-shrink: 0;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.b-item-img.placeholder {
+  background: #EEF1F5;
+}
+
+.b-item-name {
+  flex: 1;
+  min-width: 0;
+  margin: 0 16rpx;
+  font-size: 26rpx;
+  color: #111111;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.b-item-qty {
+  font-size: 24rpx;
+  color: #666666;
+}
+
+.b-item-price {
+  margin-left: 20rpx;
   font-size: 24rpx;
   color: #3078C0;
 }
 
-.pending-line {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 8rpx;
-}
-
+/* ---------- 其它 ---------- */
 .pending-error {
   padding: 16rpx 8rpx;
 }
 
-.pickup-code {
-  font-size: 34rpx;
-  font-weight: 700;
+.dispatch-btn,
+.select-btn {
+  padding: 12rpx 28rpx;
+  font-size: 24rpx;
+}
+
+.tag-blue {
+  background: #EEF4FD;
   color: #3078C0;
-  letter-spacing: 4rpx;
+}
+
+.tag-green {
+  background: #E6F7F0;
+  color: #2BA471;
+}
+
+.tag-orange {
+  background: #FFF3E8;
+  color: #F5A623;
 }
 
 .dispatch-zone {
@@ -144,105 +312,3 @@
   font-weight: 600;
   color: #2BA471;
 }
-
-/* 一车多单 · 批次卡片 */
-.section-sub {
-  margin-left: 12rpx;
-  font-size: 22rpx;
-  font-weight: 400;
-  color: #999999;
-}
-
-.batch-item {
-  padding: 24rpx 8rpx;
-  border-bottom: 1rpx solid #F0F2F5;
-}
-
-.batch-item:last-child {
-  border-bottom: none;
-}
-
-.batch-top {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-}
-
-.batch-no {
-  font-size: 30rpx;
-  font-weight: 700;
-  color: #111111;
-}
-
-.batch-status {
-  margin-left: auto;
-  font-size: 24rpx;
-}
-
-.batch-line {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 10rpx;
-  flex-wrap: wrap;
-  gap: 8rpx;
-}
-
-.route-line {
-  display: flex;
-  margin-top: 10rpx;
-  gap: 8rpx;
-}
-
-.route-label {
-  color: #999999;
-  flex-shrink: 0;
-}
-
-.route-value {
-  color: #333333;
-  flex: 1;
-  word-break: break-all;
-}
-
-.order-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10rpx;
-  margin-top: 12rpx;
-}
-
-.order-tag {
-  font-size: 22rpx;
-  color: #3078C0;
-  background: #EEF4FD;
-  border-radius: 8rpx;
-  padding: 6rpx 14rpx;
-}
-
-.tag-blue {
-  background: #EEF4FD;
-  color: #3078C0;
-}
-
-.tag-orange {
-  background: #FFF3E8;
-  color: #F5A623;
-}
-
-.dispatch-btn {
-  margin-top: 20rpx;
-}
-
-.select-btn {
-  margin-top: 20rpx;
-}
-
-.btn-sm {
-  padding: 16rpx 0;
-  font-size: 26rpx;
-}
-
-.section-title.sub {
-  margin-top: 24rpx;
-}
-

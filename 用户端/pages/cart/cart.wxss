@@ -86,6 +86,34 @@
   color: #1A1A1A;
 }
 
+.item-name-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.item-name-row .item-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.item-soldout {
+  flex-shrink: 0;
+  font-size: 18rpx;
+  color: #ffffff;
+  background: #E64340;
+  border-radius: 6rpx;
+  padding: 2rpx 10rpx;
+}
+
+/* 售罄置灰加号 */
+.stepper-btn.plus.disabled {
+  background: #E3E7EE;
+  border-color: #E3E7EE;
+  color: #B0B8C4;
+}
+
 .item-price {
   color: #FA4A2D;
   font-weight: 600;

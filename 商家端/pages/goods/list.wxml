@@ -38,8 +38,11 @@
           <t-icon name="{{item.icon}}" size="56rpx" color="#BFBFBF" />
         </view>
         <view class="goods-info">
-          <view class="goods-name ellipsis">{{item.name}}</view>
-          <view class="goods-meta text-sm">库存: {{item.stock}}　已售: 0</view>
+          <view class="goods-name-row">
+            <view class="goods-name ellipsis">{{item.name}}</view>
+            <view class="soldout-tag" wx:if="{{item.sold_out}}">售罄</view>
+          </view>
+          <view class="goods-meta text-sm">库存: {{item.stock}}　已售: {{item.sales || 0}}</view>
         </view>
         <view class="goods-price"><text class="price-symbol">¥</text><text class="price-num">{{item.price}}</text></view>
       </view>
@@ -53,8 +56,8 @@
           <text class="action-text">价格库存</text>
         </view>
         <view class="action" bindtap="markSoldOut" data-id="{{item.id}}">
-          <t-icon name="stop" size="32rpx" color="#333333" />
-          <text class="action-text">标记售罄</text>
+          <t-icon name="stop" size="32rpx" color="{{item.sold_out ? '#2BA471' : '#E64340'}}" />
+          <text class="action-text {{item.sold_out ? 'text-green' : ''}}">{{item.sold_out ? '恢复库存' : '标记售罄'}}</text>
         </view>
       </view>
     </view>

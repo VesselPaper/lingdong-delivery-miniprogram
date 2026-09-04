@@ -90,7 +90,7 @@ Page({
             .map((g) => {
               const t = THEMES[g.category] || DEFAULT_THEME
               const c = byGoods[g.id]
-              return Object.assign({}, g, { theme: t.bg, icon: t.icon, qty: c ? c.quantity : 0 })
+              return Object.assign({}, g, { theme: t.bg, icon: t.icon, qty: c ? c.quantity : 0, sold_out: Number(g.stock) <= 0 })
             })
         }))
         .filter((g) => g.items.length > 0)
@@ -169,6 +169,12 @@ Page({
     const cur = this.cartMap[gid]
     try {
       if (Number(delta) > 0) {
+        // 售罄商品禁止加购
+        const g = this.data.groups.reduce((acc, grp) => acc.concat(grp.items), []).find((x) => x.id === gid)
+        if (g && g.sold_out) {
+          wx.showToast({ title: '「' + g.name + '」已售罄', icon: 'none' })
+          return
+        }
         if (cur) {
           await request.put(api.cartUpdate, { id: cur.id, quantity: cur.quantity + 1 })
         } else {

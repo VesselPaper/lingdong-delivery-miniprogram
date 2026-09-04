@@ -16,7 +16,9 @@ Page({
   async loadCart() {
     try {
       const items = await request.get(api.cartList)
-      const valid = items.filter((it) => it.goods_status === 1)
+      const valid = items
+        .filter((it) => it.goods_status === 1)
+        .map((it) => Object.assign({}, it, { sold_out: Number(it.goods_stock) <= 0 }))
       const total = valid
         .filter((it) => it.selected)
         .reduce((s, it) => s + it.price * it.quantity, 0)
@@ -48,6 +50,10 @@ Page({
     const { id, delta } = e.currentTarget.dataset
     const it = this.data.items.find((x) => x.id === Number(id))
     if (!it) return
+    if (Number(delta) > 0 && it.sold_out) {
+      wx.showToast({ title: '「' + it.name + '」已售罄', icon: 'none' })
+      return
+    }
     const next = Number(it.quantity) + Number(delta)
     if (next < 1) {
       // 数量减到 0 = 从购物车移除该商品
@@ -62,6 +68,11 @@ Page({
     const selected = this.data.items.filter((it) => it.selected)
     if (!selected.length) {
       wx.showToast({ title: '请先选择商品', icon: 'none' })
+      return
+    }
+    const soldOut = selected.find((it) => it.sold_out)
+    if (soldOut) {
+      wx.showToast({ title: '「' + soldOut.name + '」已售罄，请先移除', icon: 'none' })
       return
     }
     const items = selected.map((it) => ({ goods_id: it.goods_id, quantity: it.quantity }))

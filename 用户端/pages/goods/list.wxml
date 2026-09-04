@@ -81,20 +81,35 @@
                   <t-icon wx:else name="{{item.icon}}" size="26" color="#BFBFBF" />
                 </view>
                 <view class="p-info">
-                  <view class="p-name">{{item.name}}</view>
+                  <view class="p-name-row">
+                    <view class="p-name">{{item.name}}</view>
+                    <text class="p-soldout" wx:if="{{item.sold_out}}">售罄</text>
+                  </view>
                   <view class="p-bottom">
                     <view class="p-price">
                       <text class="p-price-now">¥{{item.price}}</text>
                       <text class="p-old" wx:if="{{item.original_price}}">¥{{item.original_price}}</text>
                     </view>
-                    <view wx:if="{{item.qty > 0}}" class="stepper">
-                      <view class="stepper-btn" catchtap="onStep" data-id="{{item.id}}" data-delta="-1">-</view>
-                      <view class="stepper-num">{{item.qty}}</view>
-                      <view class="stepper-btn plus" catchtap="onStep" data-id="{{item.id}}" data-delta="1">+</view>
-                    </view>
-                    <view wx:else class="add-btn" catchtap="onStep" data-id="{{item.id}}" data-delta="1">
-                      <t-icon name="add" size="14" color="#ffffff" />
-                    </view>
+                    <block wx:if="{{item.sold_out}}">
+                      <view wx:if="{{item.qty > 0}}" class="stepper">
+                        <view class="stepper-btn" catchtap="onStep" data-id="{{item.id}}" data-delta="-1">-</view>
+                        <view class="stepper-num">{{item.qty}}</view>
+                        <view class="stepper-btn plus disabled" catchtap="onStep" data-id="{{item.id}}" data-delta="1">+</view>
+                      </view>
+                      <view wx:else class="add-btn disabled" catchtap="onStep" data-id="{{item.id}}" data-delta="1">
+                        <t-icon name="add" size="14" color="#B0B8C4" />
+                      </view>
+                    </block>
+                    <block wx:else>
+                      <view wx:if="{{item.qty > 0}}" class="stepper">
+                        <view class="stepper-btn" catchtap="onStep" data-id="{{item.id}}" data-delta="-1">-</view>
+                        <view class="stepper-num">{{item.qty}}</view>
+                        <view class="stepper-btn plus" catchtap="onStep" data-id="{{item.id}}" data-delta="1">+</view>
+                      </view>
+                      <view wx:else class="add-btn" catchtap="onStep" data-id="{{item.id}}" data-delta="1">
+                        <t-icon name="add" size="14" color="#ffffff" />
+                      </view>
+                    </block>
                   </view>
                 </view>
               </view>

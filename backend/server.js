@@ -29,6 +29,7 @@ const { init } = require('./db')
 const platform = require('./services/platform')
 const wxpay = require('./services/wxpay')
 const batch = require('./services/batch')
+const goodsStats = require('./services/goodsStats')
 
 const store = init()
 const app = express()
@@ -56,6 +57,13 @@ function auth(req, res, next) {
 
 function ok(res, data = null, msg = 'success') {
   res.json({ code: 0, msg, data })
+}
+
+// 库存值归一化：未传/空 → 默认 999；显式 0 必须保留为 0（修复「设库存 0 保存后变回 999」）
+function toStock(v, fallback = 999) {
+  if (v === undefined || v === null || v === '') return fallback
+  const n = Number(v)
+  return isNaN(n) || n < 0 ? 0 : n
 }
 
 // ---------- 登录 ----------
@@ -139,7 +147,7 @@ app.get('/api/landmarks', (req, res) => {
 // ---------- 购物车 ----------
 app.get('/api/cart/list', auth, (req, res) => {
   const rows = store.prepare(`
-    SELECT c.id, c.goods_id, c.quantity, c.selected, g.name, g.price, g.image, g.status AS goods_status
+    SELECT c.id, c.goods_id, c.quantity, c.selected, g.name, g.price, g.image, g.status AS goods_status, g.stock AS goods_stock
     FROM cart c LEFT JOIN goods g ON c.goods_id = g.id
     WHERE c.user_id=? ORDER BY c.id DESC`).all(req.user.id)
   ok(res, rows)
@@ -247,6 +255,8 @@ function withinFreeCancelWindow(order) {
 // 订单取消落库：订单置 5 已取消；若配送任务未完成，同步标记任务取消(110)；从配送批次中移除
 function applyOrderCancelled(order) {
   store.prepare("UPDATE orders SET status=5, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
+  // 取消且未售出 → 回补下单时扣减的库存
+  goodsStats.restoreStock(store, order.id)
   if (order.delivery_task_id) {
     const t = store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(order.delivery_task_id)
     if (t && Number(t.task_status) < 80) {
@@ -268,6 +278,7 @@ app.post('/api/order/create', auth, (req, res) => {
   const lineItems = items.map((it) => {
     const g = store.prepare('SELECT * FROM goods WHERE id=?').get(Number(it.goods_id))
     if (!g) throw new Error('商品不存在')
+    if (Number(g.stock) <= 0) throw new Error('「' + g.name + '」已售罄，请更换商品')
     total += g.price * Number(it.quantity || 1)
     return { goods: g, quantity: Number(it.quantity || 1) }
   })
@@ -281,7 +292,8 @@ app.post('/api/order/create', auth, (req, res) => {
   const insItem = store.prepare('INSERT INTO order_items (order_id, goods_id, goods_name, goods_image, price, quantity) VALUES (?,?,?,?,?,?)')
   lineItems.forEach(({ goods, quantity }) => {
     insItem.run(orderId, goods.id, goods.name, goods.image, goods.price, quantity)
-    store.prepare('UPDATE goods SET sales=sales+?, stock=MAX(0,stock-?) WHERE id=?').run(quantity, quantity, goods.id)
+    // 下单即扣库存（实时可用量，防超卖）；销量在「收货完成」时结算（见 goodsStats.settleSales）
+    store.prepare('UPDATE goods SET stock=MAX(0,stock-?) WHERE id=?').run(quantity, goods.id)
   })
   // 清空已选购物车
   store.prepare('DELETE FROM cart WHERE user_id=?').run(req.user.id)
@@ -551,8 +563,9 @@ app.post('/api/merchant/refund/handle', merchantGuard, (req, res) => {
       const amt = (amount === undefined || amount === null || isNaN(Number(amount)) || Number(amount) < 0) ? r.amount : Number(amount)
       store.prepare("UPDATE refunds SET status=3, amount=?, merchant_reply=?, handled_at=datetime('now','localtime') WHERE id=?")
         .run(amt, reply || '同意退款', r.id)
-      // 订单标记为已退款
+      // 订单标记为已退款；未售出的商品回补库存
       store.prepare("UPDATE orders SET status=7, updated_at=datetime('now','localtime') WHERE id=?").run(r.order_id)
+      goodsStats.restoreStock(store, r.order_id)
     } else if (action === 'reject') {
       if (!reply) return res.status(400).json({ code: 400, msg: '请填写拒绝理由' })
       store.prepare("UPDATE refunds SET status=2, merchant_reply=?, handled_at=datetime('now','localtime') WHERE id=?").run(reply, r.id)
@@ -621,6 +634,7 @@ app.post('/api/delivery/confirm', auth, (req, res) => {
     return res.status(400).json({ code: 400, msg: '取餐码不匹配，请扫描机器人屏幕上的取餐码' })
   }
   store.prepare("UPDATE orders SET status=4, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
+  goodsStats.settleSales(store, order.id)
   ok(res)
 })
 
@@ -669,6 +683,7 @@ app.post('/api/delivery/pickup-close', auth, async (req, res) => {
     if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg })
   }
   store.prepare("UPDATE orders SET status=4, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
+  goodsStats.settleSales(store, order.id)
   ok(res, { order_id: order.id, status: 4, test: !ready })
 })
 
@@ -712,12 +727,17 @@ app.get('/api/merchant/stats', merchantGuard, (req, res) => {
   const stats = {
     today_orders: store.prepare("SELECT COUNT(*) c FROM orders WHERE date(created_at)=?").get(today).c,
     today_amount: store.prepare("SELECT IFNULL(SUM(total_amount),0) s FROM orders WHERE date(created_at)=? AND status NOT IN (0,5)").get(today).s,
-    pending: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=1').get().c,
-    delivering: store.prepare('SELECT COUNT(*) c FROM orders WHERE status IN (2,3)').get().c,
-    finished: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=4').get().c,
+    // 主面板四态：待接单 / 待上货 / 配送中 / 待取货
+    pending: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=1').get().c,              // 待接单：订单
+    ready_load: store.prepare('SELECT COUNT(*) c FROM delivery_batches WHERE status=1').get().c,  // 待上货：批次
+    delivering: store.prepare('SELECT COUNT(*) c FROM delivery_batches WHERE status=2').get().c,  // 配送中：批次
+    pickup: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=3').get().c,                // 待取货：已送达未取
+    // 异常 / 售后（次面板）
     exception: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=6').get().c,
     aftersale: store.prepare('SELECT COUNT(*) c FROM refunds WHERE status=0').get().c,
-    cancel_requests: store.prepare('SELECT COUNT(*) c FROM cancel_requests WHERE status=0').get().c
+    cancel_requests: store.prepare('SELECT COUNT(*) c FROM cancel_requests WHERE status=0').get().c,
+    // 兼容旧字段
+    finished: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=4').get().c
   }
   ok(res, stats)
 })
@@ -873,17 +893,45 @@ app.get('/api/merchant/goods', merchantGuard, (req, res) => {
   ok(res, store.prepare('SELECT * FROM goods ORDER BY id DESC').all())
 })
 
+// 商品分类列表（供新增/编辑商品时选择或新增）
+app.get('/api/merchant/goods/categories', merchantGuard, (req, res) => {
+  const rows = store.prepare("SELECT category FROM goods WHERE category != '' GROUP BY category ORDER BY MIN(id)").all()
+  ok(res, rows.map((r) => r.category))
+})
+
+// 单独调整库存（标记售空=置0 / 恢复库存），不触碰其它字段
+app.put('/api/merchant/goods/stock', merchantGuard, (req, res) => {
+  const { id, stock } = req.body || {}
+  if (!id) return res.status(400).json({ code: 400, msg: '缺少商品 id' })
+  if (stock === undefined || stock === null || stock === '') return res.status(400).json({ code: 400, msg: '缺少库存值' })
+  try {
+    const g = store.prepare('SELECT * FROM goods WHERE id=?').get(Number(id))
+    if (!g) return res.status(404).json({ code: 404, msg: '商品不存在' })
+    store.prepare('UPDATE goods SET stock=? WHERE id=?').run(toStock(stock, 0), Number(id))
+    ok(res, store.prepare('SELECT * FROM goods WHERE id=?').get(Number(id)))
+  } catch (e) {
+    console.error('[goods/stock] ERROR', e && e.stack)
+    res.status(500).json({ code: 500, msg: e.message })
+  }
+})
+
 app.post('/api/merchant/goods', merchantGuard, (req, res) => {
   const { name, price, original_price, image, category, stock, description } = req.body || {}
+  if (!name) return res.status(400).json({ code: 400, msg: '商品名称不能为空' })
   const info = store.prepare('INSERT INTO goods (name, price, original_price, image, category, stock, description) VALUES (?,?,?,?,?,?,?)')
-    .run(name, Number(price), Number(original_price || 0), image || '', category || '其他', Number(stock || 999), description || '')
+    .run(name, Number(price), Number(original_price || 0), image || '', category || '其他', toStock(stock, 999), description || '')
   ok(res, { id: Number(info.lastInsertRowid) })
 })
 
 app.put('/api/merchant/goods', merchantGuard, (req, res) => {
   const { id, name, price, original_price, image, category, stock, description, status } = req.body || {}
+  if (!id) return res.status(400).json({ code: 400, msg: '缺少商品 id' })
+  const cur = store.prepare('SELECT * FROM goods WHERE id=?').get(Number(id))
+  if (!cur) return res.status(404).json({ code: 404, msg: '商品不存在' })
+  // 编辑商品时未传 stock 字段 → 保留原库存；传了（含 0）→ 用传入值（修复「设 0 变 999」）
+  const st = stock === undefined || stock === null || stock === '' ? cur.stock : toStock(stock, 999)
   store.prepare('UPDATE goods SET name=?, price=?, original_price=?, image=?, category=?, stock=?, description=?, status=? WHERE id=?')
-    .run(name, Number(price), Number(original_price || 0), image || '', category || '其他', Number(stock || 999), description || '', status !== undefined ? Number(status) : 1, Number(id))
+    .run(name, Number(price), Number(original_price || 0), image || '', category || '其他', st, description || '', status !== undefined ? Number(status) : 1, Number(id))
   ok(res)
 })
 

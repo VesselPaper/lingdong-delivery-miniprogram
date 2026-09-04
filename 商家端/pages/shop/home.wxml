@@ -1,40 +1,49 @@
 <view class="shop-home">
-  <view class="card task-card" bindtap="goOrders">
+  <!-- 主面板：任务四态 + 异常/售后 -->
+  <view class="card task-card">
     <view class="task-head">
       <view class="task-title-row">
         <view class="task-title">我的任务</view>
         <view class="tag {{shopOpen ? 'tag-green' : ''}}">{{shopOpen ? '营业中' : '歇业中'}}</view>
       </view>
-      <t-icon name="chevron-right" size="36rpx" color="#C0C0C0" />
+      <view class="task-all" bindtap="goOrders">全部订单<t-icon name="chevron-right" size="28rpx" color="#C0C0C0" /></view>
     </view>
+
+    <!-- 主面板四态：待接单 / 待上货 / 配送中 / 待取货 -->
     <view class="task-grid">
       <view class="task-item" catchtap="goOrdersTab" data-tab="1">
-        <view class="task-label">
-          <t-icon name="order" size="28rpx" color="#3078C0" />
-          <text class="task-text task-blue">待接单</text>
-        </view>
+        <view class="task-icon icon-blue"><t-icon name="order" size="30rpx" color="#3078C0" /></view>
         <view class="task-num">{{stats.pending}}</view>
+        <view class="task-label task-blue">待接单</view>
       </view>
-      <view class="task-item" catchtap="goOrdersTab" data-tab="6">
-        <view class="task-label">
-          <t-icon name="info-circle" size="28rpx" color="#E64340" />
-          <text class="task-text task-red">异常</text>
-        </view>
-        <view class="task-num">{{stats.exception}}</view>
+      <view class="task-item" catchtap="goLoading">
+        <view class="task-icon icon-green"><t-icon name="scan" size="30rpx" color="#2BA471" /></view>
+        <view class="task-num">{{stats.ready_load}}</view>
+        <view class="task-label task-green">待上货</view>
       </view>
-      <view class="task-item" catchtap="goAftersale">
-        <view class="task-label">
-          <t-icon name="service" size="28rpx" color="#F5A623" />
-          <text class="task-text task-orange">售后</text>
-        </view>
-        <view class="task-num">{{stats.aftersale}}</view>
-      </view>
-      <view class="task-item" catchtap="goOrdersTab" data-tab="">
-        <view class="task-label">
-          <t-icon name="time" size="28rpx" color="#666666" />
-          <text class="task-text task-gray">未完结</text>
-        </view>
+      <view class="task-item" catchtap="goMonitor">
+        <view class="task-icon icon-orange"><t-icon name="robot-1" size="30rpx" color="#F5A623" /></view>
         <view class="task-num">{{stats.delivering}}</view>
+        <view class="task-label task-orange">配送中</view>
+      </view>
+      <view class="task-item" catchtap="goOrdersTab" data-tab="3">
+        <view class="task-icon icon-violet"><t-icon name="location" size="30rpx" color="#7B61FF" /></view>
+        <view class="task-num">{{stats.pickup}}</view>
+        <view class="task-label task-violet">待取货</view>
+      </view>
+    </view>
+
+    <!-- 异常 / 售后（次面板） -->
+    <view class="task-sub-row">
+      <view class="task-sub" catchtap="goOrdersTab" data-tab="6">
+        <t-icon name="info-circle" size="26rpx" color="#E64340" />
+        <text class="task-sub-text">异常</text>
+        <text class="task-sub-num red">{{stats.exception}}</text>
+      </view>
+      <view class="task-sub" catchtap="goAftersale">
+        <t-icon name="service" size="26rpx" color="#F5A623" />
+        <text class="task-sub-text">售后</text>
+        <text class="task-sub-num orange">{{stats.aftersale}}</text>
       </view>
     </view>
   </view>
@@ -42,11 +51,6 @@
   <view class="card func-card">
     <view class="func-title">常用功能</view>
     <view class="func-grid">
-      <view class="func-item" bindtap="goLoading">
-        <t-icon name="scan" size="56rpx" color="#3078C0" />
-        <view class="func-text">配单/上货</view>
-        <view class="func-badge" wx:if="{{pendingBatchCount}}">{{pendingBatchCount}}</view>
-      </view>
       <view class="func-item" bindtap="goGoods">
         <t-icon name="cart" size="56rpx" color="#333333" />
         <view class="func-text">商品管理</view>
@@ -64,14 +68,23 @@
         <view class="func-text">取消申请</view>
         <view class="func-badge" wx:if="{{stats.cancel_requests}}">{{stats.cancel_requests}}</view>
       </view>
-      <view class="func-item" bindtap="goSettings">
-        <t-icon name="setting" size="56rpx" color="#333333" />
-        <view class="func-text">商铺设置</view>
-      </view>
       <view class="func-item" bindtap="goMonitor">
         <t-icon name="location" size="56rpx" color="#333333" />
         <view class="func-text">配送监控</view>
       </view>
+      <view class="func-item" bindtap="goSettings">
+        <t-icon name="setting" size="56rpx" color="#333333" />
+        <view class="func-text">商铺设置</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部居中：醒目圆形「扫码上货」按钮（进入上货操作页） -->
+  <view class="load-bar safe-bottom" bindtap="goLoading">
+    <view class="fab-btn">
+      <t-icon name="scan" size="44rpx" color="#ffffff" />
+      <text class="fab-text">扫码上货</text>
+      <view class="fab-badge" wx:if="{{pendingBatchCount}}">{{pendingBatchCount}}</view>
     </view>
   </view>
 </view>

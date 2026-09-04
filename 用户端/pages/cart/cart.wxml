@@ -19,13 +19,16 @@
             <t-icon wx:else name="app" size="20" color="#BFBFBF" />
           </view>
           <view class="item-info">
-            <view class="item-name ellipsis">{{item.name}}</view>
+            <view class="item-name-row">
+              <view class="item-name ellipsis">{{item.name}}</view>
+              <text class="item-soldout" wx:if="{{item.sold_out}}">售罄</text>
+            </view>
             <view class="item-price">¥{{item.price}}</view>
           </view>
           <view class="stepper">
             <view class="stepper-btn" bindtap="onQuantity" data-id="{{item.id}}" data-delta="-1">-</view>
             <view class="stepper-num">{{item.quantity}}</view>
-            <view class="stepper-btn plus" bindtap="onQuantity" data-id="{{item.id}}" data-delta="1">+</view>
+            <view class="stepper-btn plus {{item.sold_out ? 'disabled' : ''}}" bindtap="onQuantity" data-id="{{item.id}}" data-delta="1">+</view>
           </view>
         </view>
       </view>

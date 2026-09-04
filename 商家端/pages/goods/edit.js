@@ -10,11 +10,16 @@ const DEFAULT = {
 Page({
   data: {
     id: null,
-    form: Object.assign({}, DEFAULT)
+    form: Object.assign({}, DEFAULT),
+    categories: [],
+    showCategory: false,
+    addingCategory: false,
+    newCategory: ''
   },
 
   async onLoad(options) {
     this.setData({ id: options.id ? Number(options.id) : null })
+    this.loadCategories()
     if (options.id) {
       try {
         const list = await request.get(api.goods)
@@ -28,6 +33,41 @@ Page({
         }
       } catch (e) { /* handled */ }
     }
+  },
+
+  // 分类：加载现有分类（供选择/新增）
+  async loadCategories() {
+    try {
+      const categories = await request.get(api.goodsCategories, {}, { silent: true })
+      this.setData({ categories: categories || [] })
+    } catch (e) { /* 忽略 */ }
+  },
+
+  // ---------- 分类选择器：选现有分类 或 新增分类 ----------
+  openCategoryPicker() {
+    this.setData({ showCategory: true, addingCategory: false, newCategory: '' })
+  },
+  closeCategory() {
+    this.setData({ showCategory: false })
+  },
+  chooseCategory(e) {
+    const cat = e.currentTarget.dataset.cat
+    this.setData({ 'form.category': cat, showCategory: false })
+  },
+  startNewCategory() {
+    this.setData({ addingCategory: true })
+  },
+  onNewCategory(e) {
+    this.setData({ newCategory: e.detail.value })
+  },
+  confirmNewCategory() {
+    const name = (this.data.newCategory || '').trim()
+    if (!name) return wx.showToast({ title: '请输入分类名称', icon: 'none' })
+    if (this.data.categories.indexOf(name) > -1) {
+      this.setData({ 'form.category': name, showCategory: false })
+      return
+    }
+    this.setData({ categories: this.data.categories.concat([name]), 'form.category': name, showCategory: false })
   },
 
   onField(e) {

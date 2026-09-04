@@ -10,6 +10,8 @@ const api = {
   goods: '/merchant/goods',
   goodsUpdate: '/merchant/goods',
   goodsStatus: '/merchant/goods/status',
+  goodsCategories: '/merchant/goods/categories',
+  goodsStock: '/merchant/goods/stock',
   upload: '/merchant/upload',
   deliveryMonitor: '/merchant/delivery/monitor',
   robots: '/merchant/robots',
