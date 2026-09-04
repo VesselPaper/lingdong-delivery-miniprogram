@@ -1,0 +1,4 @@
+<view class="empty" wx:if="{{show}}">
+  <view class="empty-icon"><t-icon name="{{icon}}" size="72rpx" color="#D8D8D8" /></view>
+  <view class="empty-text">{{text}}</view>
+</view>

@@ -138,6 +138,14 @@ function assert(cond, msg) {
     const detail = await api('GET', '/merchant/delivery/batch/detail?batch_id=' + batchId, null, mToken)
     assert(detail.code === 0 && detail.data.status === 2, '批次状态→配送中')
 
+    // 任务页 stage=deliver（配送中）应过滤出本批订单，且 stage_text=配送中
+    const stageDeliver = await api('GET', '/merchant/orders?stage=deliver', null, mToken)
+    const inDeliver = stageDeliver.data.filter((o) => created.indexOf(o.id) > -1)
+    assert(inDeliver.length === 4, '任务页「配送中」分类=本批 4 单')
+    assert(inDeliver.every((o) => o.stage_text === '配送中'), '配送中订单 stage_text=配送中')
+    // 路线文本不包含脏占位符（?? 等）
+    assert(!/[\?？]/.test(detail.data.route_text || ''), '路线文本已清洗无脏字符: ' + detail.data.route_text)
+
     // 模拟配送完成整批
     const tc = await api('POST', '/merchant/delivery/test-complete', { batch_id: batchId, status: 3 }, mToken)
     assert(tc.code === 0 && tc.data.count === 4, '测试完成配送整批 4 单')
@@ -191,7 +199,39 @@ function assert(cond, msg) {
     const d3 = await api('GET', '/merchant/delivery/batch/detail?batch_id=' + open2.id, null, mToken)
     assert(d3.data.status === 3, '批次2 状态→已完成（任务直接完成路径）')
 
-    console.log('\n✅ 全部冒烟测试通过（一车多单完整闭环）')
+    // ---- Round3：配送异常订单处理（重新配送 / 取消并退款）+ 模拟派车 ----
+    const { DatabaseSync } = require('node:sqlite')
+    const tdb = new DatabaseSync(TMP_DB)
+
+    // 新订单 → 置为配送异常(6) → 重新配送
+    const ce = await api('POST', '/order/create', { landmark_id: lm3, landmark_name: '点位3', items: [{ goods_id: 1, quantity: 1 }] }, sToken)
+    assert(ce.code === 0, '异常用例下单')
+    await api('POST', '/order/pay', { id: ce.data.order_id }, sToken)
+    tdb.prepare('UPDATE orders SET status=6 WHERE id=?').run(ce.data.order_id)
+    const rt = await api('POST', '/merchant/order/exception/retry', { order_id: ce.data.order_id }, mToken)
+    assert(rt.code === 0 && rt.data.status === 2 && rt.data.batch_id, '异常订单重新配送 → 已并入新批次(' + rt.data.batch_no + ')')
+
+    // 新批次派车 + mock-dispatch 模拟开始配送
+    const md = await api('POST', '/merchant/delivery/batch/dispatch', { batch_id: rt.data.batch_id }, mToken)
+    assert(md.code === 0 && md.data.status === 1, '重配批次派车成功')
+    const mockD = await api('POST', '/merchant/device/batch/mock-dispatch', { batch_id: rt.data.batch_id }, mToken)
+    assert(mockD.code === 0 && mockD.data.status === 2, '模拟开始配送 → 批次配送中(测试)')
+
+    // 另一新订单 → 置为配送异常(6) → 取消并退款
+    const cf = await api('POST', '/order/create', { landmark_id: lm4, landmark_name: '点位4', items: [{ goods_id: 1, quantity: 1 }] }, sToken)
+    await api('POST', '/order/pay', { id: cf.data.order_id }, sToken)
+    tdb.prepare('UPDATE orders SET status=6 WHERE id=?').run(cf.data.order_id)
+    const rf = await api('POST', '/merchant/order/exception/refund', { order_id: cf.data.order_id }, mToken)
+    assert(rf.code === 0 && rf.data.status === 7, '异常订单取消并退款 → 已退款')
+    const od = await api('GET', '/merchant/order/detail?id=' + cf.data.order_id, null, mToken)
+    assert(od.code === 0 && od.data.status === 7, '退款订单详情状态=7')
+    // 库存回补：cf 单未售出退款回补，ce 单仍待上货占用 → 商品1 stock=95
+    const goodsR = await api('GET', '/merchant/goods', null, mToken)
+    const g1r = goodsR.data.find((x) => x.id === 1)
+    assert(Number(g1r.stock) === 95, '异常退款回补库存：商品1 stock=95（96 -1 ce -1 cf +1 退款回补）')
+    tdb.close()
+
+    console.log('\n✅ 全部冒烟测试通过（一车多单完整闭环 + Round3 异常处理/模拟派车）')
   } catch (e) {
     fail = true
     console.error('\n❌ ' + e.message)

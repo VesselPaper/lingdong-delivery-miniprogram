@@ -1,9 +1,14 @@
 <view class="detail-page">
+  <!-- 状态头部：浅色卡片 + 状态色圆点 + 状态色文字（修复深蓝底+彩色字难看问题） -->
   <view class="status-head">
-    <view class="status-title st-{{order.stClass}}">订单 {{order.daily_seq}} · {{order.status_text}}</view>
-    <view class="status-sub text-sm" wx:if="{{order.status === 1}}">请尽快接单，机器人将在门店等待装货</view>
-    <view class="status-sub text-sm" wx:if="{{order.status === 2}}">机器人已接单，正在配送</view>
-    <view class="status-sub text-sm" wx:if="{{order.status === 3}}">机器人已到达取餐点</view>
+    <view class="status-dot dot-{{order.stClass}}"></view>
+    <view class="status-main">
+      <view class="status-title st-{{order.stClass}}">订单 {{order.daily_seq}} · {{order.status_text}}</view>
+      <view class="status-sub text-sm text-sub" wx:if="{{order.status === 1}}">请尽快接单，机器人将在门店等待装货</view>
+      <view class="status-sub text-sm text-sub" wx:if="{{order.status === 2}}">机器人已接单，正在配送</view>
+      <view class="status-sub text-sm text-sub" wx:if="{{order.status === 3}}">机器人已到达取餐点</view>
+      <view class="status-sub text-sm text-sub" wx:if="{{order.status === 6}}">配送异常，请在任务页处理（重新配送 / 取消退款）</view>
+    </view>
   </view>
 
   <view class="card">
@@ -53,6 +58,5 @@
       <view class="btn btn-sm btn-block" bindtap="goLoad">去配单 / 上货</view>
       <view class="btn btn-outline btn-sm btn-block test-btn" catchtap="testComplete">测试完成配送</view>
     </block>
-    <view class="btn btn-outline btn-sm btn-block" wx:if="{{order.status !== 1 && order.status !== 2}}" bindtap="back">返回列表</view>
   </view>
 </view>

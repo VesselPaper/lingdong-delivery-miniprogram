@@ -1,0 +1,6 @@
+<view class="search-row">
+  <view class="search-box">
+    <t-icon name="search" size="32rpx" color="#999999" />
+    <input class="search-input" placeholder="{{placeholder}}" placeholder-class="search-ph" value="{{value}}" confirm-type="search" bindinput="onInput" bindconfirm="onConfirm" />
+  </view>
+</view>

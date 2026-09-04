@@ -1,0 +1,42 @@
+<view class="order-card card" bindtap="onTap">
+  <view class="order-top">
+    <text class="order-title">订单 {{order.daily_seq}}</text>
+    <view class="order-top-right">
+      <view class="tag tag-green" wx:if="{{order.payed}}">已收款</view>
+      <status-text cls="{{order.stClass}}" text="{{order.displayStatus || order.status_text}}" />
+    </view>
+  </view>
+
+  <!-- 商品摘要：图 + 名称 + 数量 -->
+  <view class="order-goods">
+    <view class="goods-img">
+      <image wx:if="{{order.first_image}}" class="goods-img-fill" src="{{order.first_image}}" mode="aspectFill" />
+      <t-icon wx:else name="cart" size="40rpx" color="#BFBFBF" />
+    </view>
+    <view class="goods-info">
+      <view class="goods-name ellipsis">{{order.first_name}}</view>
+      <view class="goods-sub text-weak text-sm">
+        <text>x{{order.first_qty}}</text>
+        <text wx:if="{{order.item_count > order.first_qty}}">　共 {{order.item_count}} 件</text>
+      </view>
+    </view>
+    <view class="goods-price price-blue">¥{{order.total_amount}}</view>
+  </view>
+
+  <view class="order-mid">
+    <view class="order-line">
+      <text class="line-label">送达</text>
+      <text class="line-value">{{order.landmark_name}}</text>
+    </view>
+    <view class="order-line">
+      <text class="line-label">批次</text>
+      <text class="line-value">{{order.batch ? '批次 ' + order.batch.daily_seq : '未组单'}}</text>
+    </view>
+    <view class="order-line">
+      <text class="line-label">下单时间</text>
+      <text class="line-value">{{order.created_time}}</text>
+    </view>
+  </view>
+
+  <slot />
+</view>

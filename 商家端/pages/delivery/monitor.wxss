@@ -82,22 +82,10 @@
   color: #ffffff;
 }
 
-.task {
-  padding: 24rpx 32rpx;
+.section-title {
+  margin-top: 8rpx;
 }
 
-.task-no {
-  font-size: 28rpx;
-}
-
-.task-status {
-  font-size: 26rpx;
-  color: #111111;
-  font-weight: 500;
-}
-
-.task-line {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 12rpx;
+.task-list {
+  padding: 4rpx 0 16rpx;
 }

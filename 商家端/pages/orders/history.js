@@ -23,7 +23,7 @@ Page({
   },
 
   onSearch(e) {
-    this.setData({ keyword: e.detail.value }, () => this.applyFilter())
+    this.setData({ keyword: e.detail }, () => this.applyFilter())
   },
 
   applyFilter() {
@@ -54,9 +54,5 @@ Page({
 
   goDetail(e) {
     wx.navigateTo({ url: '/pages/orders/detail?id=' + e.currentTarget.dataset.id })
-  },
-
-  openFilter() {
-    wx.showToast({ title: '筛选功能开发中', icon: 'none' })
   }
 })

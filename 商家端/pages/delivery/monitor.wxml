@@ -1,8 +1,8 @@
 <view class="monitor-page">
-  <!-- 开仓上货入口 -->
+  <!-- 配单上货入口 -->
   <view class="card load-entry" bindtap="goLoad">
     <t-icon name="scan" size="36rpx" color="#3078C0" />
-    <text class="load-entry-text">开仓上货</text>
+    <text class="load-entry-text">配单上货</text>
     <text class="load-entry-arrow text-weak">›</text>
   </view>
 
@@ -41,18 +41,13 @@
     <view class="btn btn-sm robot-retry" bindtap="retryRobots">重试</view>
   </view>
 
-  <view class="section-title">执行中的配送任务</view>
-  <view class="card task" wx:for="{{tasks}}" wx:key="id">
-    <view class="flex-between">
-      <view class="task-no">订单 {{item.order_daily_seq}}</view>
-      <view class="task-status st-{{item.stClass}}">{{item.status_text}}</view>
-    </view>
-    <view class="task-line text-sub text-sm">
-      <text>送达</text>
-      <text>{{item.landmark_name}}</text>
-    </view>
-  </view>
-  <view class="empty" wx:if="{{!tasks.length}}">
-    <view class="empty-text">暂无执行中的任务</view>
+  <!-- 配送中的批次：一个批次一个卡面，批次内嵌套多单（与上货配单页同布局） -->
+  <view class="section-title">配送中的批次</view>
+  <view class="task-list">
+    <batch-card
+      wx:for="{{batches}}" wx:key="id"
+      b="{{item}}" showProgress="{{true}}" showGoods="{{true}}" orderTap="{{true}}"
+      bind:ordertap="goDetailByOrder" />
+    <empty-view show="{{!batches.length}}" text="暂无配送中的批次" icon="robot-1" />
   </view>
 </view>

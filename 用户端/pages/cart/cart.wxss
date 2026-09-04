@@ -1,6 +1,7 @@
+/* 购物车页 · 风格统一为商家端历史订单页：卡片 12rpx 圆角 + 1rpx 描边、蓝主色、矩形按钮 */
 .cart-page {
   min-height: 100vh;
-  background: #F6F8FB;
+  background: #FAFAFA;
   padding-bottom: 180rpx;
 }
 
@@ -14,12 +15,16 @@
 .cart-head-title {
   font-size: 30rpx;
   font-weight: 600;
-  color: #1A1A1A;
+  color: #111111;
 }
 
+/* 卡片：12rpx 圆角 + 描边（对齐商家端历史订单） */
 .card {
   margin: 16rpx 24rpx 0;
-  border-radius: 24rpx;
+  background: #ffffff;
+  border: 1rpx solid #EBEBEB;
+  border-radius: 12rpx;
+  padding: 24rpx;
 }
 
 .shop-row {
@@ -33,7 +38,7 @@
 .shop-name {
   font-size: 30rpx;
   font-weight: 600;
-  color: #1A1A1A;
+  color: #111111;
 }
 
 .cart-list {
@@ -60,19 +65,20 @@
 }
 
 .check-on {
-  background: #2E7CF6;
-  border-color: #2E7CF6;
+  background: var(--brand);
+  border-color: var(--brand);
 }
 
 .item-img {
   width: 104rpx;
   height: 104rpx;
-  border-radius: 16rpx;
+  border-radius: 8rpx;
   background: #F5F7FA;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
 .item-info {
@@ -83,7 +89,7 @@
 
 .item-name {
   font-size: 28rpx;
-  color: #1A1A1A;
+  color: #111111;
 }
 
 .item-name-row {
@@ -115,10 +121,24 @@
 }
 
 .item-price {
-  color: #FA4A2D;
+  color: var(--brand);
   font-weight: 600;
   font-size: 30rpx;
   margin-top: 8rpx;
+}
+
+/* 底部结算栏：描边顶线 + 矩形「去结算」（对齐商家端按钮风格） */
+.bottom-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #ffffff;
+  border-top: 1rpx solid #EBEBEB;
+  padding: 16rpx 32rpx calc(16rpx + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  z-index: 10;
 }
 
 .all-check {
@@ -140,11 +160,25 @@
   gap: 8rpx;
 }
 
+.price {
+  color: var(--brand);
+}
+
+.price-symbol {
+  font-size: 24rpx;
+  margin-right: 2rpx;
+}
+
+.price-num {
+  font-size: 36rpx;
+  font-weight: 700;
+}
+
 .go-btn {
-  height: 76rpx;
+  height: 72rpx;
   padding: 0 44rpx;
-  border-radius: 999rpx;
-  background: #2E7CF6;
+  border-radius: 8rpx;
+  background: var(--brand);
   color: #ffffff;
   font-size: 28rpx;
   font-weight: 500;
@@ -152,4 +186,5 @@
   align-items: center;
   margin-left: 24rpx;
   flex-shrink: 0;
+  box-sizing: border-box;
 }

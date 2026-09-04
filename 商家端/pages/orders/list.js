@@ -11,16 +11,22 @@ function formatTime(t) {
 
 // 订单状态 → 文字颜色 class（不同状态不同颜色）
 const ST_CLASS = { 0: 'gray', 1: 'orange', 2: 'blue', 3: 'green', 4: 'green', 5: 'gray', 6: 'red', 7: 'gray' }
+// 批次状态 → 标签 class / 文案
+const BATCH_TAG = { 0: 'tag-gray', 1: 'tag-orange', 2: 'tag-blue', 3: 'tag-green', 4: 'tag-red' }
+const BATCH_TEXT = { 0: '组单中', 1: '待上货', 2: '配送中', 3: '已完成', 4: '异常' }
+// 底部四分类（待接单/待上货/配送中/待取货）；待上货/配送中/待取货按批次分组展示
 
 Page({
   data: {
-    active: 'accept',   // 底部四分类：accept 待接单 / load 待上货 / deliver 待配送 / pickup 待取货
+    active: 'accept',
     statusFilter: '',   // 从工作台跳转的精确状态过滤（如异常 6）
-    orders: [],
-    filtered: [],
+    orders: [],         // 扁平订单（待接单 / 异常）
+    groups: [],         // 按批次分组（待上货 / 配送中 / 待取货）
     keyword: '',
     shopOpen: true
   },
+  rawOrders: [],
+  rawGroups: [],
 
   async onShow() {
     await shopState.loadShop()
@@ -29,7 +35,6 @@ Page({
   },
 
   onLoad(options) {
-    // 支持：?stage=accept|load|deliver|pickup（底部四分类）/ ?tab=状态号（如异常 6）
     if (options && options.stage) {
       this.setData({ active: options.stage })
     } else if (options && options.tab !== undefined && options.tab !== '') {
@@ -42,20 +47,26 @@ Page({
     this.load()
   },
 
+  // 兼容原生 input（e.detail.value）与 search-box 组件（e.detail 直接为值）
   onSearch(e) {
-    this.setData({ keyword: e.detail.value }, () => this.applyFilter())
+    const v = (e.detail && e.detail.value !== undefined) ? e.detail.value : e.detail
+    this.setData({ keyword: v || '' }, () => this.applyFilter())
+  },
+
+  match(o, kw) {
+    return (o.order_no || '').toLowerCase().includes(kw) ||
+      String(o.daily_seq || '') === kw ||
+      (o.landmark_name || '').toLowerCase().includes(kw) ||
+      (o.first_name || '').toLowerCase().includes(kw)
   },
 
   applyFilter() {
     const kw = this.data.keyword.trim().toLowerCase()
-    const filtered = kw
-      ? this.data.orders.filter((o) =>
-          (o.order_no || '').toLowerCase().includes(kw) ||
-          String(o.daily_seq || '') === kw ||
-          (o.landmark_name || '').toLowerCase().includes(kw) ||
-          (o.first_name || '').toLowerCase().includes(kw))
-      : this.data.orders
-    this.setData({ filtered })
+    if (this.data.active === 'accept' || this.data.statusFilter !== '') {
+      this.setData({ orders: kw ? this.rawOrders.filter((o) => this.match(o, kw)) : this.rawOrders })
+    } else {
+      this.setData({ groups: kw ? this.rawGroups.filter((g) => g.orders.some((o) => this.match(o, kw))) : this.rawGroups })
+    }
   },
 
   async load() {
@@ -64,19 +75,67 @@ Page({
         ? '?status=' + this.data.statusFilter
         : '?stage=' + (this.data.active || 'accept')
       const orders = await request.get(api.orders + qs)
-      // 真实业务：订单状态 0=待支付，status>0 即已支付收款
       const list = orders.map((o) => ({
         ...o,
         payed: Number(o.status) > 0,
+        picked: !!o.picked_up_at,
         created_time: formatTime(o.created_at),
-        stClass: ST_CLASS[Number(o.status)] || 'gray'
+        stClass: ST_CLASS[Number(o.status)] || 'gray',
+        // 分类文案：按 stage_text 显示（待上货/配送中/待取货），已取则显示「已取」
+        displayStatus: o.picked_up_at ? '已取' : (o.stage_text || o.status_text || '')
       }))
-      this.setData({ orders: list }, () => this.applyFilter())
+      if (this.data.active === 'accept' || this.data.statusFilter !== '') {
+        this.rawOrders = list
+        this.rawGroups = []
+        this.setData({ orders: list, groups: [] }, () => this.applyFilter())
+      } else {
+        this.rawOrders = []
+        this.rawGroups = this.groupByBatch(list)
+        this.setData({ orders: [], groups: this.rawGroups }, () => this.applyFilter())
+      }
     } catch (e) { /* handled */ }
   },
 
+  // 按批次分组（一车多单：一个批次一个卡面，批次内嵌套多单）
+  groupByBatch(list) {
+    const map = new Map()
+    for (const o of list) {
+      const key = o.batch ? (o.batch.batch_no || 'g' + o.batch.daily_seq) : '__none__'
+      if (!map.has(key)) {
+        const bs = o.batch ? Number(o.batch.status) : -1
+        map.set(key, {
+          id: key,
+          batch_no: o.batch ? o.batch.batch_no : '',
+          daily_seq: o.batch ? o.batch.daily_seq : 0,
+          status: o.batch ? o.batch.status : null,
+          status_text: o.batch ? (BATCH_TEXT[bs] || '') : '未组单',
+          statusTagClass: o.batch ? (BATCH_TAG[bs] || 'tag-gray') : 'tag-gray',
+          total_orders: 0,
+          picked_orders: 0,
+          orders: []
+        })
+      }
+      const g = map.get(key)
+      g.orders.push(o)
+      if (o.picked) g.picked_orders += 1
+    }
+    const arr = [...map.values()]
+    arr.forEach((g) => { g.total_orders = g.orders.length })
+    arr.sort((a, b) => {
+      if (a.id === '__none__') return 1
+      if (b.id === '__none__') return -1
+      return Number(b.daily_seq) - Number(a.daily_seq)
+    })
+    return arr
+  },
+
   goDetail(e) {
-    wx.navigateTo({ url: '/pages/orders/detail?id=' + e.currentTarget.dataset.id })
+    wx.navigateTo({ url: '/pages/orders/detail?id=' + e.detail.id })
+  },
+  // 批次分组卡面内点某单 → 进订单详情
+  goDetailByOrder(e) {
+    const o = e.detail || {}
+    if (o && o.id) wx.navigateTo({ url: '/pages/orders/detail?id=' + o.id })
   },
 
   // 右上角「配单上货」：进入配单/上货页（一车多单批次流程）
@@ -115,6 +174,47 @@ Page({
         })
       })
       if (go) wx.navigateTo({ url: '/pages/device/loading' })
+    } catch (e) { /* handled */ }
+  },
+
+  // ---------- 配送异常订单处理 ----------
+  async retryOrder(e) {
+    const id = Number(e.currentTarget.dataset.id)
+    const res = await new Promise((resolve) => {
+      wx.showModal({
+        title: '重新配送该订单？',
+        content: '作废旧批次任务，订单将并入新的组单中批次，派车后重新上货配送。',
+        confirmText: '重新配送',
+        cancelText: '取消',
+        confirmColor: '#3078C0',
+        success: (r) => resolve(r.confirm)
+      })
+    })
+    if (!res) return
+    try {
+      const r = await request.post(api.orderExceptionRetry, { order_id: id })
+      wx.showToast({ title: r.msg || '已重新并入批次', icon: 'success' })
+      this.load()
+    } catch (e) { /* handled */ }
+  },
+
+  async refundOrder(e) {
+    const id = Number(e.currentTarget.dataset.id)
+    const res = await new Promise((resolve) => {
+      wx.showModal({
+        title: '取消订单并退款？',
+        content: '将取消该异常订单并原路退款，回补商品库存。',
+        confirmText: '取消并退款',
+        cancelText: '取消',
+        confirmColor: '#E64340',
+        success: (r) => resolve(r.confirm)
+      })
+    })
+    if (!res) return
+    try {
+      const r = await request.post(api.orderExceptionRefund, { order_id: id })
+      wx.showToast({ title: r.msg || '已退款', icon: 'success' })
+      this.load()
     } catch (e) { /* handled */ }
   }
 })

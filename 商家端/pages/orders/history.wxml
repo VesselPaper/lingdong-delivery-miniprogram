@@ -1,13 +1,5 @@
 <view class="history-page">
-  <view class="search-row">
-    <view class="search-box">
-      <t-icon name="search" size="32rpx" color="#999999" />
-      <input class="search-input" placeholder="订单号 / 商品 / 点位" placeholder-class="search-ph" value="{{keyword}}" bindinput="onSearch" />
-    </view>
-    <view class="filter-btn" bindtap="openFilter">
-      <t-icon name="filter" size="40rpx" color="#333333" />
-    </view>
-  </view>
+  <search-box value="{{keyword}}" placeholder="订单号 / 商品 / 点位" bind:input="onSearch" />
 
   <view class="list">
     <block wx:for="{{filtered}}" wx:key="id">
@@ -19,21 +11,15 @@
           </view>
           <view class="order-top-right">
             <view class="tag tag-green" wx:if="{{item.payed}}">已收款</view>
-            <text class="order-status st-{{item.stClass}}">{{item.status_text}}</text>
+            <status-text cls="{{item.stClass}}" text="{{item.status_text}}" />
           </view>
         </view>
 
-        <!-- 商品明细：图 + 名称 + 价格 + 数量 -->
+        <!-- 商品明细：图 + 名称 + 价格 + 数量（一行一个） -->
         <view class="h-items">
-          <view class="h-item" wx:for="{{item.items}}" wx:for-item="it" wx:key="id">
-            <view class="h-item-img">
-              <image wx:if="{{it.goods_image}}" class="h-item-img-fill" src="{{it.goods_image}}" mode="aspectFill" />
-              <t-icon wx:else name="cart" size="28rpx" color="#BFBFBF" />
-            </view>
-            <view class="h-item-name ellipsis">{{it.goods_name}}</view>
-            <text class="h-item-price">¥{{it.price}}</text>
-            <text class="h-item-qty">x{{it.quantity}}</text>
-          </view>
+          <goods-row
+            wx:for="{{item.items}}" wx:for-item="it" wx:key="id"
+            image="{{it.goods_image}}" name="{{it.goods_name}}" price="{{it.price}}" qty="{{it.quantity}}" />
         </view>
 
         <view class="order-foot">
@@ -48,8 +34,6 @@
         </view>
       </view>
     </block>
-    <view class="empty" wx:if="{{!filtered.length}}">
-      <view class="empty-text">暂无历史订单</view>
-    </view>
+    <empty-view show="{{!filtered.length}}" text="暂无历史订单" icon="order" />
   </view>
 </view>

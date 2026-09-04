@@ -14,59 +14,32 @@
     店铺当前歇业中，暂不接收新订单（已接订单正常配送）
   </view>
 
-  <view class="list">
-    <block wx:for="{{filtered}}" wx:key="id">
-      <view class="order-card card" bindtap="goDetail" data-id="{{item.id}}">
-        <view class="order-top">
-          <text class="order-title">订单 {{item.daily_seq}}</text>
-          <view class="order-top-right">
-            <view class="tag tag-green" wx:if="{{item.payed}}">已收款</view>
-            <text class="order-status st-{{item.stClass}}">{{item.status_text}}</text>
-          </view>
-        </view>
-
-        <!-- 商品摘要：图 + 名称 + 数量（商家知道用户买的什么） -->
-        <view class="order-goods">
-          <view class="goods-img">
-            <image wx:if="{{item.first_image}}" class="goods-img-fill" src="{{item.first_image}}" mode="aspectFill" />
-            <t-icon wx:else name="cart" size="40rpx" color="#BFBFBF" />
-          </view>
-          <view class="goods-info">
-            <view class="goods-name ellipsis">{{item.first_name}}</view>
-            <view class="goods-sub text-weak text-sm">
-              <text>x{{item.first_qty}}</text>
-              <text wx:if="{{item.item_count > item.first_qty}}">　共 {{item.item_count}} 件</text>
-            </view>
-          </view>
-          <view class="goods-price price-blue">¥{{item.total_amount}}</view>
-        </view>
-
-        <view class="order-mid">
-          <view class="order-line">
-            <text class="line-label">送达</text>
-            <text class="line-value">{{item.landmark_name}}</text>
-          </view>
-          <view class="order-line">
-            <text class="line-label">批次</text>
-            <text class="line-value">{{item.batch ? '批次 ' + item.batch.daily_seq : '未组单'}}</text>
-          </view>
-          <view class="order-line">
-            <text class="line-label">下单时间</text>
-            <text class="line-value">{{item.created_time}}</text>
-          </view>
-        </view>
-
+  <!-- 扁平订单（待接单 / 异常） -->
+  <view class="list" wx:if="{{active === 'accept' || statusFilter !== ''}}">
+    <block wx:for="{{orders}}" wx:key="id">
+      <order-card order="{{item}}" bind:tap="goDetail">
         <view class="order-actions" wx:if="{{item.status === 1}}">
           <view class="btn btn-sm {{shopOpen ? '' : 'btn-disabled'}}" hover-class="btn-hover" catchtap="confirmOrder" data-id="{{item.id}}">{{shopOpen ? '确认接单' : '歇业中'}}</view>
         </view>
-      </view>
+        <view class="order-actions" wx:elif="{{item.status === 6}}">
+          <view class="btn btn-outline btn-sm" hover-class="btn-hover" catchtap="refundOrder" data-id="{{item.id}}">取消并退款</view>
+          <view class="btn btn-sm" hover-class="btn-hover" catchtap="retryOrder" data-id="{{item.id}}">重新配送</view>
+        </view>
+      </order-card>
     </block>
-    <view class="empty" wx:if="{{!filtered.length}}">
-      <view class="empty-text">暂无订单</view>
-    </view>
+    <empty-view show="{{!orders.length}}" text="暂无订单" icon="order" />
   </view>
 
-  <!-- 底部四分类：待接单 / 待上货 / 待配送 / 待取货 -->
+  <!-- 按批次分组（待上货 / 配送中 / 待取货：一个批次一个卡面，批次内嵌套多单） -->
+  <view class="list" wx:else>
+    <batch-card
+      wx:for="{{groups}}" wx:key="id"
+      b="{{item}}" showProgress="{{true}}"
+      bind:ordertap="goDetailByOrder" />
+    <empty-view show="{{!groups.length}}" text="暂无订单" icon="order" />
+  </view>
+
+  <!-- 底部四分类：待接单 / 待上货 / 配送中 / 待取货 -->
   <view class="status-bar">
     <view class="status-item {{active === 'accept' ? 'on' : ''}}" bindtap="onStage" data-stage="accept">
       <t-icon name="order" size="36rpx" color="{{active === 'accept' ? '#3078C0' : '#999999'}}" />
@@ -78,7 +51,7 @@
     </view>
     <view class="status-item {{active === 'deliver' ? 'on' : ''}}" bindtap="onStage" data-stage="deliver">
       <t-icon name="robot-1" size="36rpx" color="{{active === 'deliver' ? '#3078C0' : '#999999'}}" />
-      <text>待配送</text>
+      <text>配送中</text>
     </view>
     <view class="status-item {{active === 'pickup' ? 'on' : ''}}" bindtap="onStage" data-stage="pickup">
       <t-icon name="location" size="36rpx" color="{{active === 'pickup' ? '#3078C0' : '#999999'}}" />

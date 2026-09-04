@@ -95,6 +95,8 @@ page {
   height: 80rpx;
   line-height: 1;
   border: none;
+  /* 宽度 100% + 水平内边距不溢出（修复按钮右溢屏） */
+  box-sizing: border-box;
 }
 .btn::after { border: none; }
 .btn-outline {

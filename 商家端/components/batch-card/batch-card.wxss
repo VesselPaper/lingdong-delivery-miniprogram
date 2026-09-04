@@ -1,0 +1,126 @@
+.batch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 16rpx;
+  border-bottom: 1rpx solid var(--line);
+}
+
+.batch-title-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 14rpx;
+  min-width: 0;
+}
+
+.batch-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* 完整批次编号：只在单批次详情显示，弱化展示 */
+.batch-no-full {
+  font-size: 20rpx;
+  color: var(--text-weak);
+}
+
+.batch-tags {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  flex-shrink: 0;
+}
+
+.batch-line {
+  display: flex;
+  align-items: baseline;
+  padding: 8rpx 0;
+}
+
+.batch-line .line-label {
+  font-size: 24rpx;
+  color: var(--text-sub);
+  width: 110rpx;
+  flex-shrink: 0;
+}
+
+.batch-line .line-value {
+  flex: 1;
+  font-size: 24rpx;
+  color: var(--text-main);
+  word-break: break-all;
+}
+
+/* 批次内订单（每单一个子卡） */
+.batch-orders {
+  margin-top: 16rpx;
+}
+
+.b-order {
+  background: #F8F9FB;
+  border-radius: var(--radius-md);
+  padding: 20rpx 24rpx;
+  margin-bottom: 16rpx;
+}
+
+.b-order:last-child {
+  margin-bottom: 0;
+}
+
+.b-order.tappable {
+  cursor: pointer;
+}
+
+.b-order.tappable:active {
+  opacity: 0.85;
+}
+
+.b-order-head {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding-bottom: 12rpx;
+  border-bottom: 1rpx solid #ECEDF0;
+}
+
+.b-order-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.b-order-landmark {
+  font-size: 22rpx;
+  color: var(--brand);
+  background: var(--brand-light);
+  border-radius: 6rpx;
+  padding: 4rpx 12rpx;
+}
+
+.b-order-status {
+  margin-left: auto;
+  font-size: 24rpx;
+  font-weight: 500;
+}
+
+.b-items {
+  padding-top: 6rpx;
+}
+
+.b-order-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-top: 8rpx;
+}
+
+.b-meta-weak {
+  font-size: 22rpx;
+  color: var(--text-weak);
+}
+
+.batch-cta {
+  margin-top: 20rpx;
+}

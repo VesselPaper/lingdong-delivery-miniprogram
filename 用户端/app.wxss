@@ -248,6 +248,7 @@ page {
 }
 
 /* 底部浮动购物栏（首页/商品页，机器人图标+价格+去结算） */
+/* 修复：左侧图标（头像状圆钮）不再向上溢出横向气泡，整体收入栏内 */
 .cart-bar {
   position: fixed;
   left: 24rpx; right: 24rpx; bottom: 24rpx;
@@ -256,12 +257,14 @@ page {
   box-shadow: 0 8rpx 32rpx rgba(31, 63, 122, 0.16);
   display: flex;
   align-items: center;
-  padding: 12rpx 12rpx 12rpx 20rpx;
+  padding: 16rpx 16rpx 16rpx 20rpx;
   z-index: 9;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 .cart-bar-icon {
-  width: 104rpx; height: 104rpx;
-  margin: -24rpx 20rpx 0 0;
+  width: 88rpx; height: 88rpx;
+  margin: 0 20rpx 0 0;
   background: var(--brand-light);
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
@@ -269,7 +272,7 @@ page {
   flex-shrink: 0;
 }
 .cart-bar-badge {
-  position: absolute; top: -6rpx; right: -6rpx;
+  position: absolute; top: -4rpx; right: -4rpx;
   min-width: 32rpx; height: 32rpx;
   border-radius: 16rpx;
   background: var(--coral);

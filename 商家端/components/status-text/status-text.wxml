@@ -1,0 +1,1 @@
+<text class="status-text st-{{cls}}">{{text}}</text>

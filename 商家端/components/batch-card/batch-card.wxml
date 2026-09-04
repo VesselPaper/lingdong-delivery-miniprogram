@@ -1,0 +1,54 @@
+<view class="card batch-card">
+  <view class="batch-head">
+    <view class="batch-title-wrap">
+      <text class="batch-title">批次 {{b.daily_seq}}</text>
+      <text class="batch-no-full" wx:if="{{showNo && b.batch_no}}">{{b.batch_no}}</text>
+    </view>
+    <view class="batch-tags">
+      <text class="tag {{b.statusTagClass || 'tag-gray'}}" wx:if="{{b.status_text}}">{{b.status_text}}</text>
+      <text class="tag tag-dark">{{b.total_orders}} 单</text>
+    </view>
+  </view>
+
+  <view class="batch-line" wx:if="{{b.device_sn}}">
+    <text class="line-label">机器人</text>
+    <text class="line-value">{{b.device_sn}}</text>
+  </view>
+  <view class="batch-line" wx:if="{{b.route_text}}">
+    <text class="line-label">路线</text>
+    <text class="line-value">{{b.route_text}}</text>
+  </view>
+  <view class="batch-line" wx:if="{{showProgress}}">
+    <text class="line-label">进度</text>
+    <text class="line-value">已取 {{b.picked_orders}} / {{b.total_orders}} 单</text>
+  </view>
+
+  <!-- 批次内订单：每单一个子卡 -->
+  <view class="batch-orders">
+    <view class="b-order {{orderTap ? 'tappable' : ''}}" wx:for="{{b.orders}}" wx:for-item="o" wx:key="id" data-o="{{o}}" catchtap="onOrderTap">
+      <view class="b-order-head">
+        <text class="b-order-title">订单 {{o.daily_seq}}</text>
+        <text class="b-order-landmark">{{o.landmark_name}}</text>
+        <text class="b-order-status st-{{o.stClass}}">{{o.displayStatus || o.status_text}}</text>
+      </view>
+
+      <view class="b-items" wx:if="{{showGoods}}">
+        <goods-row
+          wx:for="{{o.items}}" wx:for-item="it" wx:key="id"
+          image="{{it.goods_image}}" name="{{it.goods_name}}" price="{{it.price}}" qty="{{it.quantity}}" />
+      </view>
+
+      <view class="b-order-foot" wx:if="{{showGoods}}">
+        <text class="b-meta-weak">取餐码 {{o.pickup_code}}</text>
+        <text class="b-meta-weak">{{o.contact_name}}{{o.contact_phone ? ' ' + o.contact_phone : ''}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="batch-cta" wx:if="{{action === 'select'}}">
+    <view class="btn btn-block" hover-class="btn-hover" catchtap="onSelect">{{selectText}}</view>
+  </view>
+  <view class="batch-cta" wx:elif="{{action === 'dispatch'}}">
+    <view class="btn btn-outline-brand btn-block" hover-class="btn-hover" catchtap="onDispatch">{{b.total_orders ? '派车配送（' + b.total_orders + ' 单）' : '派车配送'}}</view>
+  </view>
+</view>

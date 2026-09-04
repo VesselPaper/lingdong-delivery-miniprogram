@@ -45,7 +45,13 @@
     ]
   },
   "usingComponents": {
-    "t-icon": "tdesign-miniprogram/icon/icon"
+    "t-icon": "tdesign-miniprogram/icon/icon",
+    "search-box": "/components/search-box/search-box",
+    "empty-view": "/components/empty-view/empty-view",
+    "goods-row": "/components/goods-row/goods-row",
+    "status-text": "/components/status-text/status-text",
+    "batch-card": "/components/batch-card/batch-card",
+    "order-card": "/components/order-card/order-card"
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json",

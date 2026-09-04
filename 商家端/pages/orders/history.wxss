@@ -38,67 +38,9 @@
   color: var(--text-weak);
 }
 
-.order-status {
-  font-size: 26rpx;
-  font-weight: 500;
-}
-
-/* 商品明细行（每行一个商品：图 + 名 + 价格 + 数量） */
+/* 商品明细区（每行由 goods-row 组件渲染） */
 .h-items {
   padding: 8rpx 0;
-}
-
-.h-item {
-  display: flex;
-  align-items: center;
-  padding: 12rpx 0;
-  border-bottom: 1rpx solid #F5F6F8;
-}
-
-.h-item:last-child {
-  border-bottom: none;
-}
-
-.h-item-img {
-  width: 72rpx;
-  height: 72rpx;
-  border-radius: var(--radius-sm);
-  background: #F5F7FA;
-  overflow: hidden;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.h-item-img-fill {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.h-item-name {
-  flex: 1;
-  min-width: 0;
-  margin: 0 16rpx;
-  font-size: 26rpx;
-  color: var(--text-main);
-}
-
-.h-item-price {
-  flex-shrink: 0;
-  font-size: 26rpx;
-  color: var(--brand);
-  font-weight: 500;
-}
-
-.h-item-qty {
-  flex-shrink: 0;
-  margin-left: 12rpx;
-  min-width: 44rpx;
-  text-align: right;
-  font-size: 24rpx;
-  color: var(--text-sub);
 }
 
 /* 卡底：批次归属 + 点位 + 合计 */

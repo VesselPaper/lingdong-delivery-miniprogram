@@ -1,0 +1,88 @@
+.order-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 16rpx;
+  border-bottom: 1rpx solid var(--line);
+}
+
+.order-top-right {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.order-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* 商品摘要行 */
+.order-goods {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid #F5F6F8;
+}
+
+.goods-img {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: var(--radius-sm);
+  background: #F5F7FA;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.goods-img-fill {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.goods-info {
+  flex: 1;
+  min-width: 0;
+  margin: 0 20rpx;
+}
+
+.goods-name {
+  font-size: 28rpx;
+  color: var(--text-main);
+}
+
+.goods-sub {
+  margin-top: 8rpx;
+}
+
+.goods-price {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+.order-mid {
+  padding: 16rpx 0;
+}
+
+.order-line {
+  display: flex;
+  align-items: center;
+  padding: 6rpx 0;
+}
+
+.line-label {
+  font-size: 26rpx;
+  color: var(--text-sub);
+  width: 120rpx;
+}
+
+.line-value {
+  flex: 1;
+  font-size: 26rpx;
+  color: var(--text-main);
+}

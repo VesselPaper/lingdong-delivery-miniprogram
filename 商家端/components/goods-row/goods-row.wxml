@@ -1,0 +1,9 @@
+<view class="gr-row">
+  <view class="gr-img">
+    <image wx:if="{{image}}" class="gr-img-fill" src="{{image}}" mode="aspectFill" />
+    <t-icon wx:else name="app" size="24rpx" color="#BFBFBF" />
+  </view>
+  <view class="gr-name ellipsis">{{name}}</view>
+  <text class="gr-price">¥{{price}}</text>
+  <text class="gr-qty">x{{qty}}</text>
+</view>

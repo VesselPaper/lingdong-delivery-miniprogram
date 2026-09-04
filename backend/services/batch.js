@@ -25,6 +25,23 @@ function statusText(st) {
   return BATCH_STATUS[Number(st)] || ('状态 ' + st)
 }
 
+// 点位/路线名称清洗：历史脏数据可能出现「??1?」「？？」等占位符，统一剔除。
+// 返回 null 表示该名称无效（调用方回退到 landmarks 表或「未知点位」）。
+function cleanName(name) {
+  if (name === undefined || name === null) return null
+  const s = String(name).replace(/[?？]/g, '').trim()
+  return s || null
+}
+
+// 由 landmarks 表解析点位名称（按 id）；解析失败回退到传入名称，再失败为「未知点位」
+function landmarkNameOf(store, landmarkId, fallback) {
+  if (landmarkId) {
+    const lm = store.prepare('SELECT * FROM landmarks WHERE id=?').get(String(landmarkId))
+    if (lm) return cleanName(lm.name) || fallback
+  }
+  return cleanName(fallback) || '未知点位'
+}
+
 function getBatch(store, batchId) {
   return store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(batchId)) || null
 }
@@ -125,7 +142,8 @@ function planRoute(store, orders) {
     if (!lid) continue
     if (!groups.has(lid)) {
       const lm = store.prepare('SELECT * FROM landmarks WHERE id=?').get(lid) || null
-      groups.set(lid, { landmark: lm, name: o.landmark_name || (lm && lm.name) || '未知点位', orders: [] })
+      // 名称清洗：脏点位名（含 ? 占位符）优先以 landmarks 表为准，再回退订单名/未知
+      groups.set(lid, { landmark: lm, name: landmarkNameOf(store, lid, o.landmark_name), orders: [] })
     }
     groups.get(lid).orders.push(o)
   }
@@ -170,10 +188,12 @@ function getBatchDetail(store, batchId) {
     const t = o.delivery_task_id ? store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(o.delivery_task_id) : null
     // 订单商品明细：上货操作页需逐单逐商品展示（一行一个商品）
     const items = store.prepare('SELECT id, goods_id, goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?').all(o.id)
+    // 点位名清洗：脏数据（??1?）以 landmarks 表为准回退
+    const lmName = landmarkNameOf(store, o.landmark_id, o.landmark_name)
     return {
       id: o.id, order_no: o.order_no, status: o.status, status_text: statusText(o.status),
       daily_seq: Number(o.daily_seq || o.id),
-      landmark_id: o.landmark_id, landmark_name: o.landmark_name,
+      landmark_id: o.landmark_id, landmark_name: lmName,
       contact_name: o.contact_name, contact_phone: o.contact_phone,
       pickup_code: o.pickup_code, total_amount: o.total_amount,
       created_at: o.created_at,
@@ -187,19 +207,23 @@ function getBatchDetail(store, batchId) {
   // 已取餐数以实际订单 picked_up_at 动态统计（与展示自洽，避免计数器漂移）
   const picked = orders.filter((o) => o.picked_up).length
   const distinctLandmarks = [...new Set(orders.map((o) => o.landmark_name).filter(Boolean))]
-  const routeText = route.length ? route.map((r) => r.landmark_name).join(' → ') : (distinctLandmarks.join('、') || '')
+  // 路线文本：剔除脏点位名，缺失时回退到订单点位/未知
+  const cleanStops = route
+    .map((r) => ({ ...r, landmark_name: cleanName(r.landmark_name) || landmarkNameOf(store, r.landmark_id, orders.find((o) => String(o.landmark_id) === String(r.landmark_id)) && orders.find((o) => String(o.landmark_id) === String(r.landmark_id)).landmark_name) || '未知点位' }))
+    .filter((r) => r.landmark_name && r.landmark_name !== '未知点位')
+  const routeText = cleanStops.length ? cleanStops.map((r) => r.landmark_name).join(' → ') : (distinctLandmarks.join('、') || '')
   return {
     id: b.id, batch_no: b.batch_no, status: b.status, status_text: b.status_text || statusText(b.status),
     daily_seq: Number(b.daily_seq || b.id),
     device_sn: b.device_sn, total_orders: orders.length, picked_orders: picked,
     created_at: b.created_at, dispatched_at: b.dispatched_at, completed_at: b.completed_at,
-    route, route_text: routeText, route_stops_text: distinctLandmarks.join('、'),
+    route: cleanStops, route_text: routeText, route_stops_text: distinctLandmarks.join('、'),
     orders
   }
 }
 
 module.exports = {
-  BATCH_STATUS, BATCH_MAX_ORDERS, BATCH_WAIT_MS, statusText,
+  BATCH_STATUS, BATCH_MAX_ORDERS, BATCH_WAIT_MS, statusText, cleanName, landmarkNameOf,
   getBatch, getOrCreateOpenBatch, addOrderToBatch, removeOrderFromBatch,
   markOrderPicked, maybeCompleteBatch, onTaskStatus, planRoute, getBatchDetail
 }

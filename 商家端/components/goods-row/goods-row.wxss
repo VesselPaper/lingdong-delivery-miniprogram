@@ -1,0 +1,47 @@
+.gr-row {
+  display: flex;
+  align-items: center;
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid #F5F6F8;
+}
+.gr-row:last-child {
+  border-bottom: none;
+}
+/* 固定尺寸图盒 + 内部 image 100% 铺满（防拉伸） */
+.gr-img {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: var(--radius-sm);
+  background: #F5F7FA;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gr-img-fill {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.gr-name {
+  flex: 1;
+  min-width: 0;
+  margin: 0 16rpx;
+  font-size: 26rpx;
+  color: var(--text-main);
+}
+.gr-price {
+  flex-shrink: 0;
+  font-size: 26rpx;
+  color: var(--brand);
+  font-weight: 500;
+}
+.gr-qty {
+  flex-shrink: 0;
+  margin-left: 12rpx;
+  min-width: 44rpx;
+  text-align: right;
+  font-size: 24rpx;
+  color: var(--text-sub);
+}
