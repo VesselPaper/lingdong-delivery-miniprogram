@@ -16,7 +16,7 @@ Page({
     this.loadPendingBatches()
   },
 
-  // 待上货/组单中批次数量（底部「扫码上货」按钮角标）
+  // 待上货/组单中批次数量（底部「配单上货」按钮角标）
   async loadPendingBatches() {
     try {
       const data = await request.get(api.devicePending, {}, { silent: true })
@@ -41,10 +41,20 @@ Page({
     wx.navigateTo({ url: '/pages/orders/list' })
   },
 
-  // 主面板分类跳转：待接单1 / 待取货3 / 异常6（空=全部当前）
+  // 主面板分类跳转：待接单/待取货走任务页 stage 过滤，异常走状态过滤
   goOrdersTab(e) {
     const tab = e.currentTarget.dataset.tab || ''
     wx.navigateTo({ url: '/pages/orders/list' + (tab !== '' ? '?tab=' + tab : '') })
+  },
+
+  goOrdersStage(e) {
+    const stage = e.currentTarget.dataset.stage || 'accept'
+    wx.navigateTo({ url: '/pages/orders/list?stage=' + stage })
+  },
+
+  // 主面板「待取货」：任务页待取货分类
+  goPickup() {
+    wx.navigateTo({ url: '/pages/orders/list?stage=pickup' })
   },
 
   goGoods() {

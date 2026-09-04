@@ -183,6 +183,20 @@ function migrate(db) {
   if (!orderCols.includes('picked_up_at')) db.exec("ALTER TABLE orders ADD COLUMN picked_up_at TEXT")
   // orders：商品已售是否已结算（收货完成时已售+1/库存保留；取消退款时按此判断是否回补库存）
   if (!orderCols.includes('goods_settled')) db.exec("ALTER TABLE orders ADD COLUMN goods_settled INTEGER DEFAULT 0")
+  // orders：当日序号（每天从 1 重置，商家端卡面展示「订单 N」，长编号只进详情页）
+  if (!orderCols.includes('daily_seq')) db.exec("ALTER TABLE orders ADD COLUMN daily_seq INTEGER")
+  // delivery_batches：当日序号（商家端卡面展示「批次 N」）
+  const batchCols = db.prepare('PRAGMA table_info(delivery_batches)').all().map((c) => c.name)
+  if (!batchCols.includes('daily_seq')) db.exec("ALTER TABLE delivery_batches ADD COLUMN daily_seq INTEGER")
+  // 历史数据回填：按创建日期逐日累计编号（id 即当日创建顺序）
+  db.exec(`UPDATE delivery_batches SET daily_seq=(
+    SELECT COUNT(*) FROM delivery_batches b2
+    WHERE date(b2.created_at)=date(delivery_batches.created_at) AND b2.id <= delivery_batches.id)
+    WHERE daily_seq IS NULL`)
+  db.exec(`UPDATE orders SET daily_seq=(
+    SELECT COUNT(*) FROM orders o2
+    WHERE date(o2.created_at)=date(orders.created_at) AND o2.id <= orders.id)
+    WHERE daily_seq IS NULL`)
   // delivery_tasks：批次归属
   const taskCols = db.prepare('PRAGMA table_info(delivery_tasks)').all().map((c) => c.name)
   if (!taskCols.includes('batch_id')) db.exec("ALTER TABLE delivery_tasks ADD COLUMN batch_id INTEGER DEFAULT NULL")

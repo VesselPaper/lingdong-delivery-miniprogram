@@ -1,6 +1,6 @@
 <view class="detail-page">
   <view class="status-head">
-    <view class="status-title">{{order.status_text}}</view>
+    <view class="status-title st-{{order.stClass}}">订单 {{order.daily_seq}} · {{order.status_text}}</view>
     <view class="status-sub text-sm" wx:if="{{order.status === 1}}">请尽快接单，机器人将在门店等待装货</view>
     <view class="status-sub text-sm" wx:if="{{order.status === 2}}">机器人已接单，正在配送</view>
     <view class="status-sub text-sm" wx:if="{{order.status === 3}}">机器人已到达取餐点</view>
@@ -15,7 +15,7 @@
     <view class="info-row text-sub"><text>下单时间</text><text>{{order.created_at}}</text></view>
     <view class="info-row text-sub" wx:if="{{order.batch}}">
       <text>配送批次</text>
-      <text>{{order.batch.batch_no}}（{{order.batch.total_orders}}单 · {{order.batch.status_text}}）</text>
+      <text>批次 {{order.batch.daily_seq}} · {{order.batch.batch_no}}（{{order.batch.total_orders}}单 · {{order.batch.status_text}}）</text>
     </view>
   </view>
 

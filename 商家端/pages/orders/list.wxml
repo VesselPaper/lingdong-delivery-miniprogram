@@ -2,11 +2,11 @@
   <view class="search-row">
     <view class="search-box">
       <t-icon name="search" size="32rpx" color="#999999" />
-      <input class="search-input" placeholder="用户手机号/订单ID/任务ID" placeholder-class="search-ph" value="{{keyword}}" bindinput="onSearch" />
+      <input class="search-input" placeholder="订单号 / 点位 / 商品" placeholder-class="search-ph" value="{{keyword}}" bindinput="onSearch" />
     </view>
-    <view class="scan-btn" bindtap="simulateScan">
+    <view class="scan-btn" bindtap="goLoading">
       <t-icon name="scan" size="30rpx" color="#3078C0" />
-      <text class="scan-text">模拟扫码配单</text>
+      <text class="scan-text">配单上货</text>
     </view>
   </view>
 
@@ -18,28 +18,46 @@
     <block wx:for="{{filtered}}" wx:key="id">
       <view class="order-card card" bindtap="goDetail" data-id="{{item.id}}">
         <view class="order-top">
-          <text class="order-no">{{item.order_no}}</text>
+          <text class="order-title">订单 {{item.daily_seq}}</text>
           <view class="order-top-right">
             <view class="tag tag-green" wx:if="{{item.payed}}">已收款</view>
-            <text class="order-status">{{item.status_text}}</text>
+            <text class="order-status st-{{item.stClass}}">{{item.status_text}}</text>
           </view>
         </view>
+
+        <!-- 商品摘要：图 + 名称 + 数量（商家知道用户买的什么） -->
+        <view class="order-goods">
+          <view class="goods-img">
+            <image wx:if="{{item.first_image}}" class="goods-img-fill" src="{{item.first_image}}" mode="aspectFill" />
+            <t-icon wx:else name="cart" size="40rpx" color="#BFBFBF" />
+          </view>
+          <view class="goods-info">
+            <view class="goods-name ellipsis">{{item.first_name}}</view>
+            <view class="goods-sub text-weak text-sm">
+              <text>x{{item.first_qty}}</text>
+              <text wx:if="{{item.item_count > item.first_qty}}">　共 {{item.item_count}} 件</text>
+            </view>
+          </view>
+          <view class="goods-price price-blue">¥{{item.total_amount}}</view>
+        </view>
+
         <view class="order-mid">
           <view class="order-line">
             <text class="line-label">送达</text>
             <text class="line-value">{{item.landmark_name}}</text>
           </view>
           <view class="order-line">
-            <text class="line-label">金额</text>
-            <text class="line-value price-blue">¥{{item.total_amount}}</text>
+            <text class="line-label">批次</text>
+            <text class="line-value">{{item.batch ? '批次 ' + item.batch.daily_seq : '未组单'}}</text>
           </view>
           <view class="order-line">
             <text class="line-label">下单时间</text>
             <text class="line-value">{{item.created_time}}</text>
           </view>
         </view>
+
         <view class="order-actions" wx:if="{{item.status === 1}}">
-          <view class="btn btn-sm {{shopOpen ? '' : 'btn-disabled'}}" catchtap="confirmOrder" data-id="{{item.id}}">{{shopOpen ? '确认接单' : '歇业中'}}</view>
+          <view class="btn btn-sm {{shopOpen ? '' : 'btn-disabled'}}" hover-class="btn-hover" catchtap="confirmOrder" data-id="{{item.id}}">{{shopOpen ? '确认接单' : '歇业中'}}</view>
         </view>
       </view>
     </block>
@@ -48,46 +66,23 @@
     </view>
   </view>
 
+  <!-- 底部四分类：待接单 / 待上货 / 待配送 / 待取货 -->
   <view class="status-bar">
-    <view class="status-item {{active === '' ? 'on' : ''}}" bindtap="onTab" data-name="">
-      <t-icon name="app" size="36rpx" color="{{active === '' ? '#3078C0' : '#999999'}}" />
-      <text>全部</text>
-    </view>
-    <view class="status-item {{active === '1' ? 'on' : ''}}" bindtap="onTab" data-name="1">
-      <t-icon name="order" size="36rpx" color="{{active === '1' ? '#3078C0' : '#999999'}}" />
+    <view class="status-item {{active === 'accept' ? 'on' : ''}}" bindtap="onStage" data-stage="accept">
+      <t-icon name="order" size="36rpx" color="{{active === 'accept' ? '#3078C0' : '#999999'}}" />
       <text>待接单</text>
     </view>
-    <view class="status-item {{active === '2' ? 'on' : ''}}" bindtap="onTab" data-name="2">
-      <t-icon name="time" size="36rpx" color="{{active === '2' ? '#3078C0' : '#999999'}}" />
-      <text>待处理</text>
+    <view class="status-item {{active === 'load' ? 'on' : ''}}" bindtap="onStage" data-stage="load">
+      <t-icon name="scan" size="36rpx" color="{{active === 'load' ? '#3078C0' : '#999999'}}" />
+      <text>待上货</text>
     </view>
-    <view class="status-item {{active === '3' ? 'on' : ''}}" bindtap="onTab" data-name="3">
-      <t-icon name="cart" size="36rpx" color="{{active === '3' ? '#3078C0' : '#999999'}}" />
+    <view class="status-item {{active === 'deliver' ? 'on' : ''}}" bindtap="onStage" data-stage="deliver">
+      <t-icon name="robot-1" size="36rpx" color="{{active === 'deliver' ? '#3078C0' : '#999999'}}" />
+      <text>待配送</text>
+    </view>
+    <view class="status-item {{active === 'pickup' ? 'on' : ''}}" bindtap="onStage" data-stage="pickup">
+      <t-icon name="location" size="36rpx" color="{{active === 'pickup' ? '#3078C0' : '#999999'}}" />
       <text>待取货</text>
-    </view>
-    <view class="status-filter" bindtap="openFilter">
-      <t-icon name="filter" size="32rpx" color="#ffffff" />
-      <text>筛选</text>
-    </view>
-  </view>
-
-  <view class="popup-mask" wx:if="{{showFilter}}" bindtap="closeFilter"></view>
-  <view class="popup-sheet" wx:if="{{showFilter}}">
-    <view class="popup-title">时间筛选</view>
-    <view class="chip-grid">
-      <view class="chip {{filterTime === '' ? 'on' : ''}}" bindtap="setFilterTime" data-val="">全部</view>
-      <view class="chip {{filterTime === 'overdue' ? 'on' : ''}}" bindtap="setFilterTime" data-val="overdue">已超时</view>
-      <view class="chip {{filterTime === 'soon' ? 'on' : ''}}" bindtap="setFilterTime" data-val="soon">即将超时</view>
-      <view class="chip {{filterTime === 'normal' ? 'on' : ''}}" bindtap="setFilterTime" data-val="normal">正常</view>
-      <view class="chip {{filterTime === 'appt' ? 'on' : ''}}" bindtap="setFilterTime" data-val="appt">预约</view>
-    </view>
-    <view class="popup-title">品牌</view>
-    <view class="chip-grid">
-      <view class="chip on">全部</view>
-    </view>
-    <view class="popup-actions">
-      <view class="btn btn-ghost flex-1" bindtap="resetFilter">清空</view>
-      <view class="btn flex-1" bindtap="confirmFilter">确认</view>
     </view>
   </view>
 </view>

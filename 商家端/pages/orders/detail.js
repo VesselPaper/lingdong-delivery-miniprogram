@@ -2,6 +2,9 @@ const api = require('../../utils/api')
 const request = require('../../utils/request')
 const shopState = require('../../utils/shopState')
 
+// 订单状态 → 文字颜色 class
+const ST_CLASS = { 0: 'gray', 1: 'orange', 2: 'blue', 3: 'green', 4: 'green', 5: 'gray', 6: 'red', 7: 'gray' }
+
 Page({
   data: {
     id: null,
@@ -25,7 +28,7 @@ Page({
     try {
       const data = await request.get(api.orderDetail + '?id=' + this.data.id)
       this.setData({
-        order: data,
+        order: Object.assign({}, data, { stClass: ST_CLASS[Number(data.status)] || 'gray' }),
         items: data.items,
         payed: data.status > 0
       })

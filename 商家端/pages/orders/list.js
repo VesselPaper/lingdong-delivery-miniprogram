@@ -9,14 +9,16 @@ function formatTime(t) {
   return s.length >= 16 ? s.slice(0, 16) : s
 }
 
+// 订单状态 → 文字颜色 class（不同状态不同颜色）
+const ST_CLASS = { 0: 'gray', 1: 'orange', 2: 'blue', 3: 'green', 4: 'green', 5: 'gray', 6: 'red', 7: 'gray' }
+
 Page({
   data: {
-    active: '',
+    active: 'accept',   // 底部四分类：accept 待接单 / load 待上货 / deliver 待配送 / pickup 待取货
+    statusFilter: '',   // 从工作台跳转的精确状态过滤（如异常 6）
     orders: [],
     filtered: [],
     keyword: '',
-    showFilter: false,
-    filterTime: '',
     shopOpen: true
   },
 
@@ -27,14 +29,16 @@ Page({
   },
 
   onLoad(options) {
-    // 支持从工作台跳转指定分类：?tab=1 待接单 / 6 异常 / 5 售后（空=全部当前）
-    if (options && options.tab !== undefined && options.tab !== '') {
-      this.setData({ active: options.tab })
+    // 支持：?stage=accept|load|deliver|pickup（底部四分类）/ ?tab=状态号（如异常 6）
+    if (options && options.stage) {
+      this.setData({ active: options.stage })
+    } else if (options && options.tab !== undefined && options.tab !== '') {
+      this.setData({ statusFilter: String(options.tab), active: '' })
     }
   },
 
-  onTab(e) {
-    this.setData({ active: e.currentTarget.dataset.name })
+  onStage(e) {
+    this.setData({ active: e.currentTarget.dataset.stage, statusFilter: '' })
     this.load()
   },
 
@@ -43,22 +47,30 @@ Page({
   },
 
   applyFilter() {
-    const kw = this.data.keyword.trim()
+    const kw = this.data.keyword.trim().toLowerCase()
     const filtered = kw
       ? this.data.orders.filter((o) =>
-          (o.order_no || '').toLowerCase().includes(kw.toLowerCase()) ||
-          (o.landmark_name || '').toLowerCase().includes(kw.toLowerCase()))
+          (o.order_no || '').toLowerCase().includes(kw) ||
+          String(o.daily_seq || '') === kw ||
+          (o.landmark_name || '').toLowerCase().includes(kw) ||
+          (o.first_name || '').toLowerCase().includes(kw))
       : this.data.orders
     this.setData({ filtered })
   },
 
   async load() {
     try {
-      // 当前任务：全部 tab 只显示执行中的订单（待接单/配送中/等待取餐）；具体 tab 按状态过滤
-      const qs = this.data.active !== '' ? '?status=' + this.data.active : '?scope=active'
+      const qs = this.data.statusFilter !== ''
+        ? '?status=' + this.data.statusFilter
+        : '?stage=' + (this.data.active || 'accept')
       const orders = await request.get(api.orders + qs)
       // 真实业务：订单状态 0=待支付，status>0 即已支付收款
-      const list = orders.map((o) => ({ ...o, payed: Number(o.status) > 0, created_time: formatTime(o.created_at) }))
+      const list = orders.map((o) => ({
+        ...o,
+        payed: Number(o.status) > 0,
+        created_time: formatTime(o.created_at),
+        stClass: ST_CLASS[Number(o.status)] || 'gray'
+      }))
       this.setData({ orders: list }, () => this.applyFilter())
     } catch (e) { /* handled */ }
   },
@@ -67,30 +79,9 @@ Page({
     wx.navigateTo({ url: '/pages/orders/detail?id=' + e.currentTarget.dataset.id })
   },
 
-  // 模拟扫码配单（测试阶段）：不真扫码，直接进入配单/上货页（一车多单批次流程）
-  simulateScan() {
+  // 右上角「配单上货」：进入配单/上货页（一车多单批次流程）
+  goLoading() {
     wx.navigateTo({ url: '/pages/device/loading' })
-  },
-
-  openFilter() {
-    this.setData({ showFilter: true })
-  },
-
-  closeFilter() {
-    this.setData({ showFilter: false })
-  },
-
-  setFilterTime(e) {
-    this.setData({ filterTime: e.currentTarget.dataset.val })
-  },
-
-  resetFilter() {
-    this.setData({ filterTime: '' })
-    this.closeFilter()
-  },
-
-  confirmFilter() {
-    this.closeFilter()
   },
 
   async confirmOrder(e) {

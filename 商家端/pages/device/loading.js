@@ -2,15 +2,18 @@ const api = require('../../utils/api')
 const request = require('../../utils/request')
 
 // 上货操作（一车多单 · 配送批次）
-// 流程：批次列表 →（组单中批次「派车配送」/ 待上货批次「选择」或「模拟扫码」）
-//      → 已选批次（可开舱）→ 开舱放货 → 关舱 → 立即配送（整批出发）
-// 展示：与「我的任务」一致的卡片布局，批次/订单/商品三层卡面分明，商品一行一个完整展示。
+// 流程：批次列表（搜索定位）→ 选择批次 → 开舱放货 → 关舱 → 立即配送（整批出发）
+// 展示：批次/订单/商品三层卡面分明；卡面标题用「批次 N / 订单 N」当日序号，
+//       完整批次编号只在单批次详情显示、完整订单号只在订单详情页显示；商品一行一个（价格在数量前）。
+const ORDER_ST_CLASS = { 1: 'orange', 2: 'blue', 3: 'green', 4: 'green', 5: 'gray', 6: 'red', 7: 'gray' }
+const BATCH_TAG_CLASS = { 0: 'tag-gray', 1: 'tag-orange', 2: 'tag-blue' }
+
 Page({
   data: {
     deviceSn: '',
     batch: null,
     phase: 'idle', // idle 批次列表 | scanned 已选批次(可开舱) | open 已开舱 | loaded 已关舱(可派发) | dispatched 已派发
-    statusText: '请选择待上货批次，或为组单中的批次派车',
+    keyword: '',
     openBatches: [],
     readyBatches: [],
     activeBatches: [],
@@ -23,35 +26,67 @@ Page({
     countdownText: ''
   },
   timer: null,
+  rawOpen: [],
+  rawReady: [],
+  rawActive: [],
 
   onShow() {
     this.loadPending()
   },
 
-  // 批次列表主入口
+  // 批次列表主入口（原始列表存 this.raw*，搜索过滤后写入 data）
   async loadPending() {
     try {
       this.setData({ loadingList: true })
       const data = await request.get(api.devicePending, {}, { silent: true })
-      this.setData({
-        openBatches: this.decorate(data.open_batches || [], 'open'),
-        readyBatches: this.decorate(data.ready_batches || [], 'ready'),
-        activeBatches: this.decorate(data.active_batches || [], 'active'),
-        pendingError: '',
-        loadingList: false
-      })
+      this.rawOpen = data.open_batches || []
+      this.rawReady = data.ready_batches || []
+      this.rawActive = data.active_batches || []
+      this.setData({ pendingError: '', loadingList: false }, () => this.applySearch())
     } catch (e) {
+      this.rawOpen = []
+      this.rawReady = []
+      this.rawActive = []
       this.setData({ loadingList: false, openBatches: [], readyBatches: [], activeBatches: [], pendingError: (e && e.message) || '获取批次失败' })
     }
   },
 
-  // 为列表卡片附加操作标记与样式
+  // 为列表卡片附加操作标记/样式；订单附加状态色
   decorate(list, kind) {
     return list.map((b, idx) => Object.assign({}, b, {
       action: kind === 'open' ? 'dispatch' : (kind === 'ready' ? 'select' : ''),
       index: idx,
-      tagClass: kind === 'open' ? 'tag-blue' : (kind === 'ready' ? 'tag-green' : 'tag-orange')
+      statusTagClass: BATCH_TAG_CLASS[Number(b.status)] || 'tag-gray',
+      orders: (b.orders || []).map((o) => Object.assign({}, o, {
+        stClass: o.picked_up ? 'green' : (ORDER_ST_CLASS[Number(o.status)] || 'gray')
+      }))
     }))
+  },
+
+  // ---------- 搜索：批次 / 订单 / 商品 / 点位 / 收餐人 ----------
+  onSearch(e) {
+    this.setData({ keyword: e.detail.value }, () => this.applySearch())
+  },
+
+  applySearch() {
+    const kw = (this.data.keyword || '').trim().toLowerCase()
+    const hit = (b) => {
+      if (!kw) return true
+      if (String(b.batch_no || '').toLowerCase().indexOf(kw) > -1) return true
+      if (String(b.daily_seq || '') === kw) return true
+      return (b.orders || []).some((o) =>
+        String(o.order_no || '').toLowerCase().indexOf(kw) > -1 ||
+        String(o.daily_seq || '') === kw ||
+        String(o.landmark_name || '').toLowerCase().indexOf(kw) > -1 ||
+        String(o.contact_name || '').toLowerCase().indexOf(kw) > -1 ||
+        String(o.contact_phone || '').indexOf(kw) > -1 ||
+        (o.items || []).some((it) => String(it.goods_name || '').toLowerCase().indexOf(kw) > -1))
+    }
+    this.setData({
+      openBatches: this.decorate(this.rawOpen.filter(hit), 'open'),
+      readyBatches: this.decorate(this.rawReady.filter(hit), 'ready'),
+      activeBatches: this.decorate(this.rawActive.filter(hit), 'active')
+    })
   },
 
   onReady() {
@@ -82,7 +117,7 @@ Page({
     }, 1000)
   },
 
-  // 从待上货批次列表直接选择（等同扫码定位）
+  // 从待上货批次列表选择（进入单批次详情，显示批次编号）
   selectBatch(e) {
     const idx = Number(e.currentTarget.dataset.index)
     const item = this.data.readyBatches[idx]
@@ -99,43 +134,8 @@ Page({
       deviceSn: sn,
       batch,
       phase: 'scanned',
-      statusText: '已选择批次，点击「打开舱门」放入本批 ' + (item.total_orders || 0) + ' 单货品'
+      keyword: ''
     })
-  },
-
-  // 模拟扫码识别机器人（测试阶段：不真扫码，定位待上货批次）
-  simulateScanRobot() {
-    if (!this.data.readyBatches.length) {
-      if (this.data.openBatches.length) {
-        wx.showToast({ title: '组单中的批次请先「派车配送」', icon: 'none' })
-      } else {
-        wx.showToast({ title: '暂无待上货批次', icon: 'none' })
-      }
-      return
-    }
-    const item = this.data.readyBatches[0]
-    // 测试阶段：用固定模拟设备号定位（真实机器人接入后替换为真实扫码）
-    const sn = item.device_sn || 'SIMROBOT0001'
-    wx.showLoading({ title: '识别机器人' })
-    request.post(api.deviceScan, { deviceSn: sn })
-      .then((res) => {
-        wx.hideLoading()
-        const batch = Object.assign({}, res)
-        delete batch.action
-        delete batch.index
-        this.setData({
-          deviceSn: sn,
-          batch,
-          phase: 'scanned',
-          statusText: '已识别机器人，批次 ' + res.batch_no + ' 共 ' + (res.total_orders || 0) + ' 单，点击「打开舱门」放货'
-        })
-      })
-      .catch((e) => {
-        wx.hideLoading()
-        // 扫码失败（如真实模式无该设备）→ 回退为直接选择待上货批次
-        wx.showToast({ title: (e && e.message) || '识别失败，已直接选择批次', icon: 'none' })
-        this.selectBatchItem(item)
-      })
   },
 
   // 组单中的批次 → 派车配送（创建全部平台任务）
@@ -145,8 +145,8 @@ Page({
     if (!item) return
     const res = await new Promise((resolve) => {
       wx.showModal({
-        title: '为该批次派车配送？',
-        content: '批次 ' + (item.batch_no || '') + ' 共 ' + (item.total_orders || 0) + ' 单。派车后机器人将按规划路线依次配送，请准备好货品后开舱上货。',
+        title: '为批次 ' + (item.daily_seq || '') + ' 派车配送？',
+        content: '本批共 ' + (item.total_orders || 0) + ' 单。派车后机器人将按规划路线依次配送，请准备好货品后开舱上货。',
         confirmText: '派车',
         confirmColor: '#3078C0',
         success: (r) => resolve(r.confirm)
@@ -171,7 +171,7 @@ Page({
     wx.showLoading({ title: '开舱中' })
     try {
       await request.post(api.batchOpenBin, { batch_id: this.data.batch.id })
-      this.setData({ phase: 'open', statusText: '舱门已打开，请放入本批全部货品' })
+      this.setData({ phase: 'open' })
       wx.hideLoading()
     } catch (e) {
       wx.hideLoading()
@@ -196,7 +196,7 @@ Page({
           if (r.confirm) {
             this.dispatchAll()
           } else {
-            this.setData({ phase: 'loaded', statusText: '已关舱，机器人原地等待' })
+            this.setData({ phase: 'loaded' })
             this.startCountdown(180)
           }
         }
@@ -214,7 +214,7 @@ Page({
     try {
       await request.post(api.batchDispatchAll, { batch_id: this.data.batch.id })
       this.clearTimer()
-      this.setData({ phase: 'dispatched', sliderX: 0, statusText: '机器人已出发，将按路线依次配送' })
+      this.setData({ phase: 'dispatched', sliderX: 0 })
       wx.hideLoading()
     } catch (e) {
       wx.hideLoading()
@@ -236,7 +236,7 @@ Page({
 
   reset() {
     this.clearTimer()
-    this.setData({ deviceSn: '', batch: null, phase: 'idle', sliderX: 0, countdown: 0, countdownText: '', statusText: '请选择待上货批次，或为组单中的批次派车' })
+    this.setData({ deviceSn: '', batch: null, phase: 'idle', sliderX: 0, countdown: 0, countdownText: '' })
     this.loadPending()
   }
 })

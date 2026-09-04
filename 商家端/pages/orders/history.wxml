@@ -2,7 +2,7 @@
   <view class="search-row">
     <view class="search-box">
       <t-icon name="search" size="32rpx" color="#999999" />
-      <input class="search-input" placeholder="手机号/订单ID/#收货点" placeholder-class="search-ph" value="{{keyword}}" bindinput="onSearch" />
+      <input class="search-input" placeholder="订单号 / 商品 / 点位" placeholder-class="search-ph" value="{{keyword}}" bindinput="onSearch" />
     </view>
     <view class="filter-btn" bindtap="openFilter">
       <t-icon name="filter" size="40rpx" color="#333333" />
@@ -14,23 +14,37 @@
       <view class="order-card card" bindtap="goDetail" data-id="{{item.id}}">
         <view class="order-top">
           <view class="order-no-col">
-            <text class="order-time">{{item.order_no}}</text>
-            <text class="order-time-sub text-weak text-sm">{{item.created_time}}</text>
+            <text class="order-title">订单 {{item.daily_seq}}</text>
+            <text class="order-time-sub">{{item.created_time}}</text>
           </view>
           <view class="order-top-right">
             <view class="tag tag-green" wx:if="{{item.payed}}">已收款</view>
-            <text class="order-status">{{item.status_text}}</text>
+            <text class="order-status st-{{item.stClass}}">{{item.status_text}}</text>
           </view>
         </view>
-        <view class="order-body">
-          <view class="goods-img">
-            <t-icon name="cart" size="48rpx" color="#BFBFBF" />
+
+        <!-- 商品明细：图 + 名称 + 价格 + 数量 -->
+        <view class="h-items">
+          <view class="h-item" wx:for="{{item.items}}" wx:for-item="it" wx:key="id">
+            <view class="h-item-img">
+              <image wx:if="{{it.goods_image}}" class="h-item-img-fill" src="{{it.goods_image}}" mode="aspectFill" />
+              <t-icon wx:else name="cart" size="28rpx" color="#BFBFBF" />
+            </view>
+            <view class="h-item-name ellipsis">{{it.goods_name}}</view>
+            <text class="h-item-price">¥{{it.price}}</text>
+            <text class="h-item-qty">x{{it.quantity}}</text>
           </view>
-          <view class="goods-info">
-            <view class="goods-name ellipsis">订单商品</view>
-            <view class="goods-place text-weak text-sm ellipsis">{{item.landmark_name}}</view>
+        </view>
+
+        <view class="order-foot">
+          <view class="foot-left">
+            <text class="foot-meta">{{item.batch ? '批次 ' + item.batch.daily_seq : '未组单批次'}}</text>
+            <text class="foot-meta">{{item.landmark_name}}</text>
           </view>
-          <view class="goods-price price-blue">¥{{item.total_amount}}</view>
+          <view class="foot-total">
+            <text class="text-sub text-sm">合计</text>
+            <text class="total-price">¥{{item.total_amount}}</text>
+          </view>
         </view>
       </view>
     </block>

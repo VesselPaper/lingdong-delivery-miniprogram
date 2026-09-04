@@ -1,6 +1,9 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
 
+// 订单状态 → 文字颜色 class（配送中蓝 / 已送达绿 / 异常红…）
+const ST_CLASS = { 1: 'orange', 2: 'blue', 3: 'green', 4: 'green', 5: 'gray', 6: 'red', 7: 'gray' }
+
 Page({
   data: {
     robots: [],
@@ -25,7 +28,9 @@ Page({
     this.loadRobots()
     try {
       const tasks = await request.get(api.deliveryMonitor, {}, { silent: true })
-      this.setData({ tasks })
+      this.setData({
+        tasks: (tasks || []).map((t) => ({ ...t, stClass: ST_CLASS[Number(t.order_status)] || 'gray' }))
+      })
     } catch (e) { /* 静默：错误以页面状态呈现 */ }
   },
 

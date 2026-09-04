@@ -112,6 +112,13 @@ function assert(cond, msg) {
     const taskIds = disp.data.orders.map((o) => o.task && o.task.id)
     assert(taskIds.every(Boolean), '每单已创建配送任务')
     assert('items' in disp.data.orders[0] && Array.isArray(disp.data.orders[0].items) && disp.data.orders[0].items.length >= 1, '批次订单含 items 商品明细（上货页逐商品展示）')
+    assert(Number(disp.data.daily_seq) >= 1, '批次当日序号（批次 ' + disp.data.daily_seq + '）')
+
+    // 任务页 stage 过滤：待上货（批次未派车/待上货的订单）
+    const stageLoad = await api('GET', '/merchant/orders?stage=load', null, mToken)
+    const inLoad = stageLoad.data.find((o) => created.indexOf(o.id) > -1)
+    assert(!!inLoad, '任务页「待上货」分类可过滤出本批订单')
+    assert(Array.isArray(inLoad.items) && inLoad.items.length >= 1 && inLoad.batch && inLoad.batch.batch_no, '商家订单列表含 items 与所属批次')
 
     // 模拟扫码识别机器人
     const scan = await api('POST', '/merchant/device/scan', { deviceSn: 'TESTROBOT001' }, mToken)
@@ -134,6 +141,10 @@ function assert(cond, msg) {
     // 模拟配送完成整批
     const tc = await api('POST', '/merchant/delivery/test-complete', { batch_id: batchId, status: 3 }, mToken)
     assert(tc.code === 0 && tc.data.count === 4, '测试完成配送整批 4 单')
+
+    // 任务页 stage 过滤：待取货（已送达未取）
+    const stagePickup = await api('GET', '/merchant/orders?stage=pickup', null, mToken)
+    assert(stagePickup.data.filter((o) => created.indexOf(o.id) > -1).length === 4, '任务页「待取货」分类=已送达 4 单')
 
     // 用户取餐（其中一单）
     const firstOrder = created[0]

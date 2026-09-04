@@ -105,6 +105,8 @@ page {
 .btn-sm { height: 60rpx; font-size: 26rpx; padding: 0 24rpx; border-radius: 6rpx; }
 .btn-block { width: 100%; }
 .btn-disabled { background: #D8D8D8; color: #ffffff; }
+.btn-outline-brand { background: #ffffff; color: var(--brand); border: 1rpx solid var(--brand); }
+.btn-hover { opacity: 0.82; }
 
 .tag {
   display: inline-flex;
@@ -117,6 +119,39 @@ page {
 }
 .tag-dark { background: #3078C0; color: #ffffff; }
 .tag-green { background: #E6F7EF; color: #00A56B; }
+.tag-orange { background: #FFF3E8; color: #F5A623; }
+.tag-blue { background: #EAF3FF; color: #3078C0; }
+.tag-gray { background: #F5F5F5; color: #999999; }
+
+/* 订单状态文字色（全端统一：不同状态不同颜色） */
+.st-orange { color: #F5A623; }
+.st-blue { color: #3078C0; }
+.st-green { color: #2BA471; }
+.st-red { color: #E64340; }
+.st-gray { color: #999999; }
+
+/* 统一搜索框（与商铺选择/商品管理/历史订单一致） */
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 24rpx 24rpx 8rpx;
+}
+.search-box {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: #F3F4F6;
+  border-radius: 12rpx;
+  padding: 16rpx 24rpx;
+}
+.search-input {
+  flex: 1;
+  margin-left: 12rpx;
+  font-size: 28rpx;
+  color: #111111;
+}
+.search-ph { color: #999999; }
 
 .cell {
   display: flex;

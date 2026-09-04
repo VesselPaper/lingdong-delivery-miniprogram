@@ -1,82 +1,47 @@
 .load-page {
-  padding: 24rpx 32rpx 80rpx;
+  padding-bottom: 80rpx;
 }
 
-.load-head {
-  padding: 24rpx 8rpx 32rpx;
-}
-
-.load-title {
-  font-size: 40rpx;
-  font-weight: 700;
-  color: #222;
-}
-
-.load-status {
-  margin-top: 12rpx;
-  font-size: 26rpx;
-  color: #666;
-}
-
-.load-status.on {
-  color: #2BA471;
-}
-
-.scan-card {
-  margin-top: 20rpx;
-}
-
-.scan-row {
-  display: flex;
-  align-items: center;
-  padding: 28rpx 8rpx;
-}
-
-.scan-row-text {
-  flex: 1;
-  margin-left: 16rpx;
+/* 区块小标题（去掉了长提示文案） */
+.section-label {
+  padding: 24rpx 8rpx 12rpx;
   font-size: 28rpx;
-  color: #3078C0;
+  font-weight: 600;
+  color: var(--text-main);
 }
 
-.scan-row-arrow {
-  font-size: 40rpx;
-}
-
-/* ---------- 批次卡片（卡面分明） ---------- */
-.batch-card {
-  margin-bottom: 24rpx;
-  border-radius: 24rpx;
-  box-shadow: 0 4rpx 20rpx rgba(31, 63, 122, 0.06);
-}
-
+/* ---------- 批次卡片（沿用全局 .card：12rpx 圆角 + 描边） ---------- */
 .batch-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding-bottom: 16rpx;
-  border-bottom: 1rpx solid #F0F2F5;
+  border-bottom: 1rpx solid var(--line);
 }
 
-.batch-no-wrap {
+.batch-title-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 14rpx;
+  min-width: 0;
+}
+
+.batch-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* 完整批次编号：只在单批次详情显示，弱化展示 */
+.batch-no-full {
+  font-size: 20rpx;
+  color: var(--text-weak);
+}
+
+.batch-tags {
   display: flex;
   align-items: center;
-  gap: 14rpx;
-  flex-wrap: wrap;
-}
-
-.batch-no {
-  font-size: 30rpx;
-  font-weight: 700;
-  color: #111111;
-}
-
-.batch-status {
-  font-size: 22rpx;
-  color: #999999;
-}
-
-.batch-act {
+  gap: 10rpx;
   flex-shrink: 0;
 }
 
@@ -88,7 +53,7 @@
 
 .batch-line .line-label {
   font-size: 24rpx;
-  color: #666666;
+  color: var(--text-sub);
   width: 110rpx;
   flex-shrink: 0;
 }
@@ -96,7 +61,7 @@
 .batch-line .line-value {
   flex: 1;
   font-size: 24rpx;
-  color: #111111;
+  color: var(--text-main);
   word-break: break-all;
 }
 
@@ -107,7 +72,7 @@
 
 .b-order {
   background: #F8F9FB;
-  border-radius: 16rpx;
+  border-radius: var(--radius-md);
   padding: 20rpx 24rpx;
   margin-bottom: 16rpx;
 }
@@ -121,89 +86,62 @@
   align-items: center;
   gap: 12rpx;
   padding-bottom: 12rpx;
-  border-bottom: 1rpx dashed #E3E7EE;
+  border-bottom: 1rpx solid #ECEDF0;
 }
 
-.b-order-no {
-  font-size: 26rpx;
+.b-order-title {
+  font-size: 28rpx;
   font-weight: 600;
-  color: #111111;
+  color: var(--text-main);
 }
 
 .b-order-landmark {
-  font-size: 24rpx;
-  color: #3078C0;
-  background: #EAF3FF;
-  border-radius: 8rpx;
+  font-size: 22rpx;
+  color: var(--brand);
+  background: var(--brand-light);
+  border-radius: 6rpx;
   padding: 4rpx 12rpx;
 }
 
 .b-order-status {
   margin-left: auto;
-  font-size: 22rpx;
-  color: #F5A623;
+  font-size: 24rpx;
+  font-weight: 500;
 }
 
-.b-order-status.done {
-  color: #2BA471;
-}
-
-.b-meta-line {
-  display: flex;
-  align-items: baseline;
-  padding: 6rpx 0;
-}
-
-.b-meta-label {
-  font-size: 22rpx;
-  color: #999999;
-  width: 110rpx;
-  flex-shrink: 0;
-}
-
-.b-meta-value {
-  flex: 1;
-  font-size: 22rpx;
-  color: #333333;
-}
-
-.pickup-code {
-  font-size: 30rpx;
-  font-weight: 700;
-  color: #3078C0;
-  letter-spacing: 3rpx;
-}
-
-/* ---------- 单内商品（每行一个） ---------- */
+/* ---------- 单内商品（每行一个；价格在数量前面） ---------- */
 .b-items {
-  margin-top: 8rpx;
-  padding-top: 8rpx;
+  padding-top: 6rpx;
 }
 
 .b-item {
   display: flex;
   align-items: center;
-  padding: 10rpx 0;
-  border-bottom: 1rpx solid #EEF1F5;
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid #ECEDF0;
 }
 
 .b-item:last-child {
   border-bottom: none;
 }
 
+/* 固定尺寸图盒 + 内部 image 100% 铺满，杜绝图片被 flex 拉伸变形 */
 .b-item-img {
   width: 64rpx;
   height: 64rpx;
-  border-radius: 10rpx;
+  border-radius: var(--radius-sm);
+  background: #F5F7FA;
+  overflow: hidden;
   flex-shrink: 0;
-  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.b-item-img.placeholder {
-  background: #EEF1F5;
+.b-item-img-fill {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .b-item-name {
@@ -211,49 +149,45 @@
   min-width: 0;
   margin: 0 16rpx;
   font-size: 26rpx;
-  color: #111111;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.b-item-qty {
-  font-size: 24rpx;
-  color: #666666;
+  color: var(--text-main);
 }
 
 .b-item-price {
-  margin-left: 20rpx;
+  flex-shrink: 0;
+  font-size: 26rpx;
+  color: var(--brand);
+  font-weight: 500;
+}
+
+.b-item-qty {
+  flex-shrink: 0;
+  margin-left: 12rpx;
+  min-width: 44rpx;
+  text-align: right;
   font-size: 24rpx;
-  color: #3078C0;
+  color: var(--text-sub);
 }
 
-/* ---------- 其它 ---------- */
-.pending-error {
-  padding: 16rpx 8rpx;
+/* 单卡底部：取餐码（弱化）+ 收餐人 */
+.b-order-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-top: 8rpx;
 }
 
-.dispatch-btn,
-.select-btn {
-  padding: 12rpx 28rpx;
-  font-size: 24rpx;
+.b-meta-weak {
+  font-size: 22rpx;
+  color: var(--text-weak);
 }
 
-.tag-blue {
-  background: #EEF4FD;
-  color: #3078C0;
+/* 卡底操作按钮 */
+.batch-cta {
+  margin-top: 20rpx;
 }
 
-.tag-green {
-  background: #E6F7F0;
-  color: #2BA471;
-}
-
-.tag-orange {
-  background: #FFF3E8;
-  color: #F5A623;
-}
-
+/* ---------- 派发滑块 / 成功态 ---------- */
 .dispatch-zone {
   margin-top: 24rpx;
 }
@@ -261,12 +195,12 @@
 .dispatch-hint {
   text-align: center;
   font-size: 26rpx;
-  color: #666;
+  color: var(--text-sub);
   margin-bottom: 20rpx;
 }
 
 .dispatch-hint.warn {
-  color: #E5484D;
+  color: var(--danger);
 }
 
 .slider-area {
@@ -280,7 +214,7 @@
   width: 120rpx;
   height: 100rpx;
   border-radius: 50rpx;
-  background: #3078C0;
+  background: var(--brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -310,5 +244,5 @@
 .success-text {
   font-size: 30rpx;
   font-weight: 600;
-  color: #2BA471;
+  color: var(--success);
 }

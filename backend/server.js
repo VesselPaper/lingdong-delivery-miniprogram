@@ -284,10 +284,12 @@ app.post('/api/order/create', auth, (req, res) => {
   })
   const orderNo = 'LD' + Date.now().toString().slice(-8) + Math.random().toString(36).slice(2, 6).toUpperCase()
   const pickupCode = String(Math.floor(1000 + Math.random() * 9000))
+  // 当日序号：每天从 1 重置（商家端卡面展示「订单 N」，完整订单号只在详情页显示）
+  const seqRow = store.prepare("SELECT COUNT(*) c FROM orders WHERE date(created_at)=date('now','localtime')").get()
   const info = store.prepare(`INSERT INTO orders
-    (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, status, remark, pickup_code)
-    VALUES (?,?,?,?,?,?,?,0,?,?)`)
-    .run(orderNo, req.user.id, landmark_id || '', landmark_name || '', req.user.nickname || '', req.user.phone || '', total.toFixed(2), remark, pickupCode)
+    (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, status, remark, pickup_code, daily_seq)
+    VALUES (?,?,?,?,?,?,?,0,?,?,?)`)
+    .run(orderNo, req.user.id, landmark_id || '', landmark_name || '', req.user.nickname || '', req.user.phone || '', total.toFixed(2), remark, pickupCode, Number(seqRow && seqRow.c || 0) + 1)
   const orderId = Number(info.lastInsertRowid)
   const insItem = store.prepare('INSERT INTO order_items (order_id, goods_id, goods_name, goods_image, price, quantity) VALUES (?,?,?,?,?,?)')
   lineItems.forEach(({ goods, quantity }) => {
@@ -742,16 +744,42 @@ app.get('/api/merchant/stats', merchantGuard, (req, res) => {
   ok(res, stats)
 })
 
+// 商家订单列表：status / scope(active|history) / stage(accept|load|deliver|pickup) 三种过滤
+// 附带 items 商品明细、首商品摘要与所属批次（batch_no + 当日序号），任务页/历史订单页直接展示
 app.get('/api/merchant/orders', merchantGuard, (req, res) => {
-  const { status = '', scope = '' } = req.query
+  const { status = '', scope = '', stage = '' } = req.query
   let sql = 'SELECT * FROM orders'
   const args = []
+  if (stage === 'accept') sql += ' WHERE status=1'
+  else if (stage === 'load') sql += " WHERE status=2 AND (batch_id IS NULL OR batch_id IN (SELECT id FROM delivery_batches WHERE status IN (0,1)))"
+  else if (stage === 'deliver') sql += " WHERE status=2 AND batch_id IN (SELECT id FROM delivery_batches WHERE status=2)"
+  else if (stage === 'pickup') sql += ' WHERE status=3'
   // 当前任务：仅执行中的订单（待接单/配送中/等待取餐）；历史订单：已完成/已取消/配送异常/已退款
-  if (scope === 'active') sql += ' WHERE status IN (1,2,3)'
+  else if (scope === 'active') sql += ' WHERE status IN (1,2,3)'
   else if (scope === 'history') sql += ' WHERE status IN (4,5,6,7)'
   else if (status !== '' && status !== undefined) { sql += ' WHERE status=?'; args.push(Number(status)) }
   sql += ' ORDER BY id DESC'
-  const rows = store.prepare(sql).all(...args).map((o) => ({ ...o, status_text: ORDER_STATUS[o.status] || '' }))
+  const getItems = store.prepare('SELECT id, goods_id, goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?')
+  const getBatch = store.prepare('SELECT batch_no, daily_seq, status FROM delivery_batches WHERE id=?')
+  const rows = store.prepare(sql).all(...args).map((o) => {
+    const items = getItems.all(o.id)
+    let batchInfo = null
+    if (o.batch_id) {
+      const b = getBatch.get(o.batch_id)
+      if (b) batchInfo = { batch_no: b.batch_no, daily_seq: Number(b.daily_seq || b.id), status: b.status }
+    }
+    return {
+      ...o,
+      status_text: ORDER_STATUS[o.status] || '',
+      daily_seq: Number(o.daily_seq || o.id),
+      items,
+      first_name: items.length ? items[0].goods_name : '',
+      first_image: items.length ? (items[0].goods_image || '') : '',
+      first_qty: items.length ? Number(items[0].quantity || 0) : 0,
+      item_count: items.reduce((s, it) => s + Number(it.quantity || 0), 0),
+      batch: batchInfo
+    }
+  })
   ok(res, rows)
 })
 
@@ -764,7 +792,7 @@ app.get('/api/merchant/order/detail', merchantGuard, (req, res) => {
     const b = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(order.batch_id)
     if (b) {
       const detail = batch.getBatchDetail(store, b.id)
-      batchInfo = detail ? { id: detail.id, batch_no: detail.batch_no, status: detail.status, status_text: detail.status_text, total_orders: detail.total_orders, picked_orders: detail.picked_orders } : null
+      batchInfo = detail ? { id: detail.id, batch_no: detail.batch_no, daily_seq: detail.daily_seq, status: detail.status, status_text: detail.status_text, total_orders: detail.total_orders, picked_orders: detail.picked_orders } : null
     }
   }
   ok(res, { ...order, status_text: ORDER_STATUS[order.status] || '', items, batch: batchInfo })
@@ -994,7 +1022,7 @@ app.get('/api/merchant/robots', merchantGuard, async (req, res) => {
 // ---------- 配送监控 ----------
 app.get('/api/merchant/delivery/monitor', merchantGuard, async (req, res) => {
   const tasks = store.prepare(`
-    SELECT d.*, o.order_no, o.landmark_name, o.status AS order_status
+    SELECT d.*, o.order_no, o.landmark_name, o.status AS order_status, o.daily_seq AS order_daily_seq
     FROM delivery_tasks d JOIN orders o ON d.order_id = o.id
     WHERE d.task_status < 80 OR (d.task_status >= 90 AND d.task_status < 110)
     ORDER BY d.id DESC`).all()

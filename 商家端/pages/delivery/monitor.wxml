@@ -44,8 +44,8 @@
   <view class="section-title">执行中的配送任务</view>
   <view class="card task" wx:for="{{tasks}}" wx:key="id">
     <view class="flex-between">
-      <view class="task-no text-sub">{{item.order_no}}</view>
-      <view class="task-status">{{item.status_text}}</view>
+      <view class="task-no">订单 {{item.order_daily_seq}}</view>
+      <view class="task-status st-{{item.stClass}}">{{item.status_text}}</view>
     </view>
     <view class="task-line text-sub text-sm">
       <text>送达</text>

@@ -34,8 +34,10 @@ function getOrCreateOpenBatch(store) {
   const b = store.prepare('SELECT * FROM delivery_batches WHERE status=0 AND total_orders < ? ORDER BY id DESC LIMIT 1').get(BATCH_MAX_ORDERS)
   if (b) return b
   const batchNo = 'BD' + Date.now().toString().slice(-8) + Math.random().toString(36).slice(2, 6).toUpperCase()
-  const info = store.prepare('INSERT INTO delivery_batches (batch_no, status, status_text, total_orders) VALUES (?,0,?,0)')
-    .run(batchNo, BATCH_STATUS[0])
+  // 当日序号：每天从 1 重置（商家端卡面展示「批次 N」，长编号只在批次详情显示）
+  const seqRow = store.prepare("SELECT COUNT(*) c FROM delivery_batches WHERE date(created_at)=date('now','localtime')").get()
+  const info = store.prepare('INSERT INTO delivery_batches (batch_no, status, status_text, total_orders, daily_seq) VALUES (?,0,?,0,?)')
+    .run(batchNo, BATCH_STATUS[0], Number(seqRow && seqRow.c || 0) + 1)
   return store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(info.lastInsertRowid))
 }
 
@@ -170,6 +172,7 @@ function getBatchDetail(store, batchId) {
     const items = store.prepare('SELECT id, goods_id, goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?').all(o.id)
     return {
       id: o.id, order_no: o.order_no, status: o.status, status_text: statusText(o.status),
+      daily_seq: Number(o.daily_seq || o.id),
       landmark_id: o.landmark_id, landmark_name: o.landmark_name,
       contact_name: o.contact_name, contact_phone: o.contact_phone,
       pickup_code: o.pickup_code, total_amount: o.total_amount,
@@ -187,6 +190,7 @@ function getBatchDetail(store, batchId) {
   const routeText = route.length ? route.map((r) => r.landmark_name).join(' → ') : (distinctLandmarks.join('、') || '')
   return {
     id: b.id, batch_no: b.batch_no, status: b.status, status_text: b.status_text || statusText(b.status),
+    daily_seq: Number(b.daily_seq || b.id),
     device_sn: b.device_sn, total_orders: orders.length, picked_orders: picked,
     created_at: b.created_at, dispatched_at: b.dispatched_at, completed_at: b.completed_at,
     route, route_text: routeText, route_stops_text: distinctLandmarks.join('、'),

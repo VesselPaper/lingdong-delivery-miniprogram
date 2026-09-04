@@ -58,10 +58,17 @@
 .icon-violet { background: #F0ECFF; }
 
 .task-num {
-  font-size: 40rpx;
+  font-size: 44rpx;
   font-weight: 700;
-  color: #111111;
+  color: var(--text-main);
   line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 无待办的数字弱化显示 */
+.task-num.zero {
+  color: #C3CAD4;
+  font-weight: 600;
 }
 
 .task-label {
@@ -150,16 +157,15 @@
   box-sizing: border-box;
 }
 
-/* 底部居中圆形「扫码上货」按钮（连接底部） */
+/* 底部居中圆形「配单上货」按钮（连接底部） */
 .load-bar {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 200rpx;
+  height: 196rpx;
   background: rgba(255, 255, 255, 0.96);
-  border-top: 1rpx solid #EBEBEB;
-  box-shadow: 0 -6rpx 20rpx rgba(0, 0, 0, 0.05);
+  border-top: 1rpx solid var(--line);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -169,23 +175,31 @@
 
 .fab-btn {
   position: relative;
-  width: 152rpx;
-  height: 152rpx;
+  width: 156rpx;
+  height: 156rpx;
   border-radius: 50%;
   background: linear-gradient(180deg, #4E9AF8 0%, #3078C0 100%);
-  box-shadow: 0 10rpx 28rpx rgba(48, 120, 192, 0.4);
+  border: 6rpx solid #ffffff;
+  box-shadow: 0 10rpx 28rpx rgba(48, 120, 192, 0.38);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2rpx;
-  margin-top: -30rpx;
+  margin-top: -34rpx;
+  box-sizing: border-box;
+}
+
+.fab-press {
+  transform: scale(0.96);
+  opacity: 0.9;
 }
 
 .fab-text {
   font-size: 22rpx;
   color: #ffffff;
   font-weight: 500;
+  letter-spacing: 2rpx;
 }
 
 .fab-badge {

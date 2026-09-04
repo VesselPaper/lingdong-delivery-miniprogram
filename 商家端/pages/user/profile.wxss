@@ -22,16 +22,16 @@
   display: flex;
   align-items: center;
   background: #ffffff;
-  border-radius: 20rpx;
+  border: 1rpx solid var(--line);
+  border-radius: var(--radius-md);
   padding: 40rpx 32rpx;
-  margin-bottom: 20rpx;
-  box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.06);
+  margin-bottom: var(--card-gap);
 }
 
 .shop-logo {
   width: 96rpx;
   height: 96rpx;
-  border-radius: 20rpx;
+  border-radius: var(--radius-md);
   background: #EAF2FA;
   display: flex;
   align-items: center;
@@ -73,10 +73,9 @@
 }
 
 .menu-card {
-  border-radius: 20rpx;
+  border-radius: var(--radius-md);
   padding: 32rpx;
-  margin-bottom: 20rpx;
-  box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.06);
+  margin-bottom: var(--card-gap);
 }
 
 .menu-row {

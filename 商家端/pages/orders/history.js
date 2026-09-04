@@ -8,6 +8,9 @@ function formatTime(t) {
   return s.length >= 16 ? s.slice(0, 16) : s
 }
 
+// 订单状态 → 文字颜色 class
+const ST_CLASS = { 0: 'gray', 1: 'orange', 2: 'blue', 3: 'green', 4: 'green', 5: 'gray', 6: 'red', 7: 'gray' }
+
 Page({
   data: {
     orders: [],
@@ -24,21 +27,27 @@ Page({
   },
 
   applyFilter() {
-    const kw = this.data.keyword.trim()
+    const kw = this.data.keyword.trim().toLowerCase()
     const filtered = kw
       ? this.data.orders.filter((o) =>
-          (o.order_no || '').toLowerCase().includes(kw.toLowerCase()) ||
-          (o.landmark_name || '').toLowerCase().includes(kw.toLowerCase()))
+          (o.order_no || '').toLowerCase().includes(kw) ||
+          String(o.daily_seq || '') === kw ||
+          (o.landmark_name || '').toLowerCase().includes(kw) ||
+          (o.items || []).some((it) => (it.goods_name || '').toLowerCase().includes(kw)))
       : this.data.orders
     this.setData({ filtered })
   },
 
   async load() {
     try {
-      // 历史订单：已完成/已取消/配送异常
+      // 历史订单：已完成/已取消/配送异常/已退款（后端附带 items 商品明细与所属批次）
       const orders = await request.get(api.orders + '?scope=history')
-      // 真实业务：订单状态 0=待支付，status>0 即已支付收款
-      const list = orders.map((o) => ({ ...o, payed: Number(o.status) > 0, created_time: formatTime(o.created_at) }))
+      const list = orders.map((o) => ({
+        ...o,
+        payed: Number(o.status) > 0,
+        created_time: formatTime(o.created_at),
+        stClass: ST_CLASS[Number(o.status)] || 'gray'
+      }))
       this.setData({ orders: list }, () => this.applyFilter())
     } catch (e) { /* handled */ }
   },

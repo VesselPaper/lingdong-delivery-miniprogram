@@ -11,24 +11,24 @@
 
     <!-- 主面板四态：待接单 / 待上货 / 配送中 / 待取货 -->
     <view class="task-grid">
-      <view class="task-item" catchtap="goOrdersTab" data-tab="1">
+      <view class="task-item" catchtap="goOrdersStage" data-stage="accept">
         <view class="task-icon icon-blue"><t-icon name="order" size="30rpx" color="#3078C0" /></view>
-        <view class="task-num">{{stats.pending}}</view>
+        <view class="task-num {{stats.pending > 0 ? '' : 'zero'}}">{{stats.pending}}</view>
         <view class="task-label task-blue">待接单</view>
       </view>
       <view class="task-item" catchtap="goLoading">
         <view class="task-icon icon-green"><t-icon name="scan" size="30rpx" color="#2BA471" /></view>
-        <view class="task-num">{{stats.ready_load}}</view>
+        <view class="task-num {{stats.ready_load > 0 ? '' : 'zero'}}">{{stats.ready_load}}</view>
         <view class="task-label task-green">待上货</view>
       </view>
       <view class="task-item" catchtap="goMonitor">
         <view class="task-icon icon-orange"><t-icon name="robot-1" size="30rpx" color="#F5A623" /></view>
-        <view class="task-num">{{stats.delivering}}</view>
+        <view class="task-num {{stats.delivering > 0 ? '' : 'zero'}}">{{stats.delivering}}</view>
         <view class="task-label task-orange">配送中</view>
       </view>
-      <view class="task-item" catchtap="goOrdersTab" data-tab="3">
+      <view class="task-item" catchtap="goPickup">
         <view class="task-icon icon-violet"><t-icon name="location" size="30rpx" color="#7B61FF" /></view>
-        <view class="task-num">{{stats.pickup}}</view>
+        <view class="task-num {{stats.pickup > 0 ? '' : 'zero'}}">{{stats.pickup}}</view>
         <view class="task-label task-violet">待取货</view>
       </view>
     </view>
@@ -79,11 +79,11 @@
     </view>
   </view>
 
-  <!-- 底部居中：醒目圆形「扫码上货」按钮（进入上货操作页） -->
-  <view class="load-bar safe-bottom" bindtap="goLoading">
-    <view class="fab-btn">
-      <t-icon name="scan" size="44rpx" color="#ffffff" />
-      <text class="fab-text">扫码上货</text>
+  <!-- 底部居中：醒目圆形「配单上货」按钮（进入上货操作页） -->
+  <view class="load-bar" bindtap="goLoading">
+    <view class="fab-btn" hover-class="fab-press">
+      <t-icon name="scan" size="46rpx" color="#ffffff" />
+      <text class="fab-text">配单上货</text>
       <view class="fab-badge" wx:if="{{pendingBatchCount}}">{{pendingBatchCount}}</view>
     </view>
   </view>
