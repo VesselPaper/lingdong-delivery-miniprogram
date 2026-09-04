@@ -18,6 +18,7 @@
           </view>
           <text class="o-status">{{item.status_text}}</text>
         </view>
+        <view class="o-meta text-weak text-sm">下单时间 {{item.created_time}}</view>
         <view class="o-main">
           <view class="o-img">
             <image wx:if="{{item.first_image}}" class="fill-img" src="{{item.first_image}}" mode="aspectFill" />

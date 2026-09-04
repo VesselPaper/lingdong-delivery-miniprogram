@@ -13,7 +13,10 @@
     <block wx:for="{{filtered}}" wx:key="id">
       <view class="order-card card" bindtap="goDetail" data-id="{{item.id}}">
         <view class="order-top">
-          <text class="order-time">{{item.order_no}}</text>
+          <view class="order-no-col">
+            <text class="order-time">{{item.order_no}}</text>
+            <text class="order-time-sub text-weak text-sm">{{item.created_time}}</text>
+          </view>
           <view class="order-top-right">
             <view class="tag tag-green" wx:if="{{item.payed}}">已收款</view>
             <text class="order-status">{{item.status_text}}</text>

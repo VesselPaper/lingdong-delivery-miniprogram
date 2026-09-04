@@ -56,6 +56,18 @@
   color: #666666;
 }
 
+/* 历史订单卡：订单号 + 下单时间 */
+.order-no-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.order-time-sub {
+  font-size: 22rpx;
+  color: #999999;
+}
+
 .order-status {
   font-size: 26rpx;
   color: #3078C0;

@@ -2,6 +2,13 @@ const api = require('../../utils/api')
 const request = require('../../utils/request')
 const shopState = require('../../utils/shopState')
 
+// 下单时间展示（后端为本地时间 YYYY-MM-DD HH:MM:SS，去掉秒即可，避免时区解析差异）
+function formatTime(t) {
+  if (!t) return ''
+  const s = String(t)
+  return s.length >= 16 ? s.slice(0, 16) : s
+}
+
 Page({
   data: {
     active: '',
@@ -51,7 +58,7 @@ Page({
       const qs = this.data.active !== '' ? '?status=' + this.data.active : '?scope=active'
       const orders = await request.get(api.orders + qs)
       // 真实业务：订单状态 0=待支付，status>0 即已支付收款
-      const list = orders.map((o) => ({ ...o, payed: Number(o.status) > 0 }))
+      const list = orders.map((o) => ({ ...o, payed: Number(o.status) > 0, created_time: formatTime(o.created_at) }))
       this.setData({ orders: list }, () => this.applyFilter())
     } catch (e) { /* handled */ }
   },

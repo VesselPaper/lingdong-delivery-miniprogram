@@ -33,6 +33,10 @@
             <text class="line-label">金额</text>
             <text class="line-value price-blue">¥{{item.total_amount}}</text>
           </view>
+          <view class="order-line">
+            <text class="line-label">下单时间</text>
+            <text class="line-value">{{item.created_time}}</text>
+          </view>
         </view>
         <view class="order-actions" wx:if="{{item.status === 1}}">
           <view class="btn btn-sm {{shopOpen ? '' : 'btn-disabled'}}" catchtap="confirmOrder" data-id="{{item.id}}">{{shopOpen ? '确认接单' : '歇业中'}}</view>

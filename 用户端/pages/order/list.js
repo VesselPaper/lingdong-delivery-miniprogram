@@ -2,6 +2,13 @@ const api = require('../../utils/api')
 const request = require('../../utils/request')
 const pay = require('../../utils/pay')
 
+// 下单时间展示（后端为本地时间 YYYY-MM-DD HH:MM:SS，去掉秒即可，避免时区解析差异）
+function formatTime(t) {
+  if (!t) return ''
+  const s = String(t)
+  return s.length >= 16 ? s.slice(0, 16) : s
+}
+
 Page({
   data: {
     active: '',
@@ -48,6 +55,8 @@ Page({
         first_name: first.goods_name || '',
         first_qty: first.quantity || 0,
         first_image: first.goods_image || '',
+        // 下单时间（YYYY-MM-DD HH:mm，去掉秒）
+        created_time: formatTime(o.created_at),
         // 取消相关标记（详情接口返回）：免费窗口内可直取消 / 超时须提交申请 / 已有待处理申请
         direct_cancelable: !!detail.direct_cancelable,
         request_cancelable: !!detail.request_cancelable,

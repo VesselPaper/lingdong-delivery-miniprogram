@@ -67,6 +67,11 @@
   color: #666666;
 }
 
+/* 下单时间（订单卡面） */
+.o-meta {
+  padding-bottom: 12rpx;
+}
+
 .o-main {
   display: flex;
   align-items: center;
