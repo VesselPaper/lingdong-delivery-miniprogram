@@ -32,6 +32,8 @@ const api = {
   batchMockDispatch: '/merchant/device/batch/mock-dispatch',
   orderExceptionRetry: '/merchant/order/exception/retry',
   orderExceptionRefund: '/merchant/order/exception/refund',
+  orderExceptionList: '/merchant/orders/exception',
+  map: '/merchant/map',
   refunds: '/merchant/refunds',
   refundDetail: '/merchant/refund/detail',
   refundHandle: '/merchant/refund/handle',

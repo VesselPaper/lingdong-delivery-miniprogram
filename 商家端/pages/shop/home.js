@@ -57,6 +57,11 @@ Page({
     wx.navigateTo({ url: '/pages/orders/list?stage=pickup' })
   },
 
+  // 主面板「异常」：独立异常订单页（可分类/搜索/处理）
+  goException() {
+    wx.navigateTo({ url: '/pages/orders/exception' })
+  },
+
   goGoods() {
     wx.navigateTo({ url: '/pages/goods/list' })
   },

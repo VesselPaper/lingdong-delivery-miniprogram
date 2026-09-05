@@ -54,9 +54,6 @@
   <view class="foot-actions">
     <view class="btn btn-sm btn-block" wx:if="{{order.status === 1 && shopOpen}}" bindtap="confirmOrder">接单并装车</view>
     <view class="btn btn-sm btn-block btn-disabled" wx:if="{{order.status === 1 && !shopOpen}}">歇业中，暂不可接单</view>
-    <block wx:if="{{order.status === 2}}">
-      <view class="btn btn-sm btn-block" bindtap="goLoad">去配单 / 上货</view>
-      <view class="btn btn-outline btn-sm btn-block test-btn" catchtap="testComplete">测试完成配送</view>
-    </block>
+    <!-- 配送中订单无需操作按钮：测试阶段开始配送后模拟 ~10 秒送达进入待取货；真实阶段由平台回调推进 -->
   </view>
 </view>

@@ -151,6 +151,88 @@ async function syncLandmarks(store) {
   }
 }
 
+// ---------------- 配送监控地图（真实校园地图 + 点位 + 路网 + 机器人位置 + 路线） ----------------
+// 数据来源：
+//  1. building/mapInfo/{mapId}：真实地图图片（map.png/barrier.png 签名 OSS 直链）+ mapDetailInfo.landmarks（点位坐标）
+//     + mapDetailInfo.固定路径 graph（可通行路网 nodes/edges）
+//  2. 活跃批次 route（本地 landmarks 坐标）→ 路线折线
+//  3. eviz 代理接口按设备获取机器人实时坐标（robotpose）
+// 返回 map_url/barrier_url、bbox（坐标→图片像素映射）、landmarks、graph、robots、routes。
+async function getMapOverview(store) {
+  if (!platformReady()) return { ok: false, msg: '未配置开放物流平台凭据' }
+  const lm = store.prepare("SELECT * FROM landmarks WHERE platform_building_id != '' ORDER BY sort LIMIT 1").get()
+  if (!lm || !lm.platform_map_id) return { ok: false, msg: '未同步点位（请先执行点位同步）' }
+  try {
+    const m = await requestPlatform('GET', '/open-api/v1/building/mapInfo/' + encodeURIComponent(lm.platform_map_id))
+    if (m.code !== 'COMM_200' || !m.data || !m.data.map) return { ok: false, msg: (m && m.msg) || '获取地图失败' }
+    const mapUrl = m.data.map
+    const barrierUrl = m.data.barrier || ''
+    const detail = m.data.mapDetailInfo || {}
+    // 点位（含商铺上货 loading）
+    const landmarks = []
+    const pts = detail.landmarks || {}
+    for (const k of Object.keys(pts)) {
+      const p = pts[k]
+      if (!p || !Array.isArray(p.pose) || p.pose.length < 2) continue
+      landmarks.push({
+        id: p.id || k,
+        name: p.name || '',
+        type: /上货|商铺|店铺|铺子/.test(p.name || '') ? 'loadingPoint' : 'deliverPoint',
+        x: Number(p.pose[0]), y: Number(p.pose[1])
+      })
+    }
+    // 路网（固定路径 graph）
+    const graph = { nodes: [], edges: [] }
+    const line = pts['固定路径'] || Object.values(pts).find((p) => p && p.graph)
+    if (line && line.graph) {
+      const nodes = line.graph.nodes || {}
+      for (const nk of Object.keys(nodes)) {
+        const pos = nodes[nk].pos || []
+        if (pos.length >= 2) graph.nodes.push({ id: nk, x: Number(pos[0]), y: Number(pos[1]) })
+      }
+      ;(line.graph.edges || []).forEach((e) => {
+        if (e && Array.isArray(e.edge) && e.edge.length === 2) graph.edges.push([e.edge[0], e.edge[1]])
+      })
+    }
+    // bbox：点位 + 路网节点 的外包框（前端按此把坐标映射到图片像素）
+    const xs = []
+    const ys = []
+    landmarks.forEach((p) => { xs.push(p.x); ys.push(p.y) })
+    graph.nodes.forEach((n) => { xs.push(n.x); ys.push(n.y) })
+    if (!xs.length) return { ok: false, msg: '地图无点位数据' }
+    const bbox = { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
+    // 活跃批次路线（批次状态=配送中，route 停靠点坐标来自本地 landmarks）
+    const routes = []
+    const activeBatches = store.prepare('SELECT id FROM delivery_batches WHERE status=2 ORDER BY id DESC LIMIT 10').all()
+    for (const rb of activeBatches) {
+      const detailB = require('./batch').getBatchDetail(store, rb.id)
+      if (!detailB || !Array.isArray(detailB.route)) continue
+      const stops = detailB.route.map((s) => {
+        const loc = store.prepare('SELECT * FROM landmarks WHERE id=?').get(String(s.landmark_id))
+        return { stop: Number(s.stop), landmark_id: s.landmark_id, name: s.landmark_name, x: Number(loc ? loc.pos_x : 0), y: Number(loc ? loc.pos_y : 0), order_count: (s.order_ids || []).length }
+      }).filter((s) => !isNaN(s.x) || !isNaN(s.y))
+      if (stops.length) routes.push({ batch_id: rb.id, batch_no: detailB.batch_no, daily_seq: detailB.daily_seq, stops })
+    }
+    // 机器人实时位置（配送中任务设备，去重）
+    const robots = []
+    const seen = new Set()
+    const taskRows = store.prepare(`
+      SELECT d.id, d.device_sn FROM delivery_tasks d JOIN orders o ON o.id=d.order_id
+      WHERE d.device_sn != '' AND d.task_status BETWEEN 50 AND 79 GROUP BY d.device_sn`).all()
+    for (const t of taskRows) {
+      if (seen.has(t.device_sn)) continue
+      seen.add(t.device_sn)
+      const pos = await getDevicePosition(store, t.id)
+      if (pos && !isNaN(pos.x) && !isNaN(pos.y)) {
+        robots.push({ device_sn: t.device_sn, x: Number(pos.x), y: Number(pos.y), theta: Number(pos.theta || 0), text: pos.text || '' })
+      }
+    }
+    return { ok: true, map_url: mapUrl, barrier_url: barrierUrl, bbox, landmarks, graph, robots, routes }
+  } catch (e) {
+    return { ok: false, msg: '获取地图数据失败：' + e.message }
+  }
+}
+
 // ---------------- 创建配送任务 ----------------
 function createQueueTask(store, order) {
   const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
@@ -612,4 +694,4 @@ async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, createTasksForBatch, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, applyStatus, platformReady, getDeviceList, grantControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm }
+module.exports = { createQueueTask, createTasksForBatch, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, applyStatus, platformReady, getDeviceList, grantControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm }

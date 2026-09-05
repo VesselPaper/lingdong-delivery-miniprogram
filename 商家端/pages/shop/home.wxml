@@ -16,12 +16,12 @@
         <view class="task-num {{stats.pending > 0 ? '' : 'zero'}}">{{stats.pending}}</view>
         <view class="task-label task-blue">待接单</view>
       </view>
-      <view class="task-item" catchtap="goLoading">
+      <view class="task-item" catchtap="goOrdersStage" data-stage="load">
         <view class="task-icon icon-green"><t-icon name="scan" size="30rpx" color="#2BA471" /></view>
         <view class="task-num {{stats.ready_load > 0 ? '' : 'zero'}}">{{stats.ready_load}}</view>
         <view class="task-label task-green">待上货</view>
       </view>
-      <view class="task-item" catchtap="goMonitor">
+      <view class="task-item" catchtap="goOrdersStage" data-stage="deliver">
         <view class="task-icon icon-orange"><t-icon name="robot-1" size="30rpx" color="#F5A623" /></view>
         <view class="task-num {{stats.delivering > 0 ? '' : 'zero'}}">{{stats.delivering}}</view>
         <view class="task-label task-orange">配送中</view>
@@ -35,7 +35,7 @@
 
     <!-- 异常 / 售后（次面板） -->
     <view class="task-sub-row">
-      <view class="task-sub" catchtap="goOrdersTab" data-tab="6">
+      <view class="task-sub" catchtap="goException">
         <t-icon name="info-circle" size="26rpx" color="#E64340" />
         <text class="task-sub-text">异常</text>
         <text class="task-sub-num red">{{stats.exception}}</text>

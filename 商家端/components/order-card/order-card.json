@@ -2,6 +2,7 @@
   "component": true,
   "styleIsolation": "apply-shared",
   "usingComponents": {
-    "status-text": "/components/status-text/status-text"
+    "status-text": "/components/status-text/status-text",
+    "goods-row": "/components/goods-row/goods-row"
   }
 }

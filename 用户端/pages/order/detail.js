@@ -6,7 +6,9 @@ Page({
   data: {
     id: null,
     order: {},
-    items: []
+    items: [],
+    progress: 0,      // 配送进度：0 未接单 / 1 已接单 / 2 配送中 / 3 已送达
+    progressText: ''
   },
 
   onLoad(options) {
@@ -22,9 +24,26 @@ Page({
   async load() {
     try {
       const data = await request.get(api.orderDetail + '?id=' + this.data.id)
-      this.setData({ order: data, items: data.items })
+      this.setData({ order: data, items: data.items, ...this.calcProgress(data) })
       wx.setNavigationBarTitle({ title: data.status_text })
     } catch (e) { /* handled */ }
+  },
+
+  // 配送进度条：已接单 / 配送中 / 已送达 三阶段，到达即填满该圆点
+  calcProgress(data) {
+    const st = Number(data.status)
+    let progress = 0
+    let text = ''
+    if (st === 0) { progress = 0; text = '待支付' }
+    else if (st === 1) { progress = 0; text = '待接单，商家正在备餐' }
+    else if (st === 2) {
+      const moving = data.task && Number(data.task.task_status) >= 50
+      progress = moving ? 2 : 1
+      text = moving ? '机器人配送中' : '已接单，等待装载配送'
+    } else if (st === 3) { progress = 3; text = '机器人已到达 ' + (data.landmark_name || '取餐点') + '，请及时取餐' }
+    else if (st === 4) { progress = 3; text = '已完成' }
+    else { progress = 0; text = data.status_text || '' }
+    return { progress, progressText: text }
   },
 
   async payOrder() {
@@ -74,10 +93,6 @@ Page({
   // 模拟扫码取餐（测试阶段）：直接进入取餐页（开舱/取餐/关舱逻辑在取餐页）
   simulatePickup() {
     wx.navigateTo({ url: '/pages/delivery/pickup?order_id=' + this.data.id })
-  },
-
-  goTrack() {
-    wx.redirectTo({ url: '/pages/delivery/track?order_id=' + this.data.id })
   },
 
   goRefund() {

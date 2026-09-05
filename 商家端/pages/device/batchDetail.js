@@ -145,13 +145,14 @@ Page({
     if (DEVICE_MOCK) {
       wx.showLoading({ title: '开始配送' })
       request.post(api.batchMockDispatch, { batch_id: this.data.batch.id })
-        .then(() => {
+        .then((r) => {
           wx.hideLoading()
           this.clearTimer()
           this.setData({ phase: 'dispatched', sliderX: 0 })
-          wx.showToast({ title: '已模拟开始配送', icon: 'success' })
+          // 测试阶段提示：配送时间模拟为 ~10 秒后送达
+          wx.showToast({ title: (r && r.msg) || '已模拟开始配送', icon: 'none', duration: 2500 })
           // 配送完成自动返回批次列表（上货配单页），无需页面内返回按钮
-          setTimeout(() => wx.navigateBack(), 1400)
+          setTimeout(() => wx.navigateBack(), 1600)
         })
         .catch((e) => {
           wx.hideLoading()

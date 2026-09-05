@@ -66,42 +66,5 @@ Page({
       })
       if (go) wx.navigateTo({ url: '/pages/device/loading' })
     } catch (e) { /* handled */ }
-  },
-
-  goLoad() {
-    wx.navigateTo({ url: '/pages/device/loading' })
-  },
-
-  // 测试辅助：真实模式无真机器人时，把卡在配送中的订单/整批标记为已送达，用户端可继续取餐完成
-  // 若订单在批次内，默认整批标记（一车多单）
-  testComplete() {
-    console.log('[detail] testComplete clicked, id=' + this.data.id)
-    const batch = this.data.order.batch
-    const isBatch = batch && Number(batch.total_orders) > 0
-    const doComplete = () => {
-      wx.showLoading({ title: '标记中' })
-      const body = batch && Number(batch.id) ? { batch_id: batch.id, status: 3 } : { order_id: this.data.id, status: 3 }
-      request.post(api.deliveryTestComplete, body)
-        .then(() => {
-          wx.hideLoading()
-          wx.showToast({ title: '已标记已送达', icon: 'success' })
-          this.load()
-        })
-        .catch((e) => {
-          wx.hideLoading()
-          wx.showToast({ title: (e && e.message) || '操作失败', icon: 'none' })
-        })
-    }
-    if (isBatch) {
-      wx.showModal({
-        title: '标记整批送达',
-        content: '本单属于配送批次 ' + batch.batch_no + '（共 ' + batch.total_orders + ' 单），将整批标记为已送达，用户即可取餐。',
-        confirmText: '整批送达',
-        confirmColor: '#2E7CF6',
-        success: (r) => { if (r.confirm) doComplete() }
-      })
-    } else {
-      doComplete()
-    }
   }
 })

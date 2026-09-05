@@ -185,6 +185,8 @@ function migrate(db) {
   if (!orderCols.includes('goods_settled')) db.exec("ALTER TABLE orders ADD COLUMN goods_settled INTEGER DEFAULT 0")
   // orders：当日序号（每天从 1 重置，商家端卡面展示「订单 N」，长编号只进详情页）
   if (!orderCols.includes('daily_seq')) db.exec("ALTER TABLE orders ADD COLUMN daily_seq INTEGER")
+  // orders：配送异常处理标记（'' 未处理 / 'retry 时间' 已重新配送 / 'refund 时间' 已退款）
+  if (!orderCols.includes('exception_handled')) db.exec("ALTER TABLE orders ADD COLUMN exception_handled TEXT DEFAULT ''")
   // delivery_batches：当日序号（商家端卡面展示「批次 N」）
   const batchCols = db.prepare('PRAGMA table_info(delivery_batches)').all().map((c) => c.name)
   if (!batchCols.includes('daily_seq')) db.exec("ALTER TABLE delivery_batches ADD COLUMN daily_seq INTEGER")

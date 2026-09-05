@@ -11,6 +11,7 @@
     "pages/orders/aftersaleDetail",
     "pages/orders/cancelRequests",
     "pages/orders/cancelRequestDetail",
+    "pages/orders/exception",
     "pages/device/loading",
     "pages/device/batchDetail",
     "pages/goods/list",

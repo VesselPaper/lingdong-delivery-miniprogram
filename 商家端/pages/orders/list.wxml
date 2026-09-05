@@ -30,11 +30,11 @@
     <empty-view show="{{!orders.length}}" text="暂无订单" icon="order" />
   </view>
 
-  <!-- 按批次分组（待上货 / 配送中 / 待取货：一个批次一个卡面，批次内嵌套多单） -->
+  <!-- 按批次分组（待上货 / 配送中 / 待取货：一个批次一个卡面，批次内嵌套多单；商品图/价/量完整展示） -->
   <view class="list" wx:else>
     <batch-card
       wx:for="{{groups}}" wx:key="id"
-      b="{{item}}" showProgress="{{true}}"
+      b="{{item}}" showProgress="{{true}}" showGoods="{{true}}"
       bind:ordertap="goDetailByOrder" />
     <empty-view show="{{!groups.length}}" text="暂无订单" icon="order" />
   </view>

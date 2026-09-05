@@ -7,6 +7,27 @@
     <view class="status-sub text-sm" wx:elif="{{order.status === 0}}">请尽快完成支付</view>
   </view>
 
+  <!-- 配送进度条：已接单 / 配送中 / 已送达，到达阶段圆点填满 -->
+  <view class="card progress-card" wx:if="{{order.status >= 1 && order.status <= 4}}">
+    <view class="p-row">
+      <view class="p-col">
+        <view class="p-dot {{progress >= 1 ? 'on' : ''}}"></view>
+        <view class="p-label {{progress >= 1 ? 'on' : ''}}">已接单</view>
+      </view>
+      <view class="p-line {{progress >= 2 ? 'on' : ''}}"></view>
+      <view class="p-col">
+        <view class="p-dot {{progress >= 2 ? 'on' : ''}}"></view>
+        <view class="p-label {{progress >= 2 ? 'on' : ''}}">配送中</view>
+      </view>
+      <view class="p-line {{progress >= 3 ? 'on' : ''}}"></view>
+      <view class="p-col">
+        <view class="p-dot {{progress >= 3 ? 'on' : ''}}"></view>
+        <view class="p-label {{progress >= 3 ? 'on' : ''}}">已送达</view>
+      </view>
+    </view>
+    <view class="progress-sub text-sm text-sub">{{progressText}}</view>
+  </view>
+
   <view class="card" wx:if="{{order.pickup_code && order.status >= 1}}">
     <view class="pickup">
       <view class="pickup-label">取餐码</view>
@@ -57,7 +78,6 @@
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 1 && order.direct_cancelable}}" bindtap="cancelOrder">取消订单</view>
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 1 && order.request_cancelable}}" bindtap="goCancelRequest">提交取消申请</view>
     <view class="btn btn-sm" style="flex:1;" wx:if="{{order.status === 3}}" bindtap="simulatePickup">模拟扫码取餐</view>
-    <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 2}}" bindtap="goTrack">查看配送位置</view>
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 3 || order.status === 4 || order.status === 6}}" bindtap="goRefund">退款/投诉</view>
   </view>
 </view>

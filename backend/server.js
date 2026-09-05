@@ -364,21 +364,19 @@ app.get('/api/order/list', auth, (req, res) => {
   ok(res, rows)
 })
 
-// ---------- 我的页订单红点（订单到达/状态已接单等未读动态） ----------
-// 未读 = 存在「执行中状态（待接单/配送中/已送达）」且 updated_at 晚于上次已读时间的订单
+// ---------- 我的页订单红点（只要有进行中的任务就常驻显示，点开不消失） ----------
+// 红点 = 进行中的订单数（待接单/配送中/已送达待取餐），不随已读清除；
+// 全部处理完（完成/取消/退款）后才消失。
 app.get('/api/user/order/badge', auth, (req, res) => {
-  const u = store.prepare('SELECT * FROM users WHERE id=?').get(req.user.id)
-  const readAt = (u && u.order_read_at) || '1970-01-01 00:00:00'
   const row = store.prepare(`
     SELECT COUNT(*) c FROM orders
-    WHERE user_id=? AND status IN (1,2,3) AND updated_at > ?`).get(req.user.id, readAt)
+    WHERE user_id=? AND status IN (1,2,3)`).get(req.user.id)
   const count = Number(row && row.c || 0)
   ok(res, { unread: count > 0, count, has_active: count > 0 })
 })
 
-// 已读订单动态：进入订单列表/详情时调用
+// 已读订单动态（保留兼容；红点已改为常驻进行中计数，本接口不再清除红点）
 app.post('/api/user/order/mark-read', auth, (req, res) => {
-  store.prepare("UPDATE users SET order_read_at=datetime('now','localtime') WHERE id=?").run(req.user.id)
   ok(res)
 })
 
@@ -832,6 +830,7 @@ app.post('/api/merchant/order/exception/retry', merchantGuard, (req, res) => {
   }
   // 并入新的组单中批次（商家随后派车配送）
   const b = batch.addOrderToBatch(store, store.prepare('SELECT * FROM orders WHERE id=?').get(order.id))
+  store.prepare("UPDATE orders SET exception_handled='retry ' || datetime('now','localtime'), updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
   console.log('[exception] 配送异常订单重新配送 order=' + order.id + ' → batch=' + b.batch_no + ' user=' + req.user.id)
   ok(res, { order_id: order.id, status: 2, batch_id: b.id, batch_no: b.batch_no, msg: '已重新并入批次 ' + b.batch_no + '，请派车上货配送' })
 })
@@ -849,13 +848,48 @@ app.post('/api/merchant/order/exception/refund', merchantGuard, (req, res) => {
     }
   }
   // 落库：订单 7 已退款 + 售后记录（自动已退款）+ 回补未售库存 + 从批次摘除
-  store.prepare("UPDATE orders SET status=7, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
+  store.prepare("UPDATE orders SET status=7, exception_handled='refund ' || datetime('now','localtime'), updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
   goodsStats.restoreStock(store, order.id)
   store.prepare("INSERT INTO refunds (order_id, user_id, type, reason, amount, status, merchant_reply, handled_at) VALUES (?,?,?,?,?,?,?,datetime('now','localtime'))")
     .run(order.id, order.user_id, 'refund', '配送异常，商家取消并退款', order.total_amount, 3, '配送异常自动退款')
   batch.removeOrderFromBatch(store, order)
   console.log('[exception] 配送异常订单取消退款 order=' + order.id + ' amount=' + order.total_amount + ' user=' + req.user.id)
   ok(res, { order_id: order.id, status: 7, msg: '已取消并退款 ¥' + order.total_amount })
+})
+
+// 配送异常订单列表（独立异常页）：tab=all 全部异常相关 / pending 待处理(状态6未处理) / done 已处理
+app.get('/api/merchant/orders/exception', merchantGuard, (req, res) => {
+  const { tab = 'pending' } = req.query
+  const getItems = store.prepare('SELECT id, goods_id, goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?')
+  const getBatch = store.prepare('SELECT batch_no, daily_seq, status FROM delivery_batches WHERE id=?')
+  const rows = store.prepare("SELECT * FROM orders WHERE status=6 OR exception_handled != '' ORDER BY id DESC").all()
+  const out = rows.filter((o) => {
+    if (tab === 'pending') return Number(o.status) === 6 && !o.exception_handled
+    if (tab === 'done') return !!o.exception_handled
+    return true
+  }).map((o) => {
+    const items = getItems.all(o.id)
+    let batchInfo = null
+    if (o.batch_id) {
+      const b = getBatch.get(o.batch_id)
+      if (b) batchInfo = { batch_no: b.batch_no, daily_seq: Number(b.daily_seq || b.id), status: b.status }
+    }
+    return {
+      ...o,
+      status_text: ORDER_STATUS[o.status] || '',
+      daily_seq: Number(o.daily_seq || o.id),
+      landmark_name: batch.landmarkNameOf(store, o.landmark_id, o.landmark_name),
+      items,
+      first_name: items.length ? items[0].goods_name : '',
+      first_image: items.length ? (items[0].goods_image || '') : '',
+      first_qty: items.length ? Number(items[0].quantity || 0) : 0,
+      item_count: items.reduce((s, it) => s + Number(it.quantity || 0), 0),
+      handled: !!o.exception_handled,
+      handled_text: o.exception_handled ? (o.exception_handled.indexOf('retry') === 0 ? '已重新配送' : '已退款') : '',
+      batch: batchInfo
+    }
+  })
+  ok(res, out)
 })
 
 // ---------- 一车多单：配送批次 ----------
@@ -951,7 +985,10 @@ app.post('/api/merchant/device/batch/dispatch', merchantGuard, async (req, res) 
 
 // 测试辅助：模拟完成上货并开始配送（无真机器人时用）
 // 纯本地推进批次状态：批次 → 配送中(2)、批次内任务 → 已上货(50)，不调用开放物流平台。
+// 测试阶段配送时间模拟为 MOCK_ARRIVE_MS（默认 10 秒）：到点后自动把批次内全部订单标记为已送达(3)/任务 70，
+// 直接进入「待取货」，用户即可取餐；商家无需手动点「测试完成配送」。
 // 正式接入真机器人后由「立即配送」（/merchant/device/batch/dispatch）真实下发，本接口仅测试阶段使用。
+const MOCK_ARRIVE_MS = Number(process.env.MOCK_ARRIVE_MS || 10 * 1000)
 app.post('/api/merchant/device/batch/mock-dispatch', merchantGuard, (req, res) => {
   const { batch_id } = req.body || {}
   const b = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(batch_id))
@@ -961,8 +998,21 @@ app.post('/api/merchant/device/batch/mock-dispatch', merchantGuard, (req, res) =
     .run(b.id)
   store.prepare("UPDATE delivery_tasks SET task_status=50, status_text='已上货（模拟）', updated_at=datetime('now','localtime') WHERE batch_id=? AND task_status < 50")
     .run(b.id)
-  console.log('[batch] 模拟上货完成并开始配送（测试）batch=' + b.batch_no + ' user=' + req.user.id)
-  ok(res, { batch_id: b.id, status: 2, msg: '已模拟开始配送（测试阶段）' })
+  console.log('[batch] 模拟上货完成并开始配送（测试）batch=' + b.batch_no + ' user=' + req.user.id + ' 约' + Math.round(MOCK_ARRIVE_MS / 1000) + '秒后送达')
+  // 模拟到达：到点后整批标记已送达（用户端进入待取货）
+  setTimeout(() => {
+    try {
+      const orderIds = store.prepare('SELECT id FROM orders WHERE batch_id=? AND status=2').all(b.id).map((r) => r.id)
+      for (const oid of orderIds) {
+        store.prepare("UPDATE delivery_tasks SET task_status=70, status_text='到达取货点（模拟）', updated_at=datetime('now','localtime') WHERE order_id=?").run(oid)
+        store.prepare("UPDATE orders SET status=3, updated_at=datetime('now','localtime') WHERE id=?").run(oid)
+        try { require('./services/goodsStats').settleSales(store, oid) } catch (e) { /* 忽略 */ }
+      }
+      reconcileBatchState(store, b.id)
+      console.log('[batch] 模拟配送到达（测试）batch=' + b.batch_no + ' 订单 ' + orderIds.length + ' 单 → 待取货')
+    } catch (e) { /* 模拟到达异常静默 */ }
+  }, MOCK_ARRIVE_MS)
+  ok(res, { batch_id: b.id, status: 2, msg: '已开始配送（测试阶段配送时间模拟为' + Math.round(MOCK_ARRIVE_MS / 1000) + '秒）' })
 })
 
 // 商家商品图片上传（base64，避免引入 multipart 依赖）
@@ -1095,6 +1145,12 @@ app.get('/api/merchant/delivery/monitor', merchantGuard, async (req, res) => {
     out.push({ ...t, position: pos })
   }
   ok(res, out)
+})
+
+// ---------- 配送监控地图（真实校园地图 + 点位 + 路网 + 机器人位置 + 路线） ----------
+app.get('/api/merchant/map', merchantGuard, async (req, res) => {
+  const r = await platform.getMapOverview(store)
+  r.ok ? ok(res, r) : res.status(502).json({ code: 502, msg: r.msg || '获取地图失败' })
 })
 
 // ---------- 开放物流平台回调（真实业务逻辑） ----------

@@ -21,6 +21,67 @@
   opacity: 0.95;
 }
 
+/* 配送进度条：已接单 / 配送中 / 已送达，到达阶段圆点填满 */
+.progress-card {
+  margin-top: 20rpx;
+}
+
+.p-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 8rpx 12rpx 0;
+}
+
+.p-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+  width: 120rpx;
+  flex-shrink: 0;
+}
+
+.p-dot {
+  width: 28rpx;
+  height: 28rpx;
+  border-radius: 50%;
+  background: #E5EAF2;
+  border: 6rpx solid #E5EAF2;
+  box-sizing: border-box;
+}
+
+.p-dot.on {
+  background: #2E7CF6;
+  border-color: #D6E8FF;
+}
+
+.p-label {
+  font-size: 24rpx;
+  color: #99A3B0;
+}
+
+.p-label.on {
+  color: #2E7CF6;
+  font-weight: 600;
+}
+
+.p-line {
+  flex: 1;
+  height: 6rpx;
+  background: #E5EAF2;
+  margin-top: 20rpx;
+  border-radius: 3rpx;
+}
+
+.p-line.on {
+  background: #2E7CF6;
+}
+
+.progress-sub {
+  text-align: center;
+  margin-top: 20rpx;
+}
+
 .pickup {
   text-align: center;
 }

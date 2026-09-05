@@ -1,9 +1,25 @@
 <view class="monitor-page">
-  <!-- 配单上货入口 -->
-  <view class="card load-entry" bindtap="goLoad">
-    <t-icon name="scan" size="36rpx" color="#3078C0" />
-    <text class="load-entry-text">配单上货</text>
-    <text class="load-entry-arrow text-weak">›</text>
+  <!-- 真实地图：校园地图 + 点位 + 路网 + 机器人位置 + 配送路线 -->
+  <view class="section-title">实时地图</view>
+  <view class="map-card card" wx:if="{{map}}">
+    <view class="map-box" style="width:{{mapWidth}}px;height:{{mapHeight}}px;">
+      <image class="map-bg" src="{{map.map_url}}" mode="aspectFill" />
+      <canvas type="2d" id="mapCanvas" class="map-canvas" style="width:{{mapWidth}}px;height:{{mapHeight}}px;"></canvas>
+    </view>
+    <view class="map-legend">
+      <view class="legend-item"><view class="legend-dot green"></view><text>配送点</text></view>
+      <view class="legend-item"><view class="legend-dot orange"></view><text>上货点</text></view>
+      <view class="legend-item"><view class="legend-dot blue"></view><text>机器人</text></view>
+      <view class="legend-item"><view class="legend-line"></view><text>配送路线</text></view>
+    </view>
+  </view>
+  <view wx:elif="{{mapError}}" class="card map-error">
+    <view class="map-error-text">{{mapError}}</view>
+    <view class="map-error-tip text-weak text-sm">地图来自开放物流平台 building/mapInfo，请确认平台可用后刷新</view>
+    <view class="btn btn-sm robot-retry" bindtap="loadMap">重试</view>
+  </view>
+  <view wx:elif="{{mapLoading}}" class="card map-error">
+    <view class="map-error-text">地图加载中…</view>
   </view>
 
   <!-- 真实机器人概览（可多台；数据来自开放物流平台 runtimeStatusList） -->

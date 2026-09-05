@@ -1,0 +1,112 @@
+.exception-page {
+  padding-bottom: 48rpx;
+}
+
+/* 顶部分类 tabs（对齐售后页） */
+.tab-bar {
+  display: flex;
+  background: #ffffff;
+  border-bottom: 1rpx solid var(--line);
+  padding: 0 24rpx;
+}
+
+.tab {
+  flex: 1;
+  text-align: center;
+  padding: 24rpx 0 20rpx;
+  font-size: 28rpx;
+  color: var(--text-sub);
+  border-bottom: 4rpx solid transparent;
+}
+
+.tab.on {
+  color: var(--brand);
+  font-weight: 600;
+  border-bottom-color: var(--brand);
+}
+
+.list {
+  padding: 16rpx 24rpx 48rpx;
+}
+
+.order-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 16rpx;
+  border-bottom: 1rpx solid var(--line);
+}
+
+.order-top-right {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.order-no-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.order-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.order-time-sub {
+  font-size: 22rpx;
+  color: var(--text-weak);
+}
+
+.ex-items {
+  padding: 8rpx 0;
+}
+
+.order-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 16rpx;
+  border-top: 1rpx solid var(--line);
+}
+
+.foot-left {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  min-width: 0;
+}
+
+.foot-meta {
+  font-size: 22rpx;
+  color: var(--text-weak);
+}
+
+.foot-total {
+  display: flex;
+  align-items: baseline;
+  gap: 8rpx;
+  flex-shrink: 0;
+}
+
+.total-price {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+.order-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 20rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid var(--line);
+}
+
+.order-handled {
+  margin-top: 16rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid var(--line);
+}
