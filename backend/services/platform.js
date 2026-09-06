@@ -8,6 +8,13 @@
 // 本地无平台凭据、需要纯本地演示时：显式设置 PLATFORM_MOCK=true 使用本地模拟状态机。
 const http = require('http')
 const https = require('https')
+// 依赖方向说明（避免成环）：
+//  - runtime.js 只 require wxpay.js，本文件 require 它是单向安全的（server.js 也已先加载完它）。
+//  - orderCancel.js 只在函数体内延迟 require 本文件，加载期不成环，运行时拿到的是完整 exports。
+const runtime = require('./runtime')
+const goodsStats = require('./goodsStats')
+const batch = require('./batch')
+const orderCancel = require('./orderCancel')
 
 const MOCK = process.env.PLATFORM_MOCK === 'true'
 const APPID = process.env.PLATFORM_APPID || ''
@@ -16,6 +23,24 @@ const PRINCIPAL_ID = process.env.PLATFORM_PRINCIPALID || ''
 const BASE = process.env.PLATFORM_BASE || 'https://test-robox.eventec.cn/service-open-logis'
 // 回调公网地址（如 cloudflared 内网穿透域名）；未配置时创建任务不带回调，用 basicList 轮询兜底
 const CALLBACK_BASE = (process.env.PLATFORM_CALLBACK_BASE || '').replace(/\/$/, '')
+
+const CALLBACK_PATHS = {
+  delivery: '/api/platform/callback/delivery',
+  'check-order': '/api/platform/check-order',
+  exception: '/api/platform/callback/exception'
+}
+
+// 生成注册到平台的回调 URL，防伪令牌以 ?token= 查询参数携带。
+// 为什么用 query 而不是路径段：平台侧示例回调 URL 自带 "&version+3d24d260000" 后缀
+// （见 接口\默认模块.openapi.json），说明注册进去的 URL 后面还会被拼接内容。
+// 拼在 ?token=X 之后仍能正常解析；拼在路径段后会变成 /cb/<token>/delivery&version+…，直接 404。
+// 服务端同时接受 query、路径段与 body 三种位置（见 server.js callbackAuthorized）。
+function callbackUrl(leaf) {
+  if (!CALLBACK_BASE) return ''
+  const p = CALLBACK_BASE + CALLBACK_PATHS[leaf]
+  const t = runtime.callbackToken
+  return t ? p + '?token=' + encodeURIComponent(t) : p
+}
 
 // 任务状态码 -> 文案（与开放物流平台标准对照表一致，见 doc/06 常量字典）
 const STATUS_TEXT = {
@@ -51,6 +76,18 @@ function mockAdvance(store, taskId) {
   t.step = idx
   applyStatus(store, taskId, MOCK_STEPS[idx].code, MOCK_STEPS[idx].text)
   t.timer = setTimeout(() => mockAdvance(store, taskId), 4000)
+}
+
+// 停止本地模拟推进。mockAdvance 会自己续 setTimeout 且此前无人 clearTimeout，
+// 取消订单后它仍会每 4s 把状态往前推，是「已取消订单复活成已送达」最稳定的复现路径。
+// 由 orderCancel.cancelLocal 在作废任务时调用。
+function cancelMockTask(taskId) {
+  const id = Number(taskId)
+  const t = mockTasks.get(id)
+  if (!t) return false
+  if (t.timer) clearTimeout(t.timer)
+  mockTasks.delete(id)
+  return true
 }
 
 function mockPosition(taskStatus) {
@@ -90,6 +127,8 @@ function requestPlatform(method, path, body, extraHeaders) {
         try { resolve(JSON.parse(data)) } catch (e) { reject(new Error('平台返回非 JSON：' + data.slice(0, 200))) }
       })
     })
+    // 平台调用超时（P1-11）：一个挂起的请求会拖死轮询/派车/追踪等 for-await 串行链路
+    req.setTimeout(10000, () => { req.destroy(new Error('平台请求超时(10s)：' + method + ' ' + path)) })
     req.on('error', reject)
     if (body) req.write(JSON.stringify(body))
     req.end()
@@ -98,6 +137,18 @@ function requestPlatform(method, path, body, extraHeaders) {
 
 function platformReady() {
   return !!(APPID && SECRET && PRINCIPAL_ID)
+}
+
+// ---------------- 派车告警钩子（由 server.js 注入 runtime.warnIfUnsafeDispatch） ----------------
+// 用注入而非直接 require('./runtime')：runtime.js 若在加载期 require 本文件，会因本文件的
+// module.exports 位于文件末尾而拿到空对象，导致启动守卫静默失效。依赖方向必须保持单向。
+let dispatchHook = null
+function setDispatchHook(fn) {
+  dispatchHook = typeof fn === 'function' ? fn : null
+}
+function notifyDispatch(ctx) {
+  if (!dispatchHook) return
+  try { dispatchHook(ctx) } catch (e) { /* 告警失败不影响派车 */ }
 }
 
 // ---------------- 点位同步：buildingList + landmarkInfo -> landmarks 表 ----------------
@@ -306,6 +357,7 @@ async function realDispatchBatch(store, taskId, order, loading, unloading, batch
     console.warn('[platform] 未配置 PLATFORM_APPID/PLATFORM_SECRET，真实配送未启用')
     return
   }
+  notifyDispatch({ batch_id: batch.id, batch_no: batch.batch_no })
   let l = loading
   let u = unloading
   if (!l || !u || !l.platform_landmark_id || !u.platform_landmark_id) {
@@ -335,8 +387,8 @@ async function realDispatchBatch(store, taskId, order, loading, unloading, batch
     outOrderNo: [order.order_no],
     loadingStrategy: { match: 10, strategies: { anyCode: order.pickup_code } },
     unloadingStrategy: { match: 10, strategies: { contact: order.contact_phone || '', roomNum: order.pickup_code } },
-    feedbackDeliveryTaskUrl: CALLBACK_BASE ? CALLBACK_BASE + '/api/platform/callback/delivery' : '',
-    checkBizOrderStatusUrl: CALLBACK_BASE ? CALLBACK_BASE + '/api/platform/check-order' : '',
+    feedbackDeliveryTaskUrl: callbackUrl('delivery'),
+    checkBizOrderStatusUrl: callbackUrl('check-order'),
     extInfo: { businessType: 'takeaway', batchNo: batch.batch_no, stop: stopInfo.stop },
     consigneePrincipalName: order.contact_name || '',
     consigneePrincipalPhone: order.contact_phone || ''
@@ -409,6 +461,7 @@ async function realDispatch(store, taskId, order, loading, unloading) {
     console.warn('[platform] 未配置 PLATFORM_APPID/PLATFORM_SECRET，真实配送未启用')
     return
   }
+  notifyDispatch({ order_id: order.id })
   let l = loading
   let u = unloading
   // 点位缺少平台映射时，先尝试从平台同步
@@ -439,8 +492,8 @@ async function realDispatch(store, taskId, order, loading, unloading) {
     outOrderNo: [order.order_no],
     loadingStrategy: { match: 10, strategies: { anyCode: order.pickup_code } },
     unloadingStrategy: { match: 10, strategies: { contact: order.contact_phone || '', roomNum: order.pickup_code } },
-    feedbackDeliveryTaskUrl: CALLBACK_BASE ? CALLBACK_BASE + '/api/platform/callback/delivery' : '',
-    checkBizOrderStatusUrl: CALLBACK_BASE ? CALLBACK_BASE + '/api/platform/check-order' : '',
+    feedbackDeliveryTaskUrl: callbackUrl('delivery'),
+    checkBizOrderStatusUrl: callbackUrl('check-order'),
     extInfo: { businessType: 'takeaway' },
     consigneePrincipalName: order.contact_name || '',
     consigneePrincipalPhone: order.contact_phone || ''
@@ -466,34 +519,88 @@ async function realDispatch(store, taskId, order, loading, unloading) {
 }
 
 // ---------------- 任务状态同步 ----------------
-// 回调通道：由 server.js /api/platform/callback/delivery 调用
+// 订单状态单向推进：0待支付 → 1待接单 → 2配送中 → 3已送达 → 4已完成
+const ORDER_RANK = { 0: 0, 1: 1, 2: 2, 3: 3, 4: 4 }
+const ORDER_TERMINAL = [5, 7]     // 已取消 / 已退款
+const TASK_TERMINAL = [110, 150]  // 任务取消 / 任务关闭
+
+// 订单状态是否允许这样迁移。禁止从终态迁出，禁止正常链路倒退。
+// 6配送异常 是旁路状态：可由 1/2/3 进入，重试后回到 2。
+function canMoveOrderStatus(from, to) {
+  const f = Number(from)
+  const t = Number(to)
+  if (f === t) return false
+  if (ORDER_TERMINAL.includes(f)) return false
+  if (t === 5) return [0, 1, 2, 3, 6].includes(f)
+  if (t === 6) return [1, 2, 3].includes(f)
+  if (f === 6) return [2, 3, 4].includes(t)
+  const rf = ORDER_RANK[f]
+  const rt = ORDER_RANK[t]
+  if (rf === undefined || rt === undefined) return false
+  return rt > rf
+}
+
+// 任务状态写入的唯一咽喉：平台回调（server.js /api/platform/callback/delivery）、
+// basicList 轮询兜底（syncTaskStatus）、本地模拟（mockAdvance）三条通道全部经过这里，
+// 因此终态守卫只需在这一处实现。
 function applyStatus(store, taskId, status, text) {
-  updateTask(store, taskId, text, status)
-  const order = store.prepare('SELECT o.* FROM delivery_tasks d JOIN orders o ON o.id=d.order_id WHERE d.id=?').get(taskId)
+  const st = Number(status)   // 回调报文里的 taskStatus 可能是字符串，先归一化
+  const task = store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(taskId)
+  if (!task) return
+  const order = store.prepare('SELECT * FROM orders WHERE id=?').get(task.order_id) || null
+
+  // ---- 终态守卫 ----
+  // 本地已作废（void_at / 110 / 150）或订单已取消退款时，丢弃一切迟到的平台状态。
+  // 少了这道守卫：取消订单后 mockAdvance 仍在每 4s 推进，推来的 70 会把已取消订单
+  // 改回「已送达(3)」并结算销量，goods_settled=1 令库存回补永久锁死，用户随后能在取餐页
+  // 真的开舱取走这单已退款的餐。反向同理：已退款(7) 收到 110 会被降级成已取消并二次回补库存。
+  // 注意判据必须是显式标记列 —— 状态码 110(取消) < 120(挂起)，比大小判不出终态。
+  const taskVoided = !!task.void_at || TASK_TERMINAL.includes(Number(task.task_status))
+  const orderVoided = !!order && (!!order.cancelled_at || ORDER_TERMINAL.includes(Number(order.status)))
+  if (taskVoided || orderVoided) {
+    // 仅接受平台对「任务被关闭(150)」的确认（即我们请求的 forceCloseTask 已生效），
+    // 且只更新任务自身，绝不联动订单 / 库存 / 批次 —— 那些副作用在取消时已执行过一次。
+    if (st === 150 && Number(task.task_status) !== 150) {
+      updateTask(store, taskId, text || STATUS_TEXT[150], 150)
+      console.warn(`[platform] 任务${taskId} 已作废，仅记录平台关闭确认(150)，不联动订单`)
+    } else {
+      console.warn(`[platform] 丢弃迟到状态 ${st}「${text || STATUS_TEXT[st] || ''}」：任务${taskId} 已作废或订单已终态`)
+    }
+    return
+  }
+
+  // 平台侧取消/关闭：与本地取消走完全相同的落账路径（幂等由 orderCancel 保证）。
+  // task_status 与 void_at 必须一次写完，否则随后的 voidTasks 会因已是 110 而跳过 void_at。
+  if (st === 110 || st === 150) {
+    store.prepare(`UPDATE delivery_tasks SET task_status=?, status_text=?,
+      void_at=COALESCE(void_at, datetime('now','localtime')), updated_at=datetime('now','localtime') WHERE id=?`)
+      .run(st, text || STATUS_TEXT[st] || ('状态 ' + st), taskId)
+    try {
+      orderCancel.cancelLocal(store, order, { finalStatus: 5, reason: STATUS_TEXT[st] || '任务取消' })
+    } catch (e) { console.warn('[platform] 平台取消落账失败', e.message) }
+    return
+  }
+
+  updateTask(store, taskId, text, st)
   if (!order) return
+
   let orderStatus = null
-  if (status === 70) orderStatus = 3        // 到达取餐点 -> 已送达（待取餐）
-  else if (status === 80) orderStatus = 4   // 完成
-  else if (status === 110 || status === 150) orderStatus = 5 // 取消/关闭
-  else if (status >= 90 && status < 100) orderStatus = 6     // 上货失败 -> 配送异常
-  else if (status >= 100 && status < 110) orderStatus = 6    // 送货失败 -> 配送异常
-  if (orderStatus !== null && Number(order.status) !== orderStatus) {
+  if (st === 70) orderStatus = 3            // 到达取餐点 -> 已送达（待取餐）
+  else if (st === 80) orderStatus = 4       // 任务完成
+  else if (st >= 90 && st < 110) orderStatus = 6  // 上货失败(9x) / 取货失败(10x) -> 配送异常
+  if (orderStatus !== null && canMoveOrderStatus(order.status, orderStatus)) {
     store.prepare("UPDATE orders SET status=?, updated_at=datetime('now','localtime') WHERE id=?").run(orderStatus, order.id)
     // 到达取餐点(3)/任务完成(4) → 本单已售结算（幂等）
     if (orderStatus === 3 || orderStatus === 4) {
-      try { require('./goodsStats').settleSales(store, order.id) } catch (e) { /* 忽略 */ }
+      try { goodsStats.settleSales(store, order.id) } catch (e) { /* 忽略 */ }
     }
-    // 平台侧取消(5) → 未售出则回补库存
-    if (orderStatus === 5) {
-      try { require('./goodsStats').restoreStock(store, order.id) } catch (e) { /* 忽略 */ }
-    }
+  } else if (orderStatus !== null) {
+    console.warn(`[platform] 忽略订单状态迁移 ${order.status}→${orderStatus}（任务${taskId} 状态${st}）`)
   }
-  // 一车多单联动：任务完成/取消时更新批次（取餐计数/完成判断）
-  const task = store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(taskId)
-  if (task) {
-    try {
-      require('./batch').onTaskStatus(store, task, Number(status))
-    } catch (e) { /* 批次联动异常静默 */ }
+  // 一车多单联动：任务完成时更新批次取餐计数与完成判断
+  const fresh = store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(taskId)
+  if (fresh) {
+    try { batch.onTaskStatus(store, fresh, st) } catch (e) { /* 批次联动异常静默 */ }
   }
 }
 
@@ -510,7 +617,9 @@ function updateTask(store, taskId, text, status) {
 async function syncTaskStatus(store, taskId) {
   if (MOCK || !platformReady()) return
   const t = store.prepare('SELECT d.*, o.order_no FROM delivery_tasks d LEFT JOIN orders o ON o.id=d.order_id WHERE d.id=?').get(taskId)
-  if (!t || t.task_status >= 80 || (t.task_status >= 90 && t.task_status !== 120)) return
+  // 已完成(80)与已作废(void_at)的任务不再轮询。
+  // 原写法第二个条件 (task_status >= 90 && !== 120) 被前一个 >= 80 完全覆盖，是死代码。
+  if (!t || Number(t.task_status) >= 80 || t.void_at) return
   if (!t.platform_task_id) return
   try {
     const q = '/open-api/v1/deliveryTask/basicList?idList=' + encodeURIComponent(t.platform_task_id)
@@ -633,7 +742,7 @@ async function loadingVerify(deviceSn, platformTaskId, strategies) {
   if (MOCK) return { ok: true }
   try {
     const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/loading/verify', {
-      deviceSn, id: String(platformTaskId), strategies: strategies || {}, autoOpen: true
+      deviceSn, id: Number(platformTaskId), strategies: strategies || {}, autoOpen: true
     })
     return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '上货验证失败' }
   } catch (e) {
@@ -659,11 +768,54 @@ async function loadingConfirm(deviceSn, platformTaskId, strategies) {
   if (MOCK) return { ok: true }
   try {
     const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/loading/confirm', {
-      deviceSn, id: String(platformTaskId), strategies: strategies || {}
+      deviceSn, id: Number(platformTaskId), strategies: strategies || {}
     })
     return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '确认上货失败' }
   } catch (e) {
     return { ok: false, msg: '确认上货异常：' + e.message }
+  }
+}
+
+// ---------------- 取消/退款时的真实召回（P0-4 修复） ----------------
+// 排队中（未被机器人拉取，task_status<10）→ 取消排队任务；已上货/途中 → 强制关闭任务（舱内有货自动开舱让用户取货）。
+// 本地库是唯一真相源：召回失败只记 recall_status=2 待人工，绝不回滚本地取消。
+
+// 取消排队中任务
+async function cancelQueueTask(platformTaskId) {
+  if (MOCK) return { ok: true }
+  if (!platformTaskId) return { ok: false, msg: '缺少平台任务ID' }
+  try {
+    const r = await requestPlatform('PUT', '/open-api/v1/deliveryTask/queue/cancel', { id: Number(platformTaskId), principalId: PRINCIPAL_ID })
+    return r && r.code === 'COMM_200' ? { ok: true, data: r.data || {} } : { ok: false, msg: (r && r.msg) || '取消排队任务失败' }
+  } catch (e) {
+    return { ok: false, msg: '取消排队任务异常：' + e.message }
+  }
+}
+
+// 强制关闭任务（已上货未送达阶段）
+async function closeTask(deviceSn, platformTaskId, reason) {
+  if (MOCK) return { ok: true }
+  if (!deviceSn || !platformTaskId) return { ok: false, msg: '缺少设备编号或任务ID' }
+  try {
+    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/close', {
+      deviceSn, principalId: PRINCIPAL_ID, taskId: Number(platformTaskId), stockPos: 'pos_1',
+      extInfo: { keyEvent: { eventName: 'forceCloseTask', taskSubStatus: -1, eventDesc: reason || '' } }
+    })
+    return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '强制关闭任务失败' }
+  } catch (e) {
+    return { ok: false, msg: '强制关闭任务异常：' + e.message }
+  }
+}
+
+// 释放设备控制权（配套 authority/grant；路径/语义需与越凡确认）
+async function releaseControl(ctrlId) {
+  if (MOCK) return { ok: true }
+  if (!ctrlId) return { ok: false, msg: '缺少控制权ID' }
+  try {
+    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/authority/release', { ctrlId })
+    return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '释放控制权失败' }
+  } catch (e) {
+    return { ok: false, msg: '释放控制权异常：' + e.message }
   }
 }
 
@@ -673,7 +825,7 @@ async function unloadingVerify(deviceSn, platformTaskId, strategies) {
   if (MOCK) return { ok: true }
   try {
     const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/unloading/verify', {
-      taskIdList: [String(platformTaskId)], deviceSn, strategies: strategies || {}, autoOpen: true
+      taskIdList: [Number(platformTaskId)], deviceSn, strategies: strategies || {}, autoOpen: true
     })
     return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '开舱失败' }
   } catch (e) {
@@ -694,4 +846,4 @@ async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, createTasksForBatch, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, applyStatus, platformReady, getDeviceList, grantControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm }
+module.exports = { createQueueTask, createTasksForBatch, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask }

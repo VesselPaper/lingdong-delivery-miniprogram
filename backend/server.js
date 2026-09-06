@@ -26,10 +26,18 @@ const fs = require('fs')
 const express = require('express')
 const cors = require('cors')
 const { init } = require('./db')
+// 运行模式守卫必须在 require('./services/platform') 之前执行：platform.js 在模块加载期
+// 就把 PLATFORM_MOCK 等 env 捕获成常量，晚于它校验就无法再阻止非法组合启动。
+const runtime = require('./services/runtime')
+runtime.assertBootable()
 const platform = require('./services/platform')
 const wxpay = require('./services/wxpay')
 const batch = require('./services/batch')
 const goodsStats = require('./services/goodsStats')
+const orderCancel = require('./services/orderCancel')
+
+// 派车告警以注入方式挂到平台适配层，避免 platform.js 反向依赖 runtime.js 形成环
+platform.setDispatchHook(runtime.warnIfUnsafeDispatch)
 
 const store = init()
 const app = express()
@@ -42,7 +50,8 @@ const WX_SECRET = process.env.WX_SECRET || ''
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true })
 
 app.use(cors())
-app.use(express.json({ limit: '8mb' }))
+// 仅对支付回调路径保存原始报文（供 P0-6 平台证书验签）；其它路径（如 8mb 图片上传）不缓存，避免内存翻倍
+app.use(express.json({ limit: '8mb', verify: (req, res, buf) => { if (req.originalUrl === '/api/pay/notify') req.rawBody = buf } }))
 app.use('/uploads', express.static(UPLOAD_DIR))
 
 // 简易鉴权：token = openid 的哈希，正式环境可换 JWT
@@ -67,41 +76,62 @@ function toStock(v, fallback = 999) {
 }
 
 // ---------- 登录 ----------
+// 角色不再由客户端自报：此前 body 里传 role:'merchant' 就能成为商家，任何人都能自助拿到
+// 改价、上下架、退款、派车（真实调度机器人）等权限。改为校验 .env 的 MERCHANT_INVITE_CODE。
 app.post('/api/auth/login', async (req, res) => {
-  const { code, role = 'student', nickname = '' } = req.body || {}
+  const { code, nickname = '', merchant_code = '' } = req.body || {}
   if (!code) return res.status(400).json({ code: 400, msg: '缺少登录凭证' })
+
+  // 填了邀请码就必须正确；未配置邀请码时 verifyMerchantCode 恒为 false（安全侧：一律拒绝）
+  const wantsMerchant = String(merchant_code).trim() !== ''
+  if (wantsMerchant && !runtime.verifyMerchantCode(String(merchant_code).trim())) {
+    return res.status(403).json({ code: 403, msg: '商家邀请码不正确' })
+  }
+
   let openid = ''
-
-  // ==================== 演示模式（测试阶段启用） ====================
-  // 未接真实微信登录时，点击「微信登录」直接成功，便于预览页面。
-  // 以 code 的稳定哈希作为 openid：登录后 token 存本地，同一设备账号稳定。
-  openid = 'demo_' + crypto.createHash('sha1').update(String(code)).digest('hex').slice(0, 24)
-
-  // ==================== 真实微信登录（正式环境启用，测试阶段已注释） ====================
-  // 启用方法：取消下方注释，并在 backend/.env 配置 WX_APPID / WX_SECRET
-  // if (WX_APPID && WX_SECRET) {
-  //   try {
-  //     const resp = await fetch(`https://api.weixin.qq.com/sns/jscode2session?appid=${encodeURIComponent(WX_APPID)}&secret=${encodeURIComponent(WX_SECRET)}&js_code=${encodeURIComponent(code)}&grant_type=authorization_code`)
-  //     const data = await resp.json()
-  //     if (!data.openid) return res.status(401).json({ code: 401, msg: '微信登录失败：' + (data.errmsg || '未知错误') })
-  //     openid = data.openid
-  //   } catch (e) {
-  //     return res.status(500).json({ code: 500, msg: '登录服务异常' })
-  //   }
-  // }
-  // =====================================================================================
+  if (runtime.realLogin) {
+    // 真实微信登录：配置 WX_APPID / WX_SECRET 后自动启用（RUN_MODE=production 强制要求）
+    try {
+      const u = 'https://api.weixin.qq.com/sns/jscode2session'
+        + '?appid=' + encodeURIComponent(process.env.WX_APPID)
+        + '&secret=' + encodeURIComponent(process.env.WX_SECRET)
+        + '&js_code=' + encodeURIComponent(code)
+        + '&grant_type=authorization_code'
+      const resp = await fetch(u)
+      const data = await resp.json()
+      if (!data.openid) return res.status(401).json({ code: 401, msg: '微信登录失败：' + (data.errmsg || '未知错误') })
+      openid = data.openid
+    } catch (e) {
+      return res.status(500).json({ code: 500, msg: '登录服务异常' })
+    }
+  } else {
+    // ==================== 演示模式 ====================
+    // 以 code 的稳定哈希作为 openid，同一设备账号稳定，便于预览页面。
+    // token 即 openid：可预测、不可吊销，因此 RUN_MODE=production 下启动守卫会拒绝这种配置。
+    openid = 'demo_' + crypto.createHash('sha1').update(String(code)).digest('hex').slice(0, 24)
+  }
 
   let user = store.prepare('SELECT * FROM users WHERE openid=?').get(openid)
   if (!user) {
-    const roleVal = role === 'merchant' ? 'merchant' : 'student'
+    // 新注册：只有持正确邀请码才成为商家
     const info = store.prepare('INSERT INTO users (openid, nickname, role) VALUES (?,?,?)')
-      .run(openid, nickname || '微信用户', roleVal)
+      .run(openid, nickname || '微信用户', wantsMerchant ? 'merchant' : 'student')
     user = store.prepare('SELECT * FROM users WHERE id=?').get(Number(info.lastInsertRowid))
-  } else if (nickname) {
-    store.prepare('UPDATE users SET nickname=? WHERE id=?').run(nickname, user.id)
+  } else {
+    if (nickname) store.prepare('UPDATE users SET nickname=? WHERE id=?').run(nickname, user.id)
+    // 已是商家的老用户不必每次输码；持正确邀请码则可把学生升级为商家
+    if (wantsMerchant && user.role !== 'merchant') {
+      store.prepare("UPDATE users SET role='merchant' WHERE id=?").run(user.id)
+      console.log(`[auth] 用户 ${user.id} 凭邀请码升级为商家`)
+    }
     user = store.prepare('SELECT * FROM users WHERE id=?').get(user.id)
   }
-  ok(res, { token: user.openid, user })
+  // runtime 标志随登录下发：商家端据此决定设备控制走真实还是模拟分支（不再前端硬编码）
+  ok(res, {
+    token: user.openid,
+    user,
+    runtime: { mode: runtime.mode, device_mock: runtime.deviceMock }
+  })
 })
 
 app.get('/api/user/profile', auth, (req, res) => ok(res, req.user))
@@ -252,54 +282,112 @@ function withinFreeCancelWindow(order) {
   return Date.now() - t <= FREE_CANCEL_WINDOW_MS
 }
 
-// 订单取消落库：订单置 5 已取消；若配送任务未完成，同步标记任务取消(110)；从配送批次中移除
-function applyOrderCancelled(order) {
-  store.prepare("UPDATE orders SET status=5, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
-  // 取消且未售出 → 回补下单时扣减的库存
-  goodsStats.restoreStock(store, order.id)
-  if (order.delivery_task_id) {
-    const t = store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(order.delivery_task_id)
-    if (t && Number(t.task_status) < 80) {
-      store.prepare("UPDATE delivery_tasks SET task_status=110, status_text='订单取消', updated_at=datetime('now','localtime') WHERE id=?")
-        .run(order.delivery_task_id)
+// 订单取消落库 + 真实召回（P0-4）：委托 services/orderCancel —— 平台推送 110/150 也走同一处，
+// 取消的全部本地副作用（作废任务 + 回补库存 + 摘除批次 + 停模拟推进）只有一份实现。
+// 本地落账是同步的（cancelLocal 内部不得 await），随后才 await 平台召回：
+//   排队中(未拉取 task_status<10) → queue/cancel；已上货/途中 → deviceCtrl/close（舱内有货自动开舱）。
+// 平台召回失败只记 recall_status=2 待人工，本地是唯一真相源，不回滚。
+// 返回 { claimed, finalStatus, tasks }：claimed=false 表示订单已在终态，本次是重复取消。
+async function applyOrderCancelled(order, opts) {
+  const o = Object.assign({ reason: '订单取消' }, opts || {})
+  const c = orderCancel.cancelLocal(store, order, o)
+  if (!c.claimed || !c.tasks || !c.tasks.length) return c
+  for (const t of c.tasks) {
+    try {
+      const st = Number(t.task_status)
+      let r = null
+      if (st < 10 && t.platform_task_id) {
+        r = await platform.cancelQueueTask(t.platform_task_id)
+      } else if (t.device_sn && t.platform_task_id) {
+        r = await platform.closeTask(t.device_sn, t.platform_task_id, o.reason || '订单取消')
+      }
+      if (r) {
+        store.prepare("UPDATE delivery_tasks SET recall_status=?, recall_error=?, updated_at=datetime('now','localtime') WHERE id=?")
+          .run(r.ok ? 1 : 2, r.ok ? '' : String(r.msg || '').slice(0, 200), t.id)
+      }
+    } catch (e) {
+      store.prepare("UPDATE delivery_tasks SET recall_status=2, recall_error=?, updated_at=datetime('now','localtime') WHERE id=?")
+        .run(String(e.message || e).slice(0, 200), t.id)
     }
   }
-  batch.removeOrderFromBatch(store, order)
+  return c
+}
+
+// 真实退款（P0-5）：仅真实微信支付渠道且凭据就绪时真正退钱；模拟支付/未配凭据 → 本地标记 + 告警。
+// 真实退款失败返回 { ok:false, msg }，调用方须保持售后待处理并返回错误，绝不本地假装已退款。
+async function realRefundOrLocal(order, refundId, amount) {
+  if (!order) return { ok: true, local: true, refundNo: '' }
+  const outRefundNo = 'R' + String(Date.now()).slice(-12) + (refundId ? '-' + refundId : '')
+  if (String(order.pay_channel) === 'wxpay' && wxpay.enabled()) {
+    try {
+      const r = await wxpay.refund({
+        outTradeNo: order.order_no,
+        outRefundNo,
+        refundFen: Math.round(Number(amount || order.total_amount) * 100),
+        totalFen: Math.round(Number(order.total_amount) * 100),
+        reason: '退款'
+      })
+      return { ok: true, local: false, refundNo: r.out_refund_no || outRefundNo }
+    } catch (e) {
+      return { ok: false, msg: '真实退款失败：' + (e.message || e) }
+    }
+  }
+  console.warn('[refund] 订单 ' + order.order_no + ' 为模拟支付或未配置支付凭据，仅本地标记已退款（无可退资金）')
+  return { ok: true, local: true, refundNo: '' }
 }
 
 app.post('/api/order/create', auth, (req, res) => {
-  const shop = store.prepare('SELECT * FROM shops WHERE id=1').get() || {}
-  if (shop.business_status === 'closed') {
-    return res.status(400).json({ code: 400, msg: '店铺歇业中，暂无法下单' })
+  try {
+    const shop = store.prepare('SELECT * FROM shops WHERE id=1').get() || {}
+    if (shop.business_status === 'closed') {
+      return res.status(400).json({ code: 400, msg: '店铺歇业中，暂无法下单' })
+    }
+    const { landmark_id, landmark_name, remark = '', items = [], contact_name = '', contact_phone = '', address_id } = req.body || {}
+    if (!items.length) return res.status(400).json({ code: 400, msg: '订单不能为空' })
+    // 收餐人落库（P0-3）：姓名 trim 非空 ≤20；手机号必须校验，真机下货验证依赖该字段
+    const cname = String(contact_name || '').trim()
+    const cphone = String(contact_phone || '').trim()
+    if (!cname) return res.status(400).json({ code: 400, msg: '请填写收餐人姓名' })
+    if (cname.length > 20) return res.status(400).json({ code: 400, msg: '收餐人姓名过长' })
+    if (!/^1\d{10}$/.test(cphone)) return res.status(400).json({ code: 400, msg: '请填写正确的手机号' })
+    // 点位存在性校验（P2-8）：必须是可用的送达点，避免订单指向不存在的点位
+    const lm = landmark_id ? store.prepare("SELECT * FROM landmarks WHERE id=? AND type='deliverPoint'").get(String(landmark_id)) : null
+    if (!lm) return res.status(400).json({ code: 400, msg: '送达点位不存在或不可用' })
+    let total = 0
+    const lineItems = items.map((it) => {
+      const q = Number(it.quantity)
+      if (!Number.isInteger(q) || q <= 0 || q > 99) throw new Error('商品数量不合法')
+      const g = store.prepare('SELECT * FROM goods WHERE id=?').get(Number(it.goods_id))
+      if (!g) throw new Error('商品不存在')
+      if (Number(g.stock) < q) throw new Error('「' + g.name + '」库存不足')
+      total += g.price * q
+      return { goods: g, quantity: q }
+    })
+    const orderNo = 'LD' + Date.now().toString().slice(-8) + Math.random().toString(36).slice(2, 6).toUpperCase()
+    const pickupCode = String(Math.floor(1000 + Math.random() * 9000))
+    // 当日序号：每天从 1 重置（商家端卡面展示「订单 N」，完整订单号只在详情页显示）
+    const seqRow = store.prepare("SELECT COUNT(*) c FROM orders WHERE date(created_at)=date('now','localtime')").get()
+    const info = store.prepare(`INSERT INTO orders
+      (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, status, remark, pickup_code, daily_seq)
+      VALUES (?,?,?,?,?,?,?,0,?,?,?)`)
+      .run(orderNo, req.user.id, String(landmark_id), lm.name, cname, cphone, total.toFixed(2), remark, pickupCode, Number(seqRow && seqRow.c || 0) + 1)
+    const orderId = Number(info.lastInsertRowid)
+    const insItem = store.prepare('INSERT INTO order_items (order_id, goods_id, goods_name, goods_image, price, quantity) VALUES (?,?,?,?,?,?)')
+    const decStock = store.prepare('UPDATE goods SET stock=stock-? WHERE id=? AND stock>=?')
+    for (const { goods, quantity } of lineItems) {
+      insItem.run(orderId, goods.id, goods.name, goods.image, goods.price, quantity)
+      // 条件更新扣库存（P1-5）：校验与扣减原子，扣不到即超卖（不再用 MAX(0,…) 抹掉超卖痕迹）
+      const r = decStock.run(quantity, goods.id, quantity)
+      if (r.changes === 0) throw new Error('「' + goods.name + '」库存不足')
+    }
+    // 购物车只删本次订单实际包含的商品（P1-6）：不再无条件清空整张购物车
+    const cartGids = [...new Set(lineItems.map((it) => it.goods.id))]
+    cartGids.forEach((gid) => store.prepare('DELETE FROM cart WHERE user_id=? AND goods_id=?').run(req.user.id, gid))
+    ok(res, { order_id: orderId, order_no: orderNo, total_amount: total, pickup_code: pickupCode })
+  } catch (e) {
+    // 业务错误统一 400 JSON（P2-7）：不再让裸 throw 变成 HTML 500
+    res.status(400).json({ code: 400, msg: e.message || '下单失败' })
   }
-  const { landmark_id, landmark_name, remark = '', items = [] } = req.body || {}
-  if (!items.length) return res.status(400).json({ code: 400, msg: '订单不能为空' })
-  let total = 0
-  const lineItems = items.map((it) => {
-    const g = store.prepare('SELECT * FROM goods WHERE id=?').get(Number(it.goods_id))
-    if (!g) throw new Error('商品不存在')
-    if (Number(g.stock) <= 0) throw new Error('「' + g.name + '」已售罄，请更换商品')
-    total += g.price * Number(it.quantity || 1)
-    return { goods: g, quantity: Number(it.quantity || 1) }
-  })
-  const orderNo = 'LD' + Date.now().toString().slice(-8) + Math.random().toString(36).slice(2, 6).toUpperCase()
-  const pickupCode = String(Math.floor(1000 + Math.random() * 9000))
-  // 当日序号：每天从 1 重置（商家端卡面展示「订单 N」，完整订单号只在详情页显示）
-  const seqRow = store.prepare("SELECT COUNT(*) c FROM orders WHERE date(created_at)=date('now','localtime')").get()
-  const info = store.prepare(`INSERT INTO orders
-    (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, status, remark, pickup_code, daily_seq)
-    VALUES (?,?,?,?,?,?,?,0,?,?,?)`)
-    .run(orderNo, req.user.id, landmark_id || '', landmark_name || '', req.user.nickname || '', req.user.phone || '', total.toFixed(2), remark, pickupCode, Number(seqRow && seqRow.c || 0) + 1)
-  const orderId = Number(info.lastInsertRowid)
-  const insItem = store.prepare('INSERT INTO order_items (order_id, goods_id, goods_name, goods_image, price, quantity) VALUES (?,?,?,?,?,?)')
-  lineItems.forEach(({ goods, quantity }) => {
-    insItem.run(orderId, goods.id, goods.name, goods.image, goods.price, quantity)
-    // 下单即扣库存（实时可用量，防超卖）；销量在「收货完成」时结算（见 goodsStats.settleSales）
-    store.prepare('UPDATE goods SET stock=MAX(0,stock-?) WHERE id=?').run(quantity, goods.id)
-  })
-  // 清空已选购物车
-  store.prepare('DELETE FROM cart WHERE user_id=?').run(req.user.id)
-  ok(res, { order_id: orderId, order_no: orderNo, total_amount: total, pickup_code: pickupCode })
 })
 
 app.post('/api/order/pay', auth, async (req, res) => {
@@ -307,10 +395,11 @@ app.post('/api/order/pay', auth, async (req, res) => {
     .get(Number(req.body.id), req.user.id)
   if (!row) return res.status(404).json({ code: 404, msg: '订单不存在' })
   if (row.status !== 0) return res.status(400).json({ code: 400, msg: '订单状态不允许支付' })
-  // 试点临时开关：PAY_MOCK=true 时跳过真实微信支付，直接标记已支付进入待接单，用于先跑通真实配送链路。
-  // 真实支付代码（下方 wxpay.jsapiPay）保持不动，商户号/登录就绪后删除本开关即切真实收款。
-  if (process.env.PAY_MOCK === 'true') {
-    store.prepare("UPDATE orders SET status=1, updated_at=datetime('now','localtime') WHERE id=?").run(row.id)
+  // 试点临时开关：非真实支付档（RUN_MODE=demo/pilot 且 PAY_MOCK=true）时跳过真实微信支付，
+  // 直接标记已支付进入待接单，用于先跑通真实配送链路。
+  // 真实支付代码（下方 wxpay.jsapiPay）保持不动，商户号/登录就绪后把 RUN_MODE 提到 production 即切真实收款。
+  if (!runtime.realPay) {
+    store.prepare("UPDATE orders SET status=1, pay_channel='mock', updated_at=datetime('now','localtime') WHERE id=?").run(row.id)
     const order = store.prepare('SELECT * FROM orders WHERE id=?').get(row.id)
     if (maybeAutoAccept(store, order)) {
       return ok(res, { order_id: row.id, mock: true, auto_accept: true, msg: '试点模式：模拟支付成功，已自动接单并入配送批次' })
@@ -329,6 +418,7 @@ app.post('/api/order/pay', auth, async (req, res) => {
       description: '零栋无人送餐-订单' + row.order_no,
       amountFen: Math.round(Number(row.total_amount) * 100)
     })
+    store.prepare("UPDATE orders SET pay_channel='wxpay', updated_at=datetime('now','localtime') WHERE id=?").run(row.id)
     ok(res, { order_id: row.id, payParams })
   } catch (e) {
     res.status(502).json({ code: 502, msg: '微信支付下单失败：' + e.message })
@@ -336,17 +426,38 @@ app.post('/api/order/pay', auth, async (req, res) => {
 })
 
 // 微信支付结果回调（由微信服务器调用；订单状态以回调为准）
-app.post('/api/pay/notify', (req, res) => {
+app.post('/api/pay/notify', async (req, res) => {
   try {
+    // P0-6 支付回调校验：平台证书验签 → 商户号/appid → 事件幂等 → 金额比对 → CAS 置已支付。
+    // 凭据未就绪（wxpay.enabled()=false）时直接 501，不影响 PAY_MOCK 模拟流程。
+    if (!wxpay.enabled()) return res.status(501).json({ code: 501, msg: '支付回调未启用：请先配置微信支付四要素' })
     const body = req.body || {}
     if (!body.resource) return res.status(400).json({ code: 'FAIL', message: '缺少回调资源' })
+    // 平台证书验签（用原始报文 rawBody）
+    const raw = req.rawBody ? req.rawBody.toString('utf8') : ''
+    const v = await wxpay.verifyNotifySignature(req.headers, raw)
+    if (!v.ok) return res.status(401).json({ code: 'FAIL', message: '回调验签失败：' + v.msg })
     const info = wxpay.decryptNotify(body.resource)
-    if (info.trade_state === 'SUCCESS' && info.out_trade_no) {
-      const order = store.prepare('SELECT * FROM orders WHERE order_no=?').get(info.out_trade_no)
-      if (order && order.status === 0) {
-        store.prepare("UPDATE orders SET status=1, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
-        maybeAutoAccept(store, order)
-      }
+    if (info.mchid && info.mchid !== process.env.WXPAY_MCHID) return res.status(401).json({ code: 'FAIL', message: '商户号不匹配' })
+    if (info.appid && info.appid !== WX_APPID) return res.status(401).json({ code: 'FAIL', message: 'appid 不匹配' })
+    if (info.trade_state !== 'SUCCESS') { res.json({ code: 'SUCCESS', message: '成功' }); return }
+    // 幂等：同一支付事件只处理一次
+    const dup = store.prepare('SELECT id FROM pay_notifications WHERE event_id=?').get(String(body.id || ''))
+    if (dup) { res.json({ code: 'SUCCESS', message: '成功' }); return }
+    const order = store.prepare('SELECT * FROM orders WHERE order_no=?').get(info.out_trade_no)
+    if (!order) { res.json({ code: 'SUCCESS', message: '成功' }); return }
+    // 金额比对（分为单位，防止篡改回调金额）
+    if (info.amount && Math.round(Number(order.total_amount) * 100) !== Number(info.amount.total)) {
+      return res.status(400).json({ code: 'FAIL', message: '支付金额与订单不一致' })
+    }
+    // CAS 置已支付：仅待支付(0)可迁移，并记录交易号
+    const up = store.prepare("UPDATE orders SET status=1, transaction_id=?, updated_at=datetime('now','localtime') WHERE id=? AND status=0")
+      .run(info.transaction_id || '', order.id)
+    store.prepare("INSERT OR IGNORE INTO pay_notifications (event_id, out_trade_no, trade_state, amount_total, created_at) VALUES (?,?,?,?,datetime('now','localtime'))")
+      .run(String(body.id || ''), info.out_trade_no, info.trade_state, Number(info.amount ? info.amount.total : 0))
+    if (up.changes === 1) {
+      const o2 = store.prepare('SELECT * FROM orders WHERE id=?').get(order.id)
+      if (o2) maybeAutoAccept(store, o2)
     }
     res.json({ code: 'SUCCESS', message: '成功' })
   } catch (e) {
@@ -371,8 +482,15 @@ app.get('/api/user/order/badge', auth, (req, res) => {
   const row = store.prepare(`
     SELECT COUNT(*) c FROM orders
     WHERE user_id=? AND status IN (1,2,3)`).get(req.user.id)
+  const c0 = store.prepare('SELECT COUNT(*) c FROM orders WHERE user_id=? AND status=0').get(req.user.id)
+  const c2 = store.prepare('SELECT COUNT(*) c FROM orders WHERE user_id=? AND status=2').get(req.user.id)
+  const c3 = store.prepare('SELECT COUNT(*) c FROM orders WHERE user_id=? AND status=3').get(req.user.id)
+  const c4 = store.prepare('SELECT COUNT(*) c FROM orders WHERE user_id=? AND status=4').get(req.user.id)
   const count = Number(row && row.c || 0)
-  ok(res, { unread: count > 0, count, has_active: count > 0 })
+  ok(res, {
+    unread: count > 0, count, has_active: count > 0,
+    paying: Number(c0 && c0.c || 0), delivering: Number(c2 && c2.c || 0), arrived: Number(c3 && c3.c || 0), finished: Number(c4 && c4.c || 0)
+  })
 })
 
 // 已读订单动态（保留兼容；红点已改为常驻进行中计数，本接口不再清除红点）
@@ -432,7 +550,7 @@ app.get('/api/order/detail', auth, (req, res) => {
 
 // 取消订单：免费窗口内可直接取消（不论商家是否接单、只要未真正开始配送）；
 // 超过窗口未配送须提交取消申请（/api/order/cancel-request）；配送中不支持取消。
-app.post('/api/order/cancel', auth, (req, res) => {
+app.post('/api/order/cancel', auth, async (req, res) => {
   const order = store.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(Number(req.body.id), req.user.id)
   if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
   const st = Number(order.status)
@@ -447,8 +565,11 @@ app.post('/api/order/cancel', auth, (req, res) => {
   if (st !== 0 && !withinFreeCancelWindow(order)) {
     return res.status(400).json({ code: 400, msg: '已超过可自由取消时间，请提交取消申请' })
   }
-  applyOrderCancelled(order)
-  ok(res)
+  const r = await applyOrderCancelled(order)
+  if (!r.claimed) {
+    return res.status(409).json({ code: 409, msg: '订单已取消或状态已变更，请刷新后重试' })
+  }
+  ok(res, { order_id: order.id, status: 5 })
 })
 
 // ---------- 取消申请（超过免费窗口、尚未配送） ----------
@@ -495,7 +616,7 @@ app.get('/api/merchant/cancel-request/detail', merchantGuard, (req, res) => {
 })
 
 // 商家处理取消申请：approve 同意取消（订单→5 已取消）/ reject 拒绝（需理由）
-app.post('/api/merchant/cancel-request/handle', merchantGuard, (req, res) => {
+app.post('/api/merchant/cancel-request/handle', merchantGuard, async (req, res) => {
   const { id, action = '', reply = '' } = req.body || {}
   const c = store.prepare('SELECT * FROM cancel_requests WHERE id=?').get(Number(id))
   if (!c) return res.status(404).json({ code: 404, msg: '取消申请不存在' })
@@ -504,7 +625,7 @@ app.post('/api/merchant/cancel-request/handle', merchantGuard, (req, res) => {
     store.prepare("UPDATE cancel_requests SET status=3, merchant_reply=?, handled_at=datetime('now','localtime') WHERE id=?")
       .run(reply || '同意取消', c.id)
     const order = store.prepare('SELECT * FROM orders WHERE id=?').get(c.order_id)
-    if (order && [0, 1, 2].includes(Number(order.status))) applyOrderCancelled(order)
+    if (order && [0, 1, 2].includes(Number(order.status))) await applyOrderCancelled(order)
     return ok(res, store.prepare('SELECT * FROM cancel_requests WHERE id=?').get(c.id))
   }
   if (action === 'reject') {
@@ -553,7 +674,7 @@ app.get('/api/merchant/refund/detail', merchantGuard, (req, res) => {
 })
 
 // 商家处理售后：退款 approve(默认全额可改)/reject(填理由)；投诉 reply
-app.post('/api/merchant/refund/handle', merchantGuard, (req, res) => {
+app.post('/api/merchant/refund/handle', merchantGuard, async (req, res) => {
   const { id, action = '', amount, reply = '' } = req.body || {}
   const r = store.prepare('SELECT * FROM refunds WHERE id=?').get(Number(id))
   if (!r) return res.status(404).json({ code: 404, msg: '售后单不存在' })
@@ -561,11 +682,15 @@ app.post('/api/merchant/refund/handle', merchantGuard, (req, res) => {
   if (r.type === 'refund') {
     if (action === 'approve') {
       const amt = (amount === undefined || amount === null || isNaN(Number(amount)) || Number(amount) < 0) ? r.amount : Number(amount)
-      store.prepare("UPDATE refunds SET status=3, amount=?, merchant_reply=?, handled_at=datetime('now','localtime') WHERE id=?")
-        .run(amt, reply || '同意退款', r.id)
-      // 订单标记为已退款；未售出的商品回补库存
-      store.prepare("UPDATE orders SET status=7, updated_at=datetime('now','localtime') WHERE id=?").run(r.order_id)
-      goodsStats.restoreStock(store, r.order_id)
+      const refundOrder = store.prepare('SELECT * FROM orders WHERE id=?').get(r.order_id)
+      // 真实退款（P0-5）：真实微信支付且凭据就绪 → 退款成功后才置 7；失败保持待处理并返回错误
+      const ref = await realRefundOrLocal(refundOrder, r.id, amt)
+      if (!ref.ok) return res.status(502).json({ code: 502, msg: ref.msg })
+      store.prepare("UPDATE refunds SET status=3, amount=?, merchant_reply=?, handled_at=datetime('now','localtime'), wx_refund_no=? WHERE id=?")
+        .run(amt, reply || '同意退款', ref.refundNo || '', r.id)
+      // 订单置 7 已退款，并走与取消完全相同的落账：作废任务 + 回补库存 + 摘除批次 + 停模拟推进。
+      // 此前只改状态和回补库存，配送任务照旧推进 —— 退了钱机器人还是会把餐送到。
+      await applyOrderCancelled(refundOrder, { finalStatus: 7, reason: '商家同意退款' })
     } else if (action === 'reject') {
       if (!reply) return res.status(400).json({ code: 400, msg: '请填写拒绝理由' })
       store.prepare("UPDATE refunds SET status=2, merchant_reply=?, handled_at=datetime('now','localtime') WHERE id=?").run(reply, r.id)
@@ -645,11 +770,20 @@ app.post('/api/delivery/pickup-scan', auth, (req, res) => {
   if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
   if (Number(order.status) !== 3) return res.status(400).json({ code: 400, msg: '机器人还未送达，暂不能取餐' })
   const task = order.delivery_task_id ? store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(order.delivery_task_id) : null
+  // 一车多单诚实化（P1-1 缓解）：返回同批订单，供取餐页提示「本车共 N 单，按订单号核对后取走自己的餐」
+  let batchOrders = []
+  let batchOrderCount = 0
+  if (order.batch_id) {
+    batchOrders = store.prepare('SELECT id, order_no, daily_seq, landmark_name FROM orders WHERE batch_id=? AND status IN (2,3) ORDER BY id ASC').all(order.batch_id)
+    batchOrderCount = batchOrders.length
+  }
   ok(res, {
     order_id: order.id,
     order_no: order.order_no,
     pickup_code: order.pickup_code,
     landmark_name: order.landmark_name,
+    batch_order_count: batchOrderCount,
+    batch_orders: batchOrders,
     task: task ? { task_id: task.id, platform_task_id: task.platform_task_id, device_sn: task.device_sn, task_status: task.task_status, status_text: task.status_text } : null
   })
 })
@@ -667,6 +801,8 @@ app.post('/api/delivery/pickup-open', auth, async (req, res) => {
     if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg })
   }
   // 一车多单：记录本单已取走 → 批次计数 +1，全部取完则批次完成
+  // 开舱可追溯（G9）：落 pickup_opened_at，首次开舱时间可审计
+  store.prepare("UPDATE orders SET pickup_opened_at=COALESCE(pickup_opened_at, datetime('now','localtime')), updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
   batch.markOrderPicked(store, order)
   ok(res, { order_id: order.id, status: 4, test: !ready })
 })
@@ -701,9 +837,19 @@ function merchantGuard(req, res, next) {
 }
 
 // 店铺状态（营业/自动接单）：真实后端状态，不再存于小程序本地
+// 附加运行模式标记：设备控制（开舱/关舱/派发）是否走本地模拟由后端决定，
+// 商家端不再硬编码 DEVICE_MOCK —— 那会造成「后端已真实调度机器人、前端却假装已上货已送达」。
+// 强制点在后端（mock-dispatch/test-complete 按 deviceMock 返回 404），此处下发仅供前端选择分支。
+function shopWithRuntime(shop) {
+  return Object.assign(
+    { id: 1, name: '零栋铺子', business_status: 'open', auto_accept: 0 },
+    shop || {},
+    { run_mode: runtime.mode, device_mock: runtime.deviceMock }
+  )
+}
+
 app.get('/api/merchant/shop', merchantGuard, (req, res) => {
-  const shop = store.prepare('SELECT * FROM shops WHERE id=1').get()
-  ok(res, shop || { id: 1, name: '零栋铺子', business_status: 'open', auto_accept: 0 })
+  ok(res, shopWithRuntime(store.prepare('SELECT * FROM shops WHERE id=1').get()))
 })
 
 app.put('/api/merchant/shop', merchantGuard, (req, res) => {
@@ -718,8 +864,7 @@ app.put('/api/merchant/shop', merchantGuard, (req, res) => {
 
 // 店铺状态（公开，用户端判断是否可下单 / 展示歇业标签）
 app.get('/api/shop/status', (req, res) => {
-  const shop = store.prepare('SELECT * FROM shops WHERE id=1').get()
-  ok(res, shop || { id: 1, name: '零栋铺子', business_status: 'open', auto_accept: 0 })
+  ok(res, shopWithRuntime(store.prepare('SELECT * FROM shops WHERE id=1').get()))
 })
 
 app.get('/api/merchant/stats', merchantGuard, (req, res) => {
@@ -729,8 +874,8 @@ app.get('/api/merchant/stats', merchantGuard, (req, res) => {
     today_amount: store.prepare("SELECT IFNULL(SUM(total_amount),0) s FROM orders WHERE date(created_at)=? AND status NOT IN (0,5)").get(today).s,
     // 主面板四态：待接单 / 待上货 / 配送中 / 待取货
     pending: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=1').get().c,              // 待接单：订单
-    ready_load: store.prepare('SELECT COUNT(*) c FROM delivery_batches WHERE status=1').get().c,  // 待上货：批次
-    delivering: store.prepare('SELECT COUNT(*) c FROM delivery_batches WHERE status=2').get().c,  // 配送中：批次
+    ready_load: store.prepare("SELECT COUNT(*) c FROM orders WHERE status=2 AND batch_id IN (SELECT id FROM delivery_batches WHERE status IN (0,1))").get().c,  // 待上货：订单（与任务页 load 口径一致）
+    delivering: store.prepare("SELECT COUNT(*) c FROM orders WHERE status=2 AND batch_id IN (SELECT id FROM delivery_batches WHERE status=2)").get().c,  // 配送中：订单（与任务页 deliver 口径一致）
     pickup: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=3').get().c,                // 待取货：已送达未取
     // 异常 / 售后（次面板）
     exception: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=6').get().c,
@@ -759,14 +904,19 @@ app.get('/api/merchant/orders', merchantGuard, (req, res) => {
   else if (status !== '' && status !== undefined) { sql += ' WHERE status=?'; args.push(Number(status)) }
   sql += ' ORDER BY id DESC'
   const getItems = store.prepare('SELECT id, goods_id, goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?')
-  const getBatch = store.prepare('SELECT batch_no, daily_seq, status FROM delivery_batches WHERE id=?')
+  const getBatch = store.prepare('SELECT batch_no, daily_seq, status, total_items, route FROM delivery_batches WHERE id=?')
   const stageText = { accept: '待接单', load: '待上货', deliver: '配送中', pickup: '待取货' }[stage] || ''
   const rows = store.prepare(sql).all(...args).map((o) => {
     const items = getItems.all(o.id)
     let batchInfo = null
     if (o.batch_id) {
       const b = getBatch.get(o.batch_id)
-      if (b) batchInfo = { batch_no: b.batch_no, daily_seq: Number(b.daily_seq || b.id), status: b.status }
+      if (b) {
+        // 路线文本：先送在左、后送在右，以 → 分隔（供批次卡面下方展示）
+        let rt = ''
+        try { rt = (JSON.parse(b.route || '[]') || []).map((r) => r.landmark_name).filter(Boolean).join(' → ') } catch (e) { rt = '' }
+        batchInfo = { batch_no: b.batch_no, daily_seq: Number(b.daily_seq || b.id), status: b.status, total_items: Number(b.total_items || 0), route_text: rt }
+      }
     }
     return {
       ...o,
@@ -823,11 +973,12 @@ app.post('/api/merchant/order/exception/retry', merchantGuard, (req, res) => {
   const order = store.prepare('SELECT * FROM orders WHERE id=?').get(Number(order_id))
   if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
   if (Number(order.status) !== 6) return res.status(400).json({ code: 400, msg: '仅配送异常订单可重新配送' })
-  // 作废旧批次未完成任务，并从旧批次摘除
-  if (order.batch_id) {
-    store.prepare("UPDATE delivery_tasks SET task_status=110, status_text='异常重配，任务作废', updated_at=datetime('now','localtime') WHERE batch_id=? AND task_status < 80").run(order.batch_id)
-    batch.removeOrderFromBatch(store, order)
-  }
+  // 作废旧任务并从旧批次摘除。必须按 order_id 精确作废：原先写的是 batch_id，
+  // 重试一单会把同批次其他订单（最多 11 单）的任务一起作废，接上真实召回后等于强关别人的机器人。
+  store.prepare(`UPDATE delivery_tasks SET task_status=110, status_text='异常重配，任务作废',
+    void_at=datetime('now','localtime'), updated_at=datetime('now','localtime')
+    WHERE order_id=? AND task_status < 80 AND void_at IS NULL`).run(order.id)
+  batch.removeOrderFromBatch(store, order)
   // 并入新的组单中批次（商家随后派车配送）
   const b = batch.addOrderToBatch(store, store.prepare('SELECT * FROM orders WHERE id=?').get(order.id))
   store.prepare("UPDATE orders SET exception_handled='retry ' || datetime('now','localtime'), updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
@@ -835,24 +986,22 @@ app.post('/api/merchant/order/exception/retry', merchantGuard, (req, res) => {
   ok(res, { order_id: order.id, status: 2, batch_id: b.id, batch_no: b.batch_no, msg: '已重新并入批次 ' + b.batch_no + '，请派车上货配送' })
 })
 
-app.post('/api/merchant/order/exception/refund', merchantGuard, (req, res) => {
+app.post('/api/merchant/order/exception/refund', merchantGuard, async (req, res) => {
   const { order_id } = req.body || {}
   const order = store.prepare('SELECT * FROM orders WHERE id=?').get(Number(order_id))
   if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
   if (Number(order.status) !== 6) return res.status(400).json({ code: 400, msg: '仅配送异常订单可取消退款' })
-  // 作废平台任务（尽力而为）
-  if (order.delivery_task_id) {
-    const t = store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(order.delivery_task_id)
-    if (t && Number(t.task_status) < 80) {
-      store.prepare("UPDATE delivery_tasks SET task_status=110, status_text='异常退款，任务作废', updated_at=datetime('now','localtime') WHERE id=?").run(t.id)
-    }
-  }
-  // 落库：订单 7 已退款 + 售后记录（自动已退款）+ 回补未售库存 + 从批次摘除
-  store.prepare("UPDATE orders SET status=7, exception_handled='refund ' || datetime('now','localtime'), updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
-  goodsStats.restoreStock(store, order.id)
-  store.prepare("INSERT INTO refunds (order_id, user_id, type, reason, amount, status, merchant_reply, handled_at) VALUES (?,?,?,?,?,?,?,datetime('now','localtime'))")
-    .run(order.id, order.user_id, 'refund', '配送异常，商家取消并退款', order.total_amount, 3, '配送异常自动退款')
-  batch.removeOrderFromBatch(store, order)
+  // 真实退款（P0-5）：真实支付渠道且凭据就绪 → 微信退款成功后才置 7
+  const ref = await realRefundOrLocal(order, null, Number(order.total_amount))
+  if (!ref.ok) return res.status(502).json({ code: 502, msg: ref.msg })
+  // 落库：订单 7 已退款 + 作废任务(写 void_at) + 回补未售库存 + 从批次摘除，统一走 orderCancel。
+  // 原先自己写了一遍半套逻辑：只作废 orders.delivery_task_id 指向的那一条、不写 void_at，
+  // 于是一条迟到的平台回调仍能把已退款订单改回「已送达」。
+  const c = await applyOrderCancelled(order, { finalStatus: 7, reason: '异常退款，任务作废' })
+  if (!c.claimed) return res.status(409).json({ code: 409, msg: '订单状态已变更，请刷新后重试' })
+  store.prepare("UPDATE orders SET exception_handled='refund ' || datetime('now','localtime'), updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
+  store.prepare("INSERT INTO refunds (order_id, user_id, type, reason, amount, status, merchant_reply, handled_at, wx_refund_no) VALUES (?,?,?,?,?,?,?,datetime('now','localtime'),?)")
+    .run(order.id, order.user_id, 'refund', '配送异常，商家取消并退款', order.total_amount, 3, '配送异常自动退款', ref.refundNo || '')
   console.log('[exception] 配送异常订单取消退款 order=' + order.id + ' amount=' + order.total_amount + ' user=' + req.user.id)
   ok(res, { order_id: order.id, status: 7, msg: '已取消并退款 ¥' + order.total_amount })
 })
@@ -861,7 +1010,7 @@ app.post('/api/merchant/order/exception/refund', merchantGuard, (req, res) => {
 app.get('/api/merchant/orders/exception', merchantGuard, (req, res) => {
   const { tab = 'pending' } = req.query
   const getItems = store.prepare('SELECT id, goods_id, goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?')
-  const getBatch = store.prepare('SELECT batch_no, daily_seq, status FROM delivery_batches WHERE id=?')
+  const getBatch = store.prepare('SELECT batch_no, daily_seq, status, total_items, route FROM delivery_batches WHERE id=?')
   const rows = store.prepare("SELECT * FROM orders WHERE status=6 OR exception_handled != '' ORDER BY id DESC").all()
   const out = rows.filter((o) => {
     if (tab === 'pending') return Number(o.status) === 6 && !o.exception_handled
@@ -872,7 +1021,12 @@ app.get('/api/merchant/orders/exception', merchantGuard, (req, res) => {
     let batchInfo = null
     if (o.batch_id) {
       const b = getBatch.get(o.batch_id)
-      if (b) batchInfo = { batch_no: b.batch_no, daily_seq: Number(b.daily_seq || b.id), status: b.status }
+      if (b) {
+        // 路线文本：先送在左、后送在右，以 → 分隔（供批次卡面下方展示）
+        let rt = ''
+        try { rt = (JSON.parse(b.route || '[]') || []).map((r) => r.landmark_name).filter(Boolean).join(' → ') } catch (e) { rt = '' }
+        batchInfo = { batch_no: b.batch_no, daily_seq: Number(b.daily_seq || b.id), status: b.status, total_items: Number(b.total_items || 0), route_text: rt }
+      }
     }
     return {
       ...o,
@@ -990,6 +1144,8 @@ app.post('/api/merchant/device/batch/dispatch', merchantGuard, async (req, res) 
 // 正式接入真机器人后由「立即配送」（/merchant/device/batch/dispatch）真实下发，本接口仅测试阶段使用。
 const MOCK_ARRIVE_MS = Number(process.env.MOCK_ARRIVE_MS || 10 * 1000)
 app.post('/api/merchant/device/batch/mock-dispatch', merchantGuard, (req, res) => {
+  // 设备控制未处于模拟模式（pilot/production 档）时禁止模拟派发，防止真机被真实调度而前端假装已上货
+  if (!runtime.deviceMock) return res.status(404).json({ code: 404, msg: '当前运行模式不允许模拟派发' })
   const { batch_id } = req.body || {}
   const b = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(batch_id))
   if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
@@ -1154,8 +1310,30 @@ app.get('/api/merchant/map', merchantGuard, async (req, res) => {
 })
 
 // ---------- 开放物流平台回调（真实业务逻辑） ----------
+// 回调防伪：令牌在创建排队任务时以 ?token= 拼进 feedbackDeliveryTaskUrl / checkBizOrderStatusUrl。
+// 这些回调地址经 cloudflared 公网可达，此前任何人都能 POST 一条伪造的 taskStatus，
+// 把任意订单驱动成「已送达」并结算销量，甚至驱动退款流程。
+// 无法派生令牌时（PLATFORM_SECRET 为空且未显式配置 PLATFORM_CALLBACK_TOKEN）选择放行：
+// 那种情况下本来就没有真实平台对接，一律拦住只会让本地演示全线失败；启动日志已就此告警。
+function callbackAuthorized(req) {
+  const expected = runtime.callbackToken
+  if (!expected) return true
+  const given = String(req.query.token || req.params.token || (req.body && req.body.token) || '')
+  if (!given) return false
+  // 定长摘要比较，避免通过响应时间逐位猜解
+  const a = crypto.createHash('sha256').update(given).digest()
+  const b = crypto.createHash('sha256').update(expected).digest()
+  return crypto.timingSafeEqual(a, b)
+}
+
+function cbDenied(res) {
+  console.warn('[platform] 回调防伪校验失败，已拒绝')
+  res.status(403).json({ code: 'FAIL', msg: 'invalid token' })
+}
+
 // feedbackDeliveryTaskUrl：平台在任务状态变更时 POST 到这里，同步任务与订单状态
-app.post('/api/platform/callback/delivery', (req, res) => {
+function handleDeliveryCallback(req, res) {
+  if (!callbackAuthorized(req)) return cbDenied(res)
   const body = req.body || {}
   // 兼容多种报文形态：直接字段 / task 包装 / data 包装（DeliveryTaskBasicVo 结构）
   const src = (body.data && typeof body.data === 'object') ? body.data : body
@@ -1176,7 +1354,10 @@ app.post('/api/platform/callback/delivery', (req, res) => {
     store.prepare('UPDATE delivery_tasks SET device_sn=? WHERE id=?').run(sn, row.id)
   }
   res.json({ code: 'SUCCESS', msg: 'ok' })
-})
+}
+app.post('/api/platform/callback/delivery', handleDeliveryCallback)
+// 备用形态：令牌走路径段（平台侧若对 query 做规范化时可用）
+app.post('/api/platform/cb/:token/delivery', handleDeliveryCallback)
 
 function platformStatusText(code) {
   const map = {
@@ -1191,15 +1372,25 @@ function platformStatusText(code) {
 // 返回值格式以 Apifox open-logis_1.0 文档为准：HttpMethod 必须为 POST、公开访问，
 // 需要强制关闭任务时返回 keyEvent（taskSubStatus 201 已退款 / 202 人工送达）。
 function handleCheckOrder(req, res) {
+  if (!callbackAuthorized(req)) return cbDenied(res)
   const orderNo = req.query.orderNo || req.query.outOrderNo || (req.body && (req.body.orderNo || req.body.outOrderNo))
   if (!orderNo) return res.json({ code: 'FAIL', msg: '缺少订单号' })
   const order = store.prepare('SELECT * FROM orders WHERE order_no=?').get(String(orderNo))
   if (!order) return res.json({ code: 'FAIL', msg: '订单不存在' })
-  if (Number(order.status) === 5) {
-    // 订单已取消/退款：通知设备端强制关闭任务
+  const st = Number(order.status)
+  // 5已取消 与 7已退款 都必须让设备强制关任务。原先只判 5，已退款订单平台侧永远收不到
+  // forceCloseTask，机器人照送不误 —— 钱退了、餐也送到了。
+  // taskSubStatus 按对接文档只有 201已退款 / 202人工送达 两种，故用 eventDesc 区分具体原因。
+  if (st === 5 || st === 7 || order.cancelled_at) {
     return res.json({
       code: 'COMM_200',
-      data: { keyEvent: { eventName: 'forceCloseTask', taskSubStatus: 201, eventDesc: '订单已取消/退款' } },
+      data: {
+        keyEvent: {
+          eventName: 'forceCloseTask',
+          taskSubStatus: 201,
+          eventDesc: st === 7 ? '订单已退款' : '订单已取消'
+        }
+      },
       msg: 'ok'
     })
   }
@@ -1208,13 +1399,18 @@ function handleCheckOrder(req, res) {
 }
 app.get('/api/platform/check-order', handleCheckOrder)
 app.post('/api/platform/check-order', handleCheckOrder)
+app.get('/api/platform/cb/:token/check-order', handleCheckOrder)
+app.post('/api/platform/cb/:token/check-order', handleCheckOrder)
 
 // 设备异常上报回调（T 任务类 / R 机器类 / I IOT 类 / N 导航类）
-app.post('/api/platform/callback/exception', (req, res) => {
+function handleExceptionCallback(req, res) {
+  if (!callbackAuthorized(req)) return cbDenied(res)
   const body = req.body || {}
   console.warn('[platform] 设备异常上报', JSON.stringify(body))
   res.json({ code: 'SUCCESS', msg: 'ok' })
-})
+}
+app.post('/api/platform/callback/exception', handleExceptionCallback)
+app.post('/api/platform/cb/:token/exception', handleExceptionCallback)
 
 // ---------- 平台点位同步（商家端入口） ----------
 app.post('/api/merchant/landmarks/sync', merchantGuard, async (req, res) => {
@@ -1235,6 +1431,8 @@ function getLoadingTask(body) {
 // 测试辅助：真实模式无真机器人时，把卡在「配送中」的订单/批次标记为已送达(3)或已完成(4)，便于走通流程
 // 支持：order_id（单订单）/ batch_id（整批全部订单）
 app.post('/api/merchant/delivery/test-complete', merchantGuard, (req, res) => {
+  // 非模拟档禁止测试完成接口（防止把真实配送中的订单直接标为完成）
+  if (!runtime.deviceMock) return res.status(404).json({ code: 404, msg: '当前运行模式不允许测试完成' })
   const { order_id, batch_id, status = 3 } = req.body || {}
   console.log('[merchant] test-complete called, order_id=' + order_id + ' batch_id=' + batch_id + ' status=' + status + ' user=' + req.user.id)
   const to = Number(status) === 4 ? 4 : 3
@@ -1359,7 +1557,7 @@ app.post('/api/merchant/device/dispatch', merchantGuard, async (req, res) => {
 })
 
 // ---------- 真实模式任务状态轮询兜底 ----------
-if (!(process.env.PLATFORM_MOCK === 'true')) {
+if (runtime.realPlatform) {
   const POLL_MS = Number(process.env.PLATFORM_POLL_MS || 8000)
   setInterval(async () => {
     try {
@@ -1413,7 +1611,8 @@ setInterval(async () => {
     for (const b of openBatches) {
       const n = Number(b.total_orders)
       if (n <= 0) continue
-      const full = n >= batch.BATCH_MAX_ORDERS
+      // 容量按商品件数计（默认 12 件/车）
+      const full = Number(b.total_items || 0) >= batch.BATCH_MAX_ITEMS
       let autoGo = false
       if (Number(shop.auto_accept) === 1) {
         const t = new Date(String(b.updated_at || '').replace(' ', 'T')).getTime()
@@ -1428,12 +1627,19 @@ setInterval(async () => {
 }, BATCH_SCAN_MS)
 
 app.listen(PORT, () => {
+  const d = runtime.describe()
   console.log(`[lingdong-backend] listening on http://127.0.0.1:${PORT}`)
-  if (process.env.PLATFORM_MOCK === 'true') {
-    console.log('[lingdong-backend] 配送层：本地 Mock 状态机（PLATFORM_MOCK=true）')
-  } else if (platform.platformReady()) {
-    console.log('[lingdong-backend] 配送层：开放物流平台真实模式（' + (process.env.PLATFORM_BASE || 'https://test-robox.eventec.cn/service-open-logis') + '）')
+  console.log(`[lingdong-backend] 运行模式 RUN_MODE=${d.run_mode}`)
+  console.log(`[lingdong-backend]   登录：${d.real_login ? '真实微信 code2session' : '演示（token 可预测，不可用于真实运营）'}`)
+  console.log(`[lingdong-backend]   支付：${d.real_pay ? '微信支付 V3' : '模拟（不产生资金流，退款也不会真实退钱）'}`)
+  if (d.real_platform) {
+    console.log(`[lingdong-backend]   配送：开放物流平台真实模式 ${d.platform_host}${d.prod_platform ? '【生产】' : '【测试】'}${d.unsafe_prod ? ' (ALLOW_UNSAFE_PROD_PLATFORM)' : ''}`)
+    if (!platform.platformReady()) {
+      console.warn('[lingdong-backend]   ⚠ 未配置 PLATFORM_APPID/PLATFORM_SECRET，任务不会真正下发')
+    }
   } else {
-    console.warn('[lingdong-backend] 配送层：未配置 PLATFORM_APPID/PLATFORM_SECRET，真实配送未启用')
+    console.log('[lingdong-backend]   配送：本地 Mock 状态机（PLATFORM_MOCK=true）')
   }
+  console.log(`[lingdong-backend]   设备控制：${d.device_mock ? '本地模拟（开舱/关舱/派发均为假成功）' : '真实分支（调用平台设备控制接口）'}`)
+  console.log(`[lingdong-backend]   商家邀请码：${d.merchant_invite_configured ? '已配置' : '未配置 → 商家端登录将被拒绝'}`)
 })

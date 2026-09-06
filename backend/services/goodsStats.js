@@ -11,6 +11,8 @@ function settleSales(db, orderId) {
   const order = db.prepare('SELECT * FROM orders WHERE id=?').get(Number(orderId))
   if (!order) return
   if (Number(order.goods_settled) === 1) return
+  // 已回补过库存 = 本单从未真正售出，不得再计销量
+  if (order.stock_restored_at) return
   const items = db.prepare('SELECT * FROM order_items WHERE order_id=?').all(order.id)
   if (!items.length) return
   const upd = db.prepare('UPDATE goods SET sales=sales+? WHERE id=?')
@@ -19,15 +21,18 @@ function settleSales(db, orderId) {
 }
 
 // 本单库存回补：取消/退款且尚未结算时，把下单时扣减的库存退回（幂等，已结算不退回）
+// 幂等键是 orders.stock_restored_at —— 只看 goods_settled 不够：取消单永远不会被结算，
+// 于是「用户取消 / 平台推送 110 / 商家异常退款」每条路径都会把库存再补一次。
 function restoreStock(db, orderId) {
   const order = db.prepare('SELECT * FROM orders WHERE id=?').get(Number(orderId))
   if (!order) return
   if (Number(order.goods_settled) === 1) return
+  if (order.stock_restored_at) return
   const items = db.prepare('SELECT * FROM order_items WHERE order_id=?').all(order.id)
-  if (!items.length) return
   const upd = db.prepare('UPDATE goods SET stock=stock+? WHERE id=?')
   for (const it of items) upd.run(Number(it.quantity || 0), Number(it.goods_id))
   // 库存回补不影响已售标记（本单从未结算过销量）
+  db.prepare("UPDATE orders SET stock_restored_at=datetime('now','localtime') WHERE id=?").run(order.id)
 }
 
 module.exports = { settleSales, restoreStock }

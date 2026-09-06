@@ -190,6 +190,8 @@ function migrate(db) {
   // delivery_batches：当日序号（商家端卡面展示「批次 N」）
   const batchCols = db.prepare('PRAGMA table_info(delivery_batches)').all().map((c) => c.name)
   if (!batchCols.includes('daily_seq')) db.exec("ALTER TABLE delivery_batches ADD COLUMN daily_seq INTEGER")
+  // delivery_batches：已装商品件数（分批以「件」为容量单位，默认 12 件/车）
+  if (!batchCols.includes('total_items')) db.exec("ALTER TABLE delivery_batches ADD COLUMN total_items INTEGER DEFAULT 0")
   // 历史数据回填：按创建日期逐日累计编号（id 即当日创建顺序）
   db.exec(`UPDATE delivery_batches SET daily_seq=(
     SELECT COUNT(*) FROM delivery_batches b2
@@ -213,6 +215,60 @@ function migrate(db) {
       db.prepare('UPDATE addresses SET landmark_id=? WHERE id=?').run(String(Number(v)), r.id)
     }
   })
+
+  // ---------- 取消 / 退款 / 召回 的显式标记列 ----------
+  // 为什么要显式时间戳而不是比状态码大小：任务状态 110(取消) < 120(上货挂起)，数值比较判不出终态。
+  // 缺这些标记时，取消订单后模拟器仍每 4s 推进（mockAdvance 无 clearTimeout），一条迟到的 70
+  // 就能把已取消订单改回「已送达」并结算销量，goods_settled=1 会让库存回补永久锁死，
+  // 用户随后能在取餐页真的开舱取走这单已退款的餐。
+  if (!taskCols.includes('void_at')) db.exec("ALTER TABLE delivery_tasks ADD COLUMN void_at TEXT")
+  // 召回结果：0 无需召回 / 1 已召回 / 2 召回失败待人工
+  if (!taskCols.includes('recall_status')) db.exec("ALTER TABLE delivery_tasks ADD COLUMN recall_status INTEGER DEFAULT 0")
+  if (!taskCols.includes('recall_error')) db.exec("ALTER TABLE delivery_tasks ADD COLUMN recall_error TEXT DEFAULT ''")
+  if (!orderCols.includes('cancelled_at')) db.exec("ALTER TABLE orders ADD COLUMN cancelled_at TEXT")
+  // 批次摘除与库存回补各自的幂等标记：同一订单会被「用户取消 / 平台推送 110 / 商家异常退款」
+  // 多条路径处理，此前每条都会扣一次批次计数、补一次库存。
+  if (!orderCols.includes('batch_removed_at')) db.exec("ALTER TABLE orders ADD COLUMN batch_removed_at TEXT")
+  if (!orderCols.includes('stock_restored_at')) db.exec("ALTER TABLE orders ADD COLUMN stock_restored_at TEXT")
+  // 支付渠道与微信流水号：退款时据此判断是否有真实资金流可退
+  if (!orderCols.includes('pay_channel')) db.exec("ALTER TABLE orders ADD COLUMN pay_channel TEXT DEFAULT ''")
+  if (!orderCols.includes('transaction_id')) db.exec("ALTER TABLE orders ADD COLUMN transaction_id TEXT DEFAULT ''")
+  // 开舱留痕：单舱机型一车多单无物理隔离，取餐开舱必须可追溯
+  if (!orderCols.includes('pickup_opened_at')) db.exec("ALTER TABLE orders ADD COLUMN pickup_opened_at TEXT")
+  const refundCols = db.prepare('PRAGMA table_info(refunds)').all().map((c) => c.name)
+  if (!refundCols.includes('wx_refund_no')) db.exec("ALTER TABLE refunds ADD COLUMN wx_refund_no TEXT DEFAULT ''")
+
+  // 支付回调幂等表：微信对同一事件会重推，event_id 唯一约束即幂等键
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pay_notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id TEXT UNIQUE,
+      out_trade_no TEXT,
+      trade_state TEXT,
+      amount_total INTEGER,
+      created_at TEXT DEFAULT (datetime('now','localtime'))
+    )
+  `)
+  // 一次性迁移标记（避免每次启动重复执行不可逆的数据修正）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    )
+  `)
+
+  // 一次性安全修正：存量 merchant 角色全部降回 student。
+  // 这些角色是旧登录接口按客户端自报的 body.role 写入的，任何人都能自助成为商家，
+  // 因此没有一个是可信的。修复后角色只能由 MERCHANT_INVITE_CODE 授予，
+  // 真实商家在商家端登录页输入邀请码即可恢复。
+  const resetDone = db.prepare("SELECT value FROM meta WHERE key='merchant_role_reset_at'").get()
+  if (!resetDone) {
+    const n = db.prepare("UPDATE users SET role='student' WHERE role='merchant'").run()
+    db.prepare("INSERT INTO meta (key, value) VALUES ('merchant_role_reset_at', datetime('now','localtime'))").run()
+    if (n.changes > 0) {
+      console.log(`[db] 安全修正：${n.changes} 个自报的商家账号已降为学生，请用 MERCHANT_INVITE_CODE 重新登录商家端`)
+    }
+  }
 }
 
 function seed(db) {

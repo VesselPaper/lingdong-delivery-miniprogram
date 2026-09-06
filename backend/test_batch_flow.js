@@ -14,7 +14,7 @@ function startServer() {
   return new Promise((resolve, reject) => {
     child = spawn(process.execPath, ['server.js'], {
       cwd: __dirname,
-      env: { ...process.env, PORT: String(PORT), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB, PAY_MOCK: 'true', BATCH_WAIT_MS: '100000' },
+      env: { ...process.env, RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB, PAY_MOCK: 'true', BATCH_WAIT_MS: '100000', MERCHANT_INVITE_CODE: 'test-invite' },
       stdio: ['ignore', 'pipe', 'pipe']
     })
     let log = ''
@@ -53,7 +53,7 @@ function assert(cond, msg) {
     console.log('[1] server up (mock, port ' + PORT + ')')
 
     // 登录：商家 + 学生
-    const mer = await api('POST', '/auth/login', { code: 'merchant-test-' + Date.now(), role: 'merchant', nickname: '测试商家' })
+    const mer = await api('POST', '/auth/login', { code: 'merchant-test-' + Date.now(), merchant_code: 'test-invite', nickname: '测试商家' })
     assert(mer.code === 0, '商家登录')
     const mToken = mer.data.token
     const stu = await api('POST', '/auth/login', { code: 'student-test-' + Date.now(), role: 'student', nickname: '测试学生' })
@@ -67,7 +67,7 @@ function assert(cond, msg) {
     const lm2 = 2, lm3 = 3, lm4 = 4 // 东苑1/2/3栋
     const created = []
     for (const lm of [lm2, lm3, lm4, lm2]) {
-      const c = await api('POST', '/order/create', { landmark_id: lm, landmark_name: '点位' + lm, items: [{ goods_id: 1, quantity: 1 }] }, sToken)
+      const c = await api('POST', '/order/create', { landmark_id: lm, landmark_name: '点位' + lm, contact_name: '测试学生', contact_phone: '13800138000', items: [{ goods_id: 1, quantity: 1 }] }, sToken)
       assert(c.code === 0, '下单 order=' + c.data.order_no)
       created.push(c.data.order_id)
       const p = await api('POST', '/order/pay', { id: c.data.order_id }, sToken)
@@ -187,7 +187,7 @@ function assert(cond, msg) {
     assert(mr.code === 0, '订单已读接口可用')
 
     // ---- 边界：任务直接完成路径（无用户取餐，平台任务 80 直接完成）→ 批次应完成 ----
-    const c2 = await api('POST', '/order/create', { landmark_id: lm3, landmark_name: '点位3', items: [{ goods_id: 2, quantity: 1 }] }, sToken)
+    const c2 = await api('POST', '/order/create', { landmark_id: lm3, landmark_name: '点位3', contact_name: '测试学生', contact_phone: '13800138000', items: [{ goods_id: 2, quantity: 1 }] }, sToken)
     await api('POST', '/order/pay', { id: c2.data.order_id }, sToken)
     const pend2 = await api('GET', '/merchant/device/pending', null, mToken)
     const open2 = (pend2.data.open_batches || []).find((b) => b.id !== batchId)
@@ -204,7 +204,7 @@ function assert(cond, msg) {
     const tdb = new DatabaseSync(TMP_DB)
 
     // 新订单 → 置为配送异常(6) → 重新配送
-    const ce = await api('POST', '/order/create', { landmark_id: lm3, landmark_name: '点位3', items: [{ goods_id: 1, quantity: 1 }] }, sToken)
+    const ce = await api('POST', '/order/create', { landmark_id: lm3, landmark_name: '点位3', contact_name: '测试学生', contact_phone: '13800138000', items: [{ goods_id: 1, quantity: 1 }] }, sToken)
     assert(ce.code === 0, '异常用例下单')
     await api('POST', '/order/pay', { id: ce.data.order_id }, sToken)
     tdb.prepare('UPDATE orders SET status=6 WHERE id=?').run(ce.data.order_id)
@@ -218,7 +218,7 @@ function assert(cond, msg) {
     assert(mockD.code === 0 && mockD.data.status === 2, '模拟开始配送 → 批次配送中(测试)')
 
     // 另一新订单 → 置为配送异常(6) → 取消并退款
-    const cf = await api('POST', '/order/create', { landmark_id: lm4, landmark_name: '点位4', items: [{ goods_id: 1, quantity: 1 }] }, sToken)
+    const cf = await api('POST', '/order/create', { landmark_id: lm4, landmark_name: '点位4', contact_name: '测试学生', contact_phone: '13800138000', items: [{ goods_id: 1, quantity: 1 }] }, sToken)
     await api('POST', '/order/pay', { id: cf.data.order_id }, sToken)
     tdb.prepare('UPDATE orders SET status=6 WHERE id=?').run(cf.data.order_id)
     const rf = await api('POST', '/merchant/order/exception/refund', { order_id: cf.data.order_id }, mToken)
