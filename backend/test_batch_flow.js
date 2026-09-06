@@ -162,7 +162,9 @@ function assert(cond, msg) {
     const ps = await api('POST', '/delivery/pickup-scan', { order_id: firstOrder }, sToken)
     assert(ps.code === 0, '取餐扫码')
     const po = await api('POST', '/delivery/pickup-open', { order_id: firstOrder }, sToken)
-    assert(po.code === 0, '取餐开舱（已取走本单）')
+    assert(po.code === 0, '取餐开舱')
+    const pc = await api('POST', '/delivery/pickup-close', { order_id: firstOrder }, sToken)
+    assert(pc.code === 0, '取餐关舱（关舱才标记已取走，P1-2）')
 
     const d1 = await api('GET', '/merchant/delivery/batch/detail?batch_id=' + batchId, null, mToken)
     const picked = d1.data.orders.filter((o) => o.picked_up).length
@@ -171,6 +173,7 @@ function assert(cond, msg) {
     // 剩余 3 单全部取走 → 批次完成
     for (let i = 1; i < created.length; i++) {
       await api('POST', '/delivery/pickup-open', { order_id: created[i] }, sToken)
+      await api('POST', '/delivery/pickup-close', { order_id: created[i] }, sToken)
     }
     const d2 = await api('GET', '/merchant/delivery/batch/detail?batch_id=' + batchId, null, mToken)
     assert(d2.data.status === 3, '全部取完 → 批次完成 status=' + d2.data.status_text)

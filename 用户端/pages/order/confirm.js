@@ -191,6 +191,13 @@ Page({
     }
     const { items, selectedPoint, remark, contactName, contactPhone, selectedAddress } = this.data
     if (!items.length) return
+    // P1-8：单笔订单总件数不得超过单车容量（后端 BATCH_MAX_ITEMS=12，此处前端先行拦截，
+    // 避免用户凑满购物车一次性提交后收到「超出容量」报错。后端仍会再次校验，以后端为准。）
+    const totalQty = items.reduce((s, it) => s + Number(it.quantity || 0), 0)
+    if (totalQty > 12) {
+      wx.showToast({ title: '单笔订单最多 12 件商品（超出单车容量），请分开下单', icon: 'none' })
+      return
+    }
     if (!selectedPoint) {
       wx.showToast({ title: '请选择送达点位', icon: 'none' })
       return

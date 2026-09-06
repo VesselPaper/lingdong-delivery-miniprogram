@@ -14,7 +14,7 @@
           <view class="robot-name">零栋无人配送机器人</view>
           <view class="robot-status">{{taskText}}</view>
         </view>
-        <view class="tag tag-dark">配送中</view>
+        <view class="tag tag-dark">{{order.order_status === 6 ? '配送异常' : (order.order_status === 3 ? '待取餐' : '配送中')}}</view>
       </view>
       <view class="robot-progress">
         <view class="progress-track">
@@ -29,7 +29,8 @@
       </view>
     </view>
 
-    <view class="map-card" wx:if="{{position}}">
+    <!-- P1-12：地图卡仅在拿到真实坐标百分比时渲染（percent 非空）；mock 档无真实坐标，走下方文本展示 -->
+    <view class="map-card" wx:if="{{percent}}">
       <view class="map-grid"></view>
       <view class="map-route"></view>
       <view class="map-robot" style="left: {{posX}}%; top: {{posY}}%;">
@@ -41,6 +42,19 @@
       <view class="map-tip">
         <text class="text-sm">{{order.landmark_name}}</text>
       </view>
+    </view>
+
+    <view class="card" wx:elif="{{position && position.text}}">
+      <view class="section-title">机器人位置</view>
+      <view class="task-status text-sub">{{position.text}}</view>
+      <view class="text-weak text-sm">当前为演示模式，暂不显示实时地图位置</view>
+    </view>
+
+    <!-- P1-4：配送异常(6) —— 机器人故障/长时间无进展时，给用户明确的异常说明与退款/投诉出口 -->
+    <view class="card exception-card" wx:if="{{order.order_status === 6}}">
+      <view class="section-title">配送异常</view>
+      <view class="task-status text-warn">{{taskText}}</view>
+      <view class="text-weak text-sm">您的订单配送出现异常，请申请退款或联系商家处理；您的餐款会按售后结果退回。</view>
     </view>
 
     <view class="card" wx:if="{{task}}">
@@ -65,6 +79,7 @@
     <view class="foot-actions">
       <view class="btn btn-sm btn-outline" style="flex:1;" bindtap="refresh">刷新状态</view>
       <view class="btn btn-sm" style="flex:1;" wx:if="{{order.order_status === 3}}" bindtap="simulatePickup">模拟扫码取餐</view>
+      <view class="btn btn-sm btn-warn" style="flex:1;" wx:if="{{order.order_status === 6}}" bindtap="goRefund">申请退款</view>
     </view>
   </block>
 </view>

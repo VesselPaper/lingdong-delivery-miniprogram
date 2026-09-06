@@ -7,12 +7,14 @@ Page({
     order: {},
     task: null,
     position: null,
+    percent: null,           // P1-12：后端按地图 bbox 归一化的百分比坐标 {x,y}，无真实坐标时为 null
     taskText: '等待接单',
     progressPercent: 0,
     progressStep: 0,
     posX: 10,
     posY: 80,
-    empty: false
+    empty: false,
+    loading: false
   },
 
   onLoad(options) {
@@ -23,11 +25,35 @@ Page({
     } else {
       this.loadLatest()
     }
-    this.timer = setInterval(() => this.load(true), 3000)
+    // P1-12：轮询计时器统一由 onLoad/onShow 启动、onHide/onUnload 清理，
+    // 防止页面在栈底时继续每 3 秒打一次追踪接口（后台轮询 + 返回后重复启动）。
+    this.startPolling()
+  },
+
+  onShow() {
+    // 从取餐页等返回时恢复轮询并立即刷新一次
+    if (this.data.orderId) this.load(true)
+    this.startPolling()
+  },
+
+  onHide() {
+    this.stopPolling()
   },
 
   onUnload() {
-    if (this.timer) clearInterval(this.timer)
+    this.stopPolling()
+  },
+
+  startPolling() {
+    if (this.timer) return
+    this.timer = setInterval(() => this.load(true), 3000)
+  },
+
+  stopPolling() {
+    if (this.timer) {
+      clearInterval(this.timer)
+      this.timer = null
+    }
   },
 
   // 从订单列表自动挑一个进行中的订单（优先配送中/已送达/待接单，否则最近一单）
@@ -48,7 +74,8 @@ Page({
   },
 
   async load(silent) {
-    if (!this.data.orderId) return
+    if (!this.data.orderId || this.data.loading) return
+    this.setData({ loading: true })
     try {
       const data = await request.get(api.deliveryTrack + '?order_id=' + this.data.orderId)
       const task = data.task || null
@@ -59,14 +86,19 @@ Page({
       const percent = task ? Math.min(100, step * 25) : 0
       let posX = this.data.posX
       let posY = this.data.posY
-      if (data.position) {
-        posX = 10 + (data.position.step / 3) * 70
-        posY = 80 - (data.position.step / 3) * 55
+      // P1-12：位置百分比由后端按真实坐标 ÷ 地图 bbox 计算下发（x 左→右、y 下→上）。
+      // 原先这里读 data.position.step 做魔数换算 —— 后端从不返回 step，posX/posY 恒为 NaN，
+      // 地图上的机器人点永远渲染不出来。mock 档无真实坐标 → percent 为 null，地图卡隐藏走文本展示。
+      if (data.percent && data.percent.x !== undefined && data.percent.y !== undefined) {
+        posX = data.percent.x
+        posY = data.percent.y
       }
       this.setData({
         order: data,
         task,
         batch: data.batch || null,
+        position: data.position || null,
+        percent: data.percent || null,
         taskText,
         progressPercent: percent,
         progressStep: step,
@@ -74,7 +106,9 @@ Page({
         posY,
         empty: false
       })
-    } catch (e) { /* handled */ }
+    } catch (e) { /* handled */ } finally {
+      this.setData({ loading: false })
+    }
   },
 
   refresh() {
@@ -89,5 +123,11 @@ Page({
   simulatePickup() {
     if (!this.data.orderId) return wx.showToast({ title: '暂无可取餐订单', icon: 'none' })
     wx.navigateTo({ url: '/pages/delivery/pickup?order_id=' + this.data.orderId })
+  },
+
+  // P1-4：配送异常(6)订单的退款/投诉出口 —— 卡死或异常订单用户必须有自助入口
+  goRefund() {
+    if (!this.data.orderId) return
+    wx.navigateTo({ url: '/pages/order/refund?order_id=' + this.data.orderId })
   }
 })

@@ -209,49 +209,87 @@ async function syncLandmarks(store) {
 //  2. 活跃批次 route（本地 landmarks 坐标）→ 路线折线
 //  3. eviz 代理接口按设备获取机器人实时坐标（robotpose）
 // 返回 map_url/barrier_url、bbox（坐标→图片像素映射）、landmarks、graph、robots、routes。
-async function getMapOverview(store) {
-  if (!platformReady()) return { ok: false, msg: '未配置开放物流平台凭据' }
+// mapInfo 缓存 60s：追踪页 3s 轮询 / 监控页 5s 轮询 / 地图接口共享同一份地图元数据，
+// 避免每 3 秒对平台发一次 building/mapInfo 全量请求（P1-11 同类问题：串行同步调用拖死事件循环）。
+let mapInfoCache = { ts: 0, data: null }
+
+async function getMapRaw(store) {
+  if (mapInfoCache.data && Date.now() - mapInfoCache.ts < 60000) return mapInfoCache.data
   const lm = store.prepare("SELECT * FROM landmarks WHERE platform_building_id != '' ORDER BY sort LIMIT 1").get()
-  if (!lm || !lm.platform_map_id) return { ok: false, msg: '未同步点位（请先执行点位同步）' }
+  if (!lm || !lm.platform_map_id) return null
   try {
     const m = await requestPlatform('GET', '/open-api/v1/building/mapInfo/' + encodeURIComponent(lm.platform_map_id))
-    if (m.code !== 'COMM_200' || !m.data || !m.data.map) return { ok: false, msg: (m && m.msg) || '获取地图失败' }
-    const mapUrl = m.data.map
-    const barrierUrl = m.data.barrier || ''
-    const detail = m.data.mapDetailInfo || {}
-    // 点位（含商铺上货 loading）
-    const landmarks = []
-    const pts = detail.landmarks || {}
-    for (const k of Object.keys(pts)) {
-      const p = pts[k]
-      if (!p || !Array.isArray(p.pose) || p.pose.length < 2) continue
-      landmarks.push({
-        id: p.id || k,
-        name: p.name || '',
-        type: /上货|商铺|店铺|铺子/.test(p.name || '') ? 'loadingPoint' : 'deliverPoint',
-        x: Number(p.pose[0]), y: Number(p.pose[1])
-      })
+    if (m.code !== 'COMM_200' || !m.data || !m.data.map) return mapInfoCache.data
+    mapInfoCache = { ts: Date.now(), data: m.data }
+    return m.data
+  } catch (e) {
+    return mapInfoCache.data
+  }
+}
+
+// 由 mapInfo 的 landmarks + 固定路径 graph 节点计算坐标 bbox（坐标空间与 eviz robotpose 一致）
+function computeMapBbox(data) {
+  const detail = (data && data.mapDetailInfo) || {}
+  const pts = detail.landmarks || {}
+  const xs = []
+  const ys = []
+  for (const k of Object.keys(pts)) {
+    const p = pts[k]
+    if (p && Array.isArray(p.pose) && p.pose.length >= 2) { xs.push(Number(p.pose[0])); ys.push(Number(p.pose[1])) }
+  }
+  const line = pts['固定路径'] || Object.values(pts).find((p) => p && p.graph)
+  if (line && line.graph) {
+    const nodes = line.graph.nodes || {}
+    for (const nk of Object.keys(nodes)) {
+      const pos = nodes[nk].pos || []
+      if (pos.length >= 2) { xs.push(Number(pos[0])); ys.push(Number(pos[1])) }
     }
-    // 路网（固定路径 graph）
-    const graph = { nodes: [], edges: [] }
-    const line = pts['固定路径'] || Object.values(pts).find((p) => p && p.graph)
-    if (line && line.graph) {
-      const nodes = line.graph.nodes || {}
-      for (const nk of Object.keys(nodes)) {
-        const pos = nodes[nk].pos || []
-        if (pos.length >= 2) graph.nodes.push({ id: nk, x: Number(pos[0]), y: Number(pos[1]) })
-      }
-      ;(line.graph.edges || []).forEach((e) => {
-        if (e && Array.isArray(e.edge) && e.edge.length === 2) graph.edges.push([e.edge[0], e.edge[1]])
-      })
+  }
+  if (!xs.length) return null
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
+}
+
+// 地图坐标 bbox（供用户端追踪页把机器人坐标归一化为百分比；缓存 60s）
+async function getMapBbox(store) {
+  const data = await getMapRaw(store)
+  return data ? computeMapBbox(data) : null
+}
+
+async function getMapOverview(store) {
+  const data = await getMapRaw(store)
+  if (!data) return { ok: false, msg: '未同步点位或获取地图失败' }
+  const mapUrl = data.map
+  const barrierUrl = data.barrier || ''
+  const detail = data.mapDetailInfo || {}
+  // 点位（含商铺上货 loading）
+  const landmarks = []
+  const pts = detail.landmarks || {}
+  for (const k of Object.keys(pts)) {
+    const p = pts[k]
+    if (!p || !Array.isArray(p.pose) || p.pose.length < 2) continue
+    landmarks.push({
+      id: p.id || k,
+      name: p.name || '',
+      type: /上货|商铺|店铺|铺子/.test(p.name || '') ? 'loadingPoint' : 'deliverPoint',
+      x: Number(p.pose[0]), y: Number(p.pose[1])
+    })
+  }
+  // 路网（固定路径 graph）
+  const graph = { nodes: [], edges: [] }
+  const line = pts['固定路径'] || Object.values(pts).find((p) => p && p.graph)
+  if (line && line.graph) {
+    const nodes = line.graph.nodes || {}
+    for (const nk of Object.keys(nodes)) {
+      const pos = nodes[nk].pos || []
+      if (pos.length >= 2) graph.nodes.push({ id: nk, x: Number(pos[0]), y: Number(pos[1]) })
     }
-    // bbox：点位 + 路网节点 的外包框（前端按此把坐标映射到图片像素）
-    const xs = []
-    const ys = []
-    landmarks.forEach((p) => { xs.push(p.x); ys.push(p.y) })
-    graph.nodes.forEach((n) => { xs.push(n.x); ys.push(n.y) })
-    if (!xs.length) return { ok: false, msg: '地图无点位数据' }
-    const bbox = { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
+    ;(line.graph.edges || []).forEach((e) => {
+      if (e && Array.isArray(e.edge) && e.edge.length === 2) graph.edges.push([e.edge[0], e.edge[1]])
+    })
+  }
+  // bbox：点位 + 路网节点 的外包框（前端按此把坐标映射到图片像素）
+  const bbox = computeMapBbox(data)
+  if (!bbox) return { ok: false, msg: '地图无点位数据' }
     // 活跃批次路线（批次状态=配送中，route 停靠点坐标来自本地 landmarks）
     const routes = []
     const activeBatches = store.prepare('SELECT id FROM delivery_batches WHERE status=2 ORDER BY id DESC LIMIT 10').all()
@@ -279,9 +317,6 @@ async function getMapOverview(store) {
       }
     }
     return { ok: true, map_url: mapUrl, barrier_url: barrierUrl, bbox, landmarks, graph, robots, routes }
-  } catch (e) {
-    return { ok: false, msg: '获取地图数据失败：' + e.message }
-  }
 }
 
 // ---------------- 创建配送任务 ----------------
@@ -617,9 +652,13 @@ function updateTask(store, taskId, text, status) {
 async function syncTaskStatus(store, taskId) {
   if (MOCK || !platformReady()) return
   const t = store.prepare('SELECT d.*, o.order_no FROM delivery_tasks d LEFT JOIN orders o ON o.id=d.order_id WHERE d.id=?').get(taskId)
-  // 已完成(80)与已作废(void_at)的任务不再轮询。
-  // 原写法第二个条件 (task_status >= 90 && !== 120) 被前一个 >= 80 完全覆盖，是死代码。
-  if (!t || Number(t.task_status) >= 80 || t.void_at) return
+  // 只跳过真正的终态：80 完成、110/150 取消关闭、本地已作废（void_at）。
+  // 70 到达取货点必须继续轮询：它只是「机器人已到、等待用户取餐」的停等态 ——
+  // 若平台的到达回调丢失而任务停在 70，轮询是唯一能把订单推进到「已送达(3)」的兜底；
+  // 把它一并跳过会令订单永久卡在配送中(2)，用户连取餐入口都打不开。
+  // 同时 90-109（上货/取货失败）也必须轮询以驱动到「配送异常(6)」（P1-4），
+  // 原写法 task_status >= 80 一律跳过，把这些非终态全挡在了轮询外。
+  if (!t || [80, 110, 150].includes(Number(t.task_status)) || t.void_at) return
   if (!t.platform_task_id) return
   try {
     const q = '/open-api/v1/deliveryTask/basicList?idList=' + encodeURIComponent(t.platform_task_id)
@@ -846,4 +885,4 @@ async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, createTasksForBatch, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask }
+module.exports = { createQueueTask, createTasksForBatch, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask }

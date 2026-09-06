@@ -56,12 +56,30 @@ function orderItemCount(store, orderId) {
   return Number(row && row.s || 0)
 }
 
+// 手机号脱敏（P1-13）：商家端列表/详情默认只显示 138****0000，
+// 明文手机号只在开舱验证等内部逻辑使用（服务端直接读库），对外一律脱敏。
+function maskPhone(p) {
+  const s = String(p || '')
+  if (!s) return ''
+  return s.length <= 7 ? (s.slice(0, 1) + '****' + s.slice(-2)) : (s.slice(0, 3) + '****' + s.slice(-4))
+}
+
 // 最优分批：以商品件数计容量（默认 12 件/车）。取「能容纳本单件数且当前最满」的组单中批次（best-fit）；
 // 无合适批次则新建。超容量订单（>12 件）因任何批次都装不下，自动独占新建批次。
+// 批次容量一律实时计算（P1-9）：delivery_batches.total_items 是缓存列，历史上有过
+// 「UI 实时口径 8 件、调度器读缓存列 3 件」的分叉，best-fit 与自动派车判断都以实时值为准。
 function getOrCreateOpenBatch(store, itemCount) {
   const n = Number(itemCount || 0)
-  const b = store.prepare('SELECT * FROM delivery_batches WHERE status=0 AND total_items + ? <= ? ORDER BY total_items DESC, id DESC LIMIT 1').get(n, BATCH_MAX_ITEMS)
-  if (b) return b
+  const b = store.prepare(`
+    SELECT b.id, IFNULL(SUM(oi.quantity), 0) AS items
+    FROM delivery_batches b
+    LEFT JOIN orders o ON o.batch_id = b.id AND o.status IN (1,2)
+    LEFT JOIN order_items oi ON oi.order_id = o.id
+    WHERE b.status = 0
+    GROUP BY b.id
+    HAVING items + ? <= ?
+    ORDER BY items DESC, b.id DESC LIMIT 1`).get(n, BATCH_MAX_ITEMS)
+  if (b) return store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(b.id))
   const batchNo = 'BD' + Date.now().toString().slice(-8) + Math.random().toString(36).slice(2, 6).toUpperCase()
   // 当日序号：每天从 1 重置（商家端卡面展示「批次 N」，长编号只在批次详情显示）
   const seqRow = store.prepare("SELECT COUNT(*) c FROM delivery_batches WHERE date(created_at)=date('now','localtime')").get()
@@ -218,7 +236,7 @@ function getBatchDetail(store, batchId) {
       id: o.id, order_no: o.order_no, status: o.status, status_text: statusText(o.status),
       daily_seq: Number(o.daily_seq || o.id),
       landmark_id: o.landmark_id, landmark_name: lmName,
-      contact_name: o.contact_name, contact_phone: o.contact_phone,
+      contact_name: o.contact_name, contact_phone: maskPhone(o.contact_phone),
       pickup_code: o.pickup_code, total_amount: o.total_amount,
       created_at: o.created_at,
       picked_up: !!o.picked_up_at,

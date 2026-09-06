@@ -192,6 +192,9 @@ function migrate(db) {
   if (!batchCols.includes('daily_seq')) db.exec("ALTER TABLE delivery_batches ADD COLUMN daily_seq INTEGER")
   // delivery_batches：已装商品件数（分批以「件」为容量单位，默认 12 件/车）
   if (!batchCols.includes('total_items')) db.exec("ALTER TABLE delivery_batches ADD COLUMN total_items INTEGER DEFAULT 0")
+  // delivery_batches：模拟送达时刻（P1-4）——mock-dispatch 只落时间戳，由定时扫描到期置已送达，
+  // 不再依赖进程内存 setTimeout（重启即丢，且卡在配送中的订单没有出口）
+  if (!batchCols.includes('mock_arrive_at')) db.exec("ALTER TABLE delivery_batches ADD COLUMN mock_arrive_at TEXT")
   // 历史数据回填：按创建日期逐日累计编号（id 即当日创建顺序）
   db.exec(`UPDATE delivery_batches SET daily_seq=(
     SELECT COUNT(*) FROM delivery_batches b2
@@ -235,6 +238,8 @@ function migrate(db) {
   if (!orderCols.includes('transaction_id')) db.exec("ALTER TABLE orders ADD COLUMN transaction_id TEXT DEFAULT ''")
   // 开舱留痕：单舱机型一车多单无物理隔离，取餐开舱必须可追溯
   if (!orderCols.includes('pickup_opened_at')) db.exec("ALTER TABLE orders ADD COLUMN pickup_opened_at TEXT")
+  // 开舱次数（P1-2）：重新开舱防「未取到餐」但必须限次数，防止无限次开舱把单舱完全暴露
+  if (!orderCols.includes('pickup_open_count')) db.exec("ALTER TABLE orders ADD COLUMN pickup_open_count INTEGER DEFAULT 0")
   const refundCols = db.prepare('PRAGMA table_info(refunds)').all().map((c) => c.name)
   if (!refundCols.includes('wx_refund_no')) db.exec("ALTER TABLE refunds ADD COLUMN wx_refund_no TEXT DEFAULT ''")
 
@@ -246,6 +251,19 @@ function migrate(db) {
       out_trade_no TEXT,
       trade_state TEXT,
       amount_total INTEGER,
+      created_at TEXT DEFAULT (datetime('now','localtime'))
+    )
+  `)
+  // 操作审计表（P1-13）：商家敏感操作（改价/上下架/退款/取消/派车/设备控制/活动）落审计，
+  // 与「手机号脱敏」配套 —— 脱敏后唯一需要明文的地方必须留下操作痕迹可追溯。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      user_role TEXT DEFAULT '',
+      action TEXT,
+      target TEXT DEFAULT '',
+      detail TEXT DEFAULT '',
       created_at TEXT DEFAULT (datetime('now','localtime'))
     )
   `)
