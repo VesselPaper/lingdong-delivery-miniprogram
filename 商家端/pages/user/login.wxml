@@ -7,8 +7,24 @@
     <view class="login-sub">商家登录管理商品与配送</view>
   </view>
 
+  <view class="login-code">
+    <view class="login-code-head">
+      <text class="login-code-label">商家邀请码</text>
+      <text class="login-code-optional text-weak text-sm">已是商家可不填</text>
+    </view>
+    <input
+      class="login-code-input"
+      type="text"
+      placeholder="首次登录必填，由店主提供"
+      placeholder-class="login-code-ph"
+      value="{{merchantCode}}"
+      bindinput="onCodeInput"
+    />
+    <view class="login-code-tip text-weak text-sm">商家权限只能凭邀请码授予，客户端无法自行声明身份。</view>
+  </view>
+
   <view class="login-actions">
-    <view class="btn btn-block" bindtap="wechatLogin">微信一键登录</view>
+    <view class="btn btn-block {{logging ? 'btn-disabled' : ''}}" bindtap="wechatLogin">微信一键登录</view>
     <view class="login-tip text-weak text-sm">登录即同意《商家入驻协议》与《隐私政策》</view>
   </view>
 </view>

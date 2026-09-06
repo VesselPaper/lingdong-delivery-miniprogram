@@ -9,9 +9,9 @@
 
       <view class="dispatch-zone" wx:if="{{phase === 'loaded'}}">
         <view class="dispatch-hint {{countdown > 0 ? '' : 'warn'}}">{{countdownText || '请尽快开始配送'}}</view>
-        <movable-area class="slider-area" style="width:{{sliderAreaW}}px;height:100rpx">
-          <movable-view class="slider-thumb" style="width:{{sliderThumbW}}px;height:100rpx"
-            direction="horizontal" x="{{sliderX}}" bindchange="onSliderChange" bindtouchend="onSliderEnd">
+        <movable-area class="slider-area">
+          <movable-view class="slider-thumb"
+            direction="horizontal" x="{{sliderX}}" animation="{{false}}" bindchange="onSliderChange" bindtouchend="onSliderEnd">
             <text class="slider-arrow">→</text>
           </movable-view>
         </movable-area>

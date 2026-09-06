@@ -5,9 +5,11 @@ const request = require('../../utils/request')
 // 入口：「上货配单」列表点「选择该批次上货」；左上角返回回到批次列表（上货配单页）。
 // 完整批次编号在此弱化展示；商品一行一个（价格在数量前）；无页面内冗余返回按钮。
 
-// 测试阶段开关：无真机器人时模拟开舱/关舱/配送，走通全流程；正式接入真机器人后改为 false。
+// 测试阶段开关：由后端运行模式下发（/api/shop/status 与登录响应 runtime.device_mock），不再前端硬编码。
+// 取不到时默认 false —— 宁可走真实分支报错，也不可假装成功（P0-2 修复）。
 // 真实代码已保留在对应方法内（DEVICE_MOCK=false 分支），后续直接切换即可。
-const DEVICE_MOCK = true
+const runtimeFlags = wx.getStorageSync('runtimeFlags') || {}
+const DEVICE_MOCK = runtimeFlags.device_mock === true
 
 const ORDER_ST_CLASS = { 1: 'orange', 2: 'blue', 3: 'green', 4: 'green', 5: 'gray', 6: 'red', 7: 'gray' }
 
@@ -99,8 +101,8 @@ Page({
     if (!this.data.batch) return
     if (DEVICE_MOCK) {
       wx.showModal({
-        title: '是否立即配送？',
-        content: '本批 ' + (this.data.batch.total_orders || 0) + ' 单已装车（模拟）。选择「否」可稍后滑动「立即配送」开始。',
+        title: '是否立即配单',
+        content: '',
         confirmText: '立即配送',
         cancelText: '稍后',
         confirmColor: '#3078C0',
@@ -121,8 +123,8 @@ Page({
       .then(() => {
         wx.hideLoading()
         wx.showModal({
-          title: '是否立即配送？',
-          content: '本批 ' + (this.data.batch.total_orders || 0) + ' 单已装车。选择「否」可稍后滑动「立即配送」开始。',
+          title: '是否立即配单',
+          content: '',
           confirmText: '立即配送',
           cancelText: '稍后',
           confirmColor: '#3078C0',

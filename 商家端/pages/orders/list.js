@@ -90,27 +90,33 @@ Page({
         this.setData({ orders: list, groups: [] }, () => this.applyFilter())
       } else {
         this.rawOrders = []
-        this.rawGroups = this.groupByBatch(list)
+        this.rawGroups = this.groupByBatch(list, this.data.active)
         this.setData({ orders: [], groups: this.rawGroups }, () => this.applyFilter())
       }
     } catch (e) { /* handled */ }
   },
 
   // 按批次分组（一车多单：一个批次一个卡面，批次内嵌套多单）
-  groupByBatch(list) {
+  groupByBatch(list, stage) {
     const map = new Map()
     for (const o of list) {
       const key = o.batch ? (o.batch.batch_no || 'g' + o.batch.daily_seq) : '__none__'
       if (!map.has(key)) {
         const bs = o.batch ? Number(o.batch.status) : -1
+        let text = o.batch ? (BATCH_TEXT[bs] || '') : '未组单'
+        let tag = o.batch ? (BATCH_TAG[bs] || 'tag-gray') : 'tag-gray'
+        // 待取货阶段：批次可能仍为「配送中」（取完才完成），但卡片应显示「待取货」
+        if (stage === 'pickup') { text = '待取货'; tag = 'tag-green' }
         map.set(key, {
           id: key,
           batch_no: o.batch ? o.batch.batch_no : '',
           daily_seq: o.batch ? o.batch.daily_seq : 0,
           status: o.batch ? o.batch.status : null,
-          status_text: o.batch ? (BATCH_TEXT[bs] || '') : '未组单',
-          statusTagClass: o.batch ? (BATCH_TAG[bs] || 'tag-gray') : 'tag-gray',
+          status_text: text,
+          statusTagClass: tag,
           total_orders: 0,
+          total_items: o.batch ? Number(o.batch.total_items || 0) : 0,
+          route_text: o.batch ? (o.batch.route_text || '') : '',
           picked_orders: 0,
           orders: []
         })

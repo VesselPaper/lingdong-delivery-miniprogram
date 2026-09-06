@@ -27,7 +27,9 @@
 }
 
 .slider-area {
-  width: 100%;
+  width: 600rpx;
+  height: 100rpx;
+  margin: 0 auto;
   border-radius: 50rpx;
   background: #E8EDF7;
   position: relative;

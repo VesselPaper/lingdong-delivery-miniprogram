@@ -14,6 +14,10 @@
     <text class="line-label">机器人</text>
     <text class="line-value">{{b.device_sn}}</text>
   </view>
+  <view class="batch-line" wx:if="{{b.total_items}}">
+    <text class="line-label">件数</text>
+    <text class="line-value">{{b.total_items}} 件</text>
+  </view>
   <view class="batch-line" wx:if="{{b.route_text}}">
     <text class="line-label">路线</text>
     <text class="line-value">{{b.route_text}}</text>
@@ -29,6 +33,7 @@
       <view class="b-order-head">
         <text class="b-order-title">订单 {{o.daily_seq}}</text>
         <text class="b-order-landmark">{{o.landmark_name}}</text>
+        <text class="recall-tag" wx:if="{{o.task && o.task.recall_status === 2}}">召回失败·需人工</text>
         <text class="b-order-status st-{{o.stClass}}">{{o.displayStatus || o.status_text}}</text>
       </view>
 

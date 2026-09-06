@@ -1,9 +1,12 @@
+/* 批次头部：蓝色整行（白字），用于区分不同批次 */
 .batch-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 16rpx;
-  border-bottom: 1rpx solid var(--line);
+  padding: 20rpx 32rpx;
+  margin: -32rpx -32rpx 16rpx;
+  background: #3078C0;
+  border-radius: 12rpx 12rpx 0 0;
 }
 
 .batch-title-wrap {
@@ -16,13 +19,13 @@
 .batch-title {
   font-size: 30rpx;
   font-weight: 600;
-  color: var(--text-main);
+  color: #ffffff;
 }
 
 /* 完整批次编号：只在单批次详情显示，弱化展示 */
 .batch-no-full {
   font-size: 20rpx;
-  color: var(--text-weak);
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .batch-tags {
@@ -30,6 +33,18 @@
   align-items: center;
   gap: 10rpx;
   flex-shrink: 0;
+}
+
+/* 蓝底上的标签统一为白底透明样式，字体白色 */
+.batch-head .tag {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  border: 1rpx solid rgba(255, 255, 255, 0.4);
+}
+
+.batch-head .tag-dark {
+  background: #ffffff;
+  color: #3078C0;
 }
 
 .batch-line {
@@ -102,6 +117,16 @@
   margin-left: auto;
   font-size: 24rpx;
   font-weight: 500;
+}
+
+/* 平台召回失败标记（P0-4）：取消/退款后机器人未召回，需人工介入 */
+.recall-tag {
+  font-size: 20rpx;
+  color: #ffffff;
+  background: #E64340;
+  border-radius: 6rpx;
+  padding: 2rpx 12rpx;
+  flex-shrink: 0;
 }
 
 .b-items {
