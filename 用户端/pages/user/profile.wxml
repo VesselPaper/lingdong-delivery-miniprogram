@@ -1,10 +1,16 @@
 <view class="profile-page sky-bg">
-  <view class="user-row">
+  <view class="user-row" bindtap="onUserTap" hover-class="row-hover">
     <view class="avatar"><t-icon name="user" size="24" color="#3078C0" /></view>
     <view class="user-info">
-      <view class="user-name">{{user.nickname || '未登录'}}</view>
-      <view class="user-phone text-weak" wx:if="{{user.phone}}">{{user.phone}}</view>
-      <view class="login-link" wx:if="{{!user}}" bindtap="goLogin">点击登录 <t-icon name="chevron-right" size="12" color="#3078C0" /></view>
+      <block wx:if="{{user && user.openid}}">
+        <view class="user-name">{{user.nickname || '零栋用户'}}</view>
+        <view class="user-phone text-weak" wx:if="{{user.phone}}">{{user.phone}}</view>
+        <view class="edit-hint text-weak text-sm">点击编辑个人信息 <t-icon name="chevron-right" size="12" color="#3078C0" /></view>
+      </block>
+      <block wx:else>
+        <view class="user-name">未登录</view>
+        <view class="login-link">点击登录 <t-icon name="chevron-right" size="12" color="#3078C0" /></view>
+      </block>
     </view>
   </view>
 

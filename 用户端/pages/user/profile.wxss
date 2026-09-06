@@ -131,3 +131,12 @@
   text-align: center;
   margin-top: 48rpx;
 }
+
+.user-row.row-hover {
+  opacity: 0.85;
+}
+
+.edit-hint {
+  margin-top: 8rpx;
+  color: #3078C0;
+}

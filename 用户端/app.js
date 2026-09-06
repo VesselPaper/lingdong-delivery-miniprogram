@@ -11,9 +11,8 @@ App({
     if (token) {
       this.globalData.token = token
       this.globalData.userInfo = userInfo || null
-    } else {
-      // 需求4：真实登录门禁 —— 未登录直接进登录页（不做游客模式，与商家端一致）
-      wx.reLaunch({ url: '/pages/user/login' })
     }
+    // 不再强制跳登录页：未登录可浏览（首页/商城等公开接口），
+    // 需要登录的操作（下单/取餐/我的页头像区）会引导去登录页。
   }
 })

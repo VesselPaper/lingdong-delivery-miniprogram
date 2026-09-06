@@ -15,6 +15,7 @@
     "pages/order/cancelRequest",
     "pages/refund/list",
     "pages/user/login",
+    "pages/user/editProfile",
     "pages/user/profile",
     "pages/user/settings",
     "pages/address/list",

@@ -1,0 +1,36 @@
+.edit-page {
+  padding: 24rpx 32rpx 60rpx;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid #F0F0F0;
+}
+
+.field:last-child {
+  border-bottom: none;
+}
+
+.field-label {
+  width: 140rpx;
+  font-size: 28rpx;
+  color: #111111;
+  font-weight: 600;
+}
+
+.field-input {
+  flex: 1;
+  font-size: 30rpx;
+  color: #111111;
+}
+
+.tip {
+  margin: 24rpx 8rpx;
+}
+
+.foot-actions {
+  margin-top: 40rpx;
+}

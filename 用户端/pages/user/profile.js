@@ -38,6 +38,15 @@ Page({
     wx.navigateTo({ url: '/pages/user/login' })
   },
 
+  // 头像区点击：未登录 → 登录页；已登录 → 编辑个人信息
+  onUserTap() {
+    if (this.data.user && this.data.user.openid) {
+      wx.navigateTo({ url: '/pages/user/editProfile' })
+    } else {
+      this.goLogin()
+    }
+  },
+
   goOrders() {
     wx.navigateTo({ url: '/pages/order/list' })
   },
