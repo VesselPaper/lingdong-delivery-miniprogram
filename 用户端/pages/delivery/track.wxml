@@ -1,6 +1,6 @@
 <view class="track-page">
   <view wx:if="{{empty}}" class="empty">
-    <view class="empty-icon"><t-icon name="robot-1" size="40" color="#C9D2DE" /></view>
+    <view class="empty-icon"><t-icon name="robot-1" size="40" color="#D8D8D8" /></view>
     <view class="empty-text">暂无配送中的订单</view>
     <view class="btn btn-sm order-btn" bindtap="goOrder">去下单</view>
   </view>
@@ -8,7 +8,7 @@
     <view class="robot-card">
       <view class="robot-head">
         <view class="robot-icon">
-          <t-icon name="robot-1" size="28" color="#ffffff" />
+          <t-icon name="robot-1" size="28" color="#3078C0" />
         </view>
         <view class="robot-info">
           <view class="robot-name">零栋无人配送机器人</view>
@@ -36,7 +36,7 @@
         <view class="map-robot-dot"><t-icon name="robot-1" size="14" color="#ffffff" /></view>
       </view>
       <view class="map-dest" style="left: 80%; top: 76%;">
-        <t-icon name="location" size="20" color="#2E7CF6" />
+        <t-icon name="location" size="20" color="#3078C0" />
       </view>
       <view class="map-tip">
         <text class="text-sm">{{order.landmark_name}}</text>

@@ -1,30 +1,33 @@
-/* 零栋无人送餐 · 设计系统（对照示例设计图：蓝主色、珊瑚价格、渐变页面、胶囊按钮、大圆角卡片、浅阴影） */
+/* 零栋无人送餐 · 用户端设计系统（与商家端一致：蓝主色 #3078C0、12rpx 圆角+描边卡片、8rpx 矩形按钮） */
 
 page {
-  /* 主操作色：蓝 */
-  --brand: #2E7CF6;
-  --brand-deep: #2568E0;
-  --brand-light: #EAF3FF;
-  --brand-bg: #D6EAFF;
-  /* 语义色 */
+  --brand: #3078C0;
+  --brand-light: #DCE9F8;
+  --brand-deep: #2166A8;
   --success: #00B578;
+  --warning: #FFB000;
   --danger: #FA5151;
-  --coral: #FA4A2D;
-  --orange: #F7942E;
-  /* 中性色 */
-  --text-main: #1A1A1A;
+  --text-main: #111111;
   --text-sub: #666666;
-  --text-weak: #99A3B0;
-  --bg-page: #F6F8FB;
+  --text-weak: #999999;
+  --bg-page: #FAFAFA;
   --bg-card: #FFFFFF;
-  --line: #EEF1F5;
-  --fill: #F5F7FA;
-  /* 布局 */
+  --line: #EBEBEB;
+  --fill: #F5F5F5;
   --page-pad: 32rpx;
   --card-pad: 32rpx;
-  --card-gap: 20rpx;
-  --radius-md: 24rpx;
-  --radius-lg: 32rpx;
+  --card-gap: 16rpx;
+  --radius-sm: 8rpx;
+  --radius-md: 12rpx;
+  --radius-lg: 16rpx;
+  --button-primary-background-color: var(--brand);
+  --button-primary-border-color: var(--brand);
+  --button-primary-background-color-active: #333333;
+  --button-primary-border-color-active: #333333;
+  --price-color: #111111;
+  --tabbar-active-color: #111111;
+  --tab-active-text-color: #111111;
+  --search-field-background-color: #F5F5F5;
 
   background: var(--bg-page);
   font-size: 28rpx;
@@ -38,17 +41,17 @@ page {
   padding-bottom: 48rpx;
 }
 
-/* 顶部浅蓝渐变区（首页/确认订单/我的） */
+/* 顶部浅蓝渐变区（首页/确认订单/我的，对齐商家端 grad-banner） */
 .sky-bg {
-  background: linear-gradient(180deg, #E4F0FF 0%, #F6F8FB 60%);
+  background: linear-gradient(180deg, #E4F0FF 0%, #FAFAFA 60%);
 }
 
 .card {
   background: var(--bg-card);
+  border: 1rpx solid var(--line);
   border-radius: var(--radius-md);
   padding: var(--card-pad);
   margin-bottom: var(--card-gap);
-  box-shadow: 0 4rpx 20rpx rgba(31, 63, 122, 0.05);
 }
 
 .section-title {
@@ -58,8 +61,9 @@ page {
   margin: 8rpx 0 20rpx;
 }
 
+/* 价格：品牌蓝强调（与购物车页一致） */
 .price {
-  color: var(--coral);
+  color: var(--brand);
   font-weight: 600;
 }
 
@@ -75,11 +79,9 @@ page {
 .text-sub { color: var(--text-sub); }
 .text-weak { color: var(--text-weak); }
 .text-sm { font-size: 24rpx; }
-
 .flex { display: flex; align-items: center; }
 .flex-between { display: flex; align-items: center; justify-content: space-between; }
 .flex-1 { flex: 1; }
-
 .ellipsis {
   overflow: hidden;
   white-space: nowrap;
@@ -94,17 +96,14 @@ page {
   display: block;
 }
 
-.safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom);
-}
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 
-/* 底部操作栏（贴合设计：上圆角白卡+浅阴影） */
+/* 底部操作栏：描边顶线（对齐商家端） */
 .bottom-bar {
   position: fixed;
   left: 0; right: 0; bottom: 0;
   background: var(--bg-card);
-  border-radius: 24rpx 24rpx 0 0;
-  box-shadow: 0 -4rpx 20rpx rgba(31, 63, 122, 0.08);
+  border-top: 1rpx solid var(--line);
   padding: 16rpx var(--page-pad) calc(16rpx + env(safe-area-inset-bottom));
   display: flex;
   align-items: center;
@@ -113,85 +112,111 @@ page {
 
 .placeholder { text-align: center; color: var(--text-weak); padding: 80rpx 0; }
 
-/* ===== 自绘组件层 ===== */
-/* 按钮：胶囊造型，蓝主色 */
+/* ===== 自绘组件层（与商家端一致） ===== */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--brand);
+  background: #3078C0;
   color: #ffffff;
   font-size: 28rpx;
-  font-weight: 500;
-  border-radius: 999rpx;
-  padding: 0 40rpx;
+  border-radius: 8rpx;
+  padding: 0 32rpx;
   height: 80rpx;
   line-height: 1;
   border: none;
+  box-sizing: border-box;
 }
 .btn::after { border: none; }
 .btn-outline {
   background: #ffffff;
-  color: var(--brand);
-  border: 1rpx solid var(--brand);
+  color: #111111;
+  border: 1rpx solid #CCCCCC;
 }
-.btn-sm { height: 64rpx; font-size: 26rpx; padding: 0 32rpx; border-radius: 999rpx; }
+.btn-sm { height: 60rpx; font-size: 26rpx; padding: 0 24rpx; border-radius: 6rpx; }
 .btn-block { width: 100%; }
-.btn-disabled { background: #C9D2DE; color: #ffffff; }
+.btn-disabled { background: #D8D8D8; color: #ffffff; }
+.btn-outline-brand { background: #ffffff; color: var(--brand); border: 1rpx solid var(--brand); }
+.btn-hover { opacity: 0.82; }
 
-/* 标签 */
 .tag {
   display: inline-flex;
   align-items: center;
-  padding: 4rpx 14rpx;
+  padding: 4rpx 12rpx;
   font-size: 20rpx;
-  border-radius: 8rpx;
-  background: var(--brand-light);
-  color: var(--brand);
+  border-radius: 4rpx;
+  background: #F5F5F5;
+  color: #666666;
 }
-.tag-dark { background: var(--brand); color: #ffffff; }
+.tag-dark { background: #3078C0; color: #ffffff; }
 .tag-green { background: #E6F7EF; color: #00A56B; }
-.tag-orange { background: #FFF2E3; color: var(--orange); }
+.tag-orange { background: #FFF3E8; color: #F5A623; }
+.tag-blue { background: #EAF3FF; color: #3078C0; }
+.tag-gray { background: #F5F5F5; color: #999999; }
 
-/* 单元格 */
+/* 订单状态文字色（全端统一：不同状态不同颜色） */
+.st-orange { color: #F5A623; }
+.st-blue { color: #3078C0; }
+.st-green { color: #2BA471; }
+.st-red { color: #E64340; }
+.st-gray { color: #999999; }
+
+/* 统一搜索框 */
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 24rpx 24rpx 8rpx;
+}
+.search-box {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: #F3F4F6;
+  border-radius: 12rpx;
+  padding: 16rpx 24rpx;
+}
+.search-input {
+  flex: 1;
+  margin-left: 12rpx;
+  font-size: 28rpx;
+  color: #111111;
+}
+.search-ph { color: #999999; }
+
 .cell {
   display: flex;
   align-items: center;
   padding: 24rpx 0;
-  border-bottom: 1rpx solid #F2F4F8;
+  border-bottom: 1rpx solid #F0F0F0;
 }
 .cell:last-child { border-bottom: none; }
-.cell-label { font-size: 28rpx; color: #1A1A1A; flex-shrink: 0; margin-right: 24rpx; }
+.cell-label { font-size: 28rpx; color: #111111; flex-shrink: 0; margin-right: 24rpx; }
 .cell-value { flex: 1; font-size: 28rpx; color: #666666; text-align: right; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.cell-arrow { color: #C0C6CF; margin-left: 8rpx; }
+.cell-arrow { color: #C0C0C0; margin-left: 8rpx; }
 
-/* 输入框 */
-.field { display: flex; align-items: center; padding: 24rpx 0; border-bottom: 1rpx solid #F2F4F8; }
+.field { display: flex; align-items: center; padding: 24rpx 0; border-bottom: 1rpx solid #F0F0F0; }
 .field:last-child { border-bottom: none; }
-.field-label { font-size: 28rpx; color: #1A1A1A; flex-shrink: 0; width: 160rpx; }
-.field-input { flex: 1; font-size: 28rpx; color: #1A1A1A; text-align: right; }
-.field-placeholder { color: #B0B8C4; }
+.field-label { font-size: 28rpx; color: #111111; flex-shrink: 0; width: 160rpx; }
+.field-input { flex: 1; font-size: 28rpx; color: #111111; text-align: right; }
+.field-placeholder { color: #C0C0C0; }
 
-/* 空态 */
 .empty { text-align: center; padding: 120rpx 0 80rpx; }
-.empty-icon { font-size: 72rpx; color: #C9D2DE; }
-.empty-text { margin-top: 20rpx; font-size: 26rpx; color: #99A3B0; }
+.empty-icon { font-size: 72rpx; color: #D8D8D8; }
+.empty-text { margin-top: 20rpx; font-size: 26rpx; color: #999999; }
 
-/* 步进器（- 白底蓝描边圆 / + 蓝底白圆） */
+/* 步进器（与商家端一致：方形灰底；保留 plus/disabled 变体兼容旧页面） */
 .stepper { display: flex; align-items: center; }
 .stepper-btn {
   width: 56rpx; height: 56rpx;
   display: flex; align-items: center; justify-content: center;
-  background: #ffffff;
-  border: 1rpx solid var(--brand);
-  color: var(--brand);
-  font-size: 32rpx;
-  border-radius: 50%;
+  background: #F5F5F5; color: #111111; font-size: 32rpx;
+  border: none;
   box-sizing: border-box;
 }
-.stepper-btn.plus { background: var(--brand); color: #ffffff; border-color: var(--brand); }
-.stepper-btn.disabled { border-color: #C9D2DE; color: #C9D2DE; background: #ffffff; }
-.stepper-num { min-width: 72rpx; text-align: center; font-size: 30rpx; font-weight: 600; }
+.stepper-btn.plus { background: #3078C0; color: #ffffff; }
+.stepper-btn.disabled { background: #D8D8D8; color: #ffffff; }
+.stepper-num { min-width: 72rpx; text-align: center; font-size: 28rpx; }
 
 /* 公告条 */
 .notice {
@@ -201,7 +226,7 @@ page {
   padding: 16rpx 20rpx;
   font-size: 24rpx;
   color: #666666;
-  border-radius: 16rpx;
+  border-radius: 8rpx;
 }
 
 /* 底部弹层 */
@@ -213,16 +238,15 @@ page {
 .popup-sheet {
   position: fixed; left: 0; right: 0; bottom: 0;
   background: #ffffff;
-  border-radius: 32rpx 32rpx 0 0;
+  border-radius: 16rpx 16rpx 0 0;
   z-index: 101;
   padding: 40rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
   max-height: 70vh;
   overflow-y: auto;
 }
 .popup-close {
-  position: absolute; right: 28rpx; top: 28rpx;
-  font-size: 40rpx; color: #C0C6CF; line-height: 1;
-  padding: 8rpx;
+  position: absolute; right: 24rpx; top: 24rpx;
+  font-size: 40rpx; color: #C0C0C0; line-height: 1;
 }
 
 /* 横向 tabs（选中蓝字+蓝下划线） */
@@ -236,25 +260,25 @@ page {
 .nav-item {
   flex-shrink: 0;
   padding: 20rpx 12rpx;
-  margin-right: 32rpx;
+  margin-right: 28rpx;
   font-size: 28rpx;
-  color: #99A3B0;
-  border-bottom: 6rpx solid transparent;
+  color: #666666;
+  border-bottom: 4rpx solid transparent;
 }
 .nav-item.on {
-  color: var(--brand);
+  color: #3078C0;
   font-weight: 600;
-  border-bottom-color: var(--brand);
+  border-bottom-color: #3078C0;
 }
 
-/* 底部浮动购物栏（首页/商品页，机器人图标+价格+去结算） */
-/* 修复：左侧图标（头像状圆钮）不再向上溢出横向气泡，整体收入栏内 */
+/* 底部浮动购物栏（首页/商品页）：描边卡片化，保留轻微浮起阴影 */
 .cart-bar {
   position: fixed;
   left: 24rpx; right: 24rpx; bottom: 24rpx;
   background: #ffffff;
-  border-radius: 999rpx;
-  box-shadow: 0 8rpx 32rpx rgba(31, 63, 122, 0.16);
+  border: 1rpx solid var(--line);
+  border-radius: 12rpx;
+  box-shadow: 0 4rpx 12rpx rgba(17, 17, 17, 0.08);
   display: flex;
   align-items: center;
   padding: 16rpx 16rpx 16rpx 20rpx;
@@ -266,7 +290,7 @@ page {
   width: 88rpx; height: 88rpx;
   margin: 0 20rpx 0 0;
   background: var(--brand-light);
-  border-radius: 50%;
+  border-radius: 8rpx;
   display: flex; align-items: center; justify-content: center;
   position: relative;
   flex-shrink: 0;
@@ -275,7 +299,7 @@ page {
   position: absolute; top: -4rpx; right: -4rpx;
   min-width: 32rpx; height: 32rpx;
   border-radius: 16rpx;
-  background: var(--coral);
+  background: var(--danger);
   color: #ffffff;
   font-size: 20rpx;
   display: flex; align-items: center; justify-content: center;
@@ -283,6 +307,46 @@ page {
   box-sizing: border-box;
 }
 .cart-bar-info { flex: 1; min-width: 0; }
-.cart-bar-price { color: var(--coral); font-weight: 700; font-size: 34rpx; }
+.cart-bar-price { color: var(--brand); font-weight: 700; font-size: 34rpx; }
 .cart-bar-old { text-decoration: line-through; }
-.cart-bar-fee { font-size: 22rpx; color: #99A3B0; }
+.cart-bar-fee { font-size: 22rpx; color: #999999; }
+
+/* 设计图扩展组件层（与商家端一致） */
+.chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16rpx 0;
+  background: #F3F4F6;
+  color: #333333;
+  border-radius: 12rpx;
+  font-size: 26rpx;
+}
+.chip.on {
+  background: #3078C0;
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.seg {
+  display: inline-flex;
+  align-items: center;
+  background: #F3F4F6;
+  border-radius: 999rpx;
+  padding: 6rpx;
+}
+.seg-item {
+  padding: 10rpx 32rpx;
+  border-radius: 999rpx;
+  font-size: 26rpx;
+  color: #666666;
+  line-height: 1.4;
+}
+.seg-item.on {
+  background: #3078C0;
+  color: #ffffff;
+}
+
+.grad-banner {
+  background: linear-gradient(180deg, #9CCDF2 0%, #6FB2E7 40%, #EAF2FA 100%);
+}

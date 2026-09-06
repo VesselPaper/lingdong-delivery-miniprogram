@@ -27,7 +27,7 @@
 
   <view class="card default-row">
     <text>设为默认地址</text>
-    <switch checked="{{form.is_default}}" color="#2E7CF6" bind:change="onDefault" />
+    <switch checked="{{form.is_default}}" color="#3078C0" bind:change="onDefault" />
   </view>
 
   <view class="bottom-bar safe-bottom">

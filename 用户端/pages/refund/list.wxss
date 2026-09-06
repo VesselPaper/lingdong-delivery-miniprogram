@@ -16,7 +16,7 @@
 .item-type {
   font-size: 30rpx;
   font-weight: 700;
-  color: #222;
+  color: #111111;
 }
 
 .item-status {

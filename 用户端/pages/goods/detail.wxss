@@ -1,6 +1,6 @@
 .detail-page {
   padding-bottom: 220rpx;
-  background: #F6F8FB;
+  background: #FAFAFA;
   min-height: 100vh;
 }
 
@@ -26,14 +26,14 @@
   background: rgba(0, 0, 0, 0.45);
   color: #ffffff;
   font-size: 22rpx;
-  border-radius: 999rpx;
+  border-radius: 8rpx;
   padding: 8rpx 24rpx;
 }
 
 .info {
   margin: -40rpx 24rpx 0;
   position: relative;
-  border-radius: 24rpx;
+  border-radius: 12rpx;
 }
 
 .info-head {
@@ -51,7 +51,7 @@
 .name {
   font-size: 36rpx;
   font-weight: 600;
-  color: #1A1A1A;
+  color: #111111;
 }
 
 .name-row {
@@ -78,7 +78,7 @@
 .go-cart.disabled {
   background: #E3E7EE;
   border-color: #E3E7EE;
-  color: #B0B8C4;
+  color: #999999;
 }
 
 .price-row {
@@ -89,13 +89,13 @@
 }
 
 .price-now {
-  color: #FA4A2D;
+  color: var(--brand);
   font-size: 40rpx;
   font-weight: 700;
 }
 
 .price-old {
-  color: #B0B8C4;
+  color: #999999;
   font-size: 26rpx;
   text-decoration: line-through;
 }
@@ -115,14 +115,14 @@
 }
 
 .nl-label {
-  color: #1A1A1A;
+  color: #111111;
   flex-shrink: 0;
   margin-right: 24rpx;
 }
 
 .disclaimer .disclaimer-text {
   font-size: 24rpx;
-  color: #99A3B0;
+  color: #999999;
   line-height: 1.7;
 }
 
@@ -131,13 +131,13 @@
 }
 
 .bar-price-main {
-  color: #FA4A2D;
+  color: var(--brand);
   font-size: 38rpx;
   font-weight: 700;
 }
 
 .bar-price-old {
-  color: #B0B8C4;
+  color: #999999;
   font-size: 22rpx;
   text-decoration: line-through;
 }
@@ -151,8 +151,8 @@
 .go-cart {
   height: 76rpx;
   padding: 0 48rpx;
-  border-radius: 999rpx;
-  background: #2E7CF6;
+  border-radius: 8rpx;
+  background: var(--brand);
   color: #ffffff;
   font-size: 28rpx;
   font-weight: 500;

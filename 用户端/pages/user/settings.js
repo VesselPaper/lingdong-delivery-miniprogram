@@ -45,7 +45,7 @@ Page({
     wx.showModal({
       title: '退出登录',
       content: '确定要退出当前账号吗？',
-      confirmColor: '#2E7CF6',
+      confirmColor: '#3078C0',
       success: (r) => {
         if (!r.confirm) return
         wx.removeStorageSync('token')

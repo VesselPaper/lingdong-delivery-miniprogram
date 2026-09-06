@@ -1,7 +1,7 @@
 <view class="login-page">
   <view class="login-hero">
     <view class="login-logo">
-      <t-icon name="robot-1" size="26" color="#ffffff" />
+      <t-icon name="robot-1" size="26" color="#3078C0" />
     </view>
     <view class="login-title">零栋无人送餐</view>
     <view class="login-sub">机器人配送 校园点餐新体验</view>

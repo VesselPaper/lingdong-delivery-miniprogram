@@ -1,6 +1,6 @@
 .track-page {
   min-height: 100vh;
-  background: #F6F8FB;
+  background: #FAFAFA;
   padding: 24rpx;
   padding-bottom: 240rpx;
   box-sizing: border-box;
@@ -8,10 +8,10 @@
 
 .robot-card {
   background: #ffffff;
-  border-radius: 24rpx;
+  border: 1rpx solid #EBEBEB;
+  border-radius: 12rpx;
   padding: 32rpx;
   margin-bottom: 20rpx;
-  box-shadow: 0 4rpx 20rpx rgba(31, 63, 122, 0.05);
 }
 
 .robot-head {
@@ -24,7 +24,7 @@
   width: 88rpx;
   height: 88rpx;
   border-radius: 50%;
-  background: linear-gradient(180deg, #4E9AF8 0%, #2E7CF6 100%);
+  background: #DCE9F8;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -38,12 +38,12 @@
 .robot-name {
   font-size: 30rpx;
   font-weight: 600;
-  color: #1A1A1A;
+  color: #111111;
 }
 
 .robot-status {
   font-size: 26rpx;
-  color: #2E7CF6;
+  color: #3078C0;
   margin-top: 6rpx;
 }
 
@@ -53,14 +53,14 @@
 
 .progress-track {
   height: 10rpx;
-  background: #EAF3FF;
+  background: #DCE9F8;
   border-radius: 5rpx;
   overflow: hidden;
 }
 
 .progress-bar {
   height: 100%;
-  background: #2E7CF6;
+  background: #3078C0;
   border-radius: 5rpx;
   transition: width 0.5s ease;
 }
@@ -70,19 +70,19 @@
   justify-content: space-between;
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: #99A3B0;
+  color: #999999;
 }
 
 .progress-labels .on {
-  color: #2E7CF6;
+  color: #3078C0;
   font-weight: 600;
 }
 
 .map-card {
   position: relative;
   height: 320rpx;
-  background: #EAF3FF;
-  border-radius: 24rpx;
+  background: #DCE9F8;
+  border-radius: 12rpx;
   overflow: hidden;
   margin-bottom: 20rpx;
 }
@@ -90,7 +90,7 @@
 .map-grid {
   position: absolute;
   inset: 0;
-  background: #EAF3FF;
+  background: #DCE9F8;
 }
 
 .map-route {
@@ -98,7 +98,7 @@
   left: 8%; top: 76%;
   width: 72%;
   height: 4rpx;
-  background: #2E7CF6;
+  background: #3078C0;
   transform: rotate(-28deg);
   transform-origin: left center;
   opacity: 0.6;
@@ -113,9 +113,8 @@
   width: 64rpx;
   height: 64rpx;
   border-radius: 50%;
-  background: #2E7CF6;
+  background: #3078C0;
   border: 4rpx solid #ffffff;
-  box-shadow: 0 4rpx 12rpx rgba(46, 124, 246, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -130,14 +129,14 @@
   position: absolute;
   left: 0; right: 0; bottom: 8rpx;
   text-align: center;
-  color: #1A1A1A;
+  color: #111111;
 }
 
 .pickup-code {
   font-size: 72rpx;
   font-weight: 700;
   letter-spacing: 12rpx;
-  color: #2E7CF6;
+  color: #3078C0;
   margin: 8rpx 0;
 }
 

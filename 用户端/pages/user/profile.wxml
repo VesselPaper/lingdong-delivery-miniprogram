@@ -1,10 +1,10 @@
 <view class="profile-page sky-bg">
   <view class="user-row">
-    <view class="avatar"><t-icon name="user" size="24" color="#ffffff" /></view>
+    <view class="avatar"><t-icon name="user" size="24" color="#3078C0" /></view>
     <view class="user-info">
       <view class="user-name">{{user.nickname || '未登录'}}</view>
       <view class="user-phone text-weak" wx:if="{{user.phone}}">{{user.phone}}</view>
-      <view class="login-link" wx:if="{{!user}}" bindtap="goLogin">点击登录 <t-icon name="chevron-right" size="12" color="#2E7CF6" /></view>
+      <view class="login-link" wx:if="{{!user}}" bindtap="goLogin">点击登录 <t-icon name="chevron-right" size="12" color="#3078C0" /></view>
     </view>
   </view>
 
@@ -12,29 +12,32 @@
     <view class="orders-title">我的订单</view>
     <view class="orders-grid">
       <view class="orders-item" bindtap="goOrdersTab" data-status="0">
-        <view class="orders-icon"><t-icon name="money" size="20" color="#ffffff" /></view>
+        <view class="orders-icon">
+          <t-icon name="money" size="20" color="#3078C0" />
+          <view class="orders-dot" wx:if="{{orderBadge.paying}}">{{orderBadge.paying}}</view>
+        </view>
         <text class="orders-label">待付款</text>
       </view>
       <view class="orders-item" bindtap="goOrdersTab" data-status="2">
         <view class="orders-icon">
-          <t-icon name="robot-1" size="20" color="#ffffff" />
-          <view class="orders-dot" wx:if="{{orderBadge.count}}"></view>
+          <t-icon name="robot-1" size="20" color="#3078C0" />
+          <view class="orders-dot" wx:if="{{orderBadge.delivering}}">{{orderBadge.delivering}}</view>
         </view>
         <text class="orders-label">配送中</text>
       </view>
       <view class="orders-item" bindtap="goOrdersTab" data-status="3">
-        <view class="orders-icon"><t-icon name="location" size="20" color="#ffffff" /></view>
+        <view class="orders-icon">
+          <t-icon name="location" size="20" color="#3078C0" />
+          <view class="orders-dot" wx:if="{{orderBadge.arrived}}">{{orderBadge.arrived}}</view>
+        </view>
         <text class="orders-label">已送达</text>
       </view>
       <view class="orders-item" bindtap="goOrdersTab" data-status="4">
-        <view class="orders-icon"><t-icon name="check-circle" size="20" color="#ffffff" /></view>
+        <view class="orders-icon"><t-icon name="check-circle" size="20" color="#3078C0" /></view>
         <text class="orders-label">已完成</text>
       </view>
       <view class="orders-item" bindtap="goOrdersTab" data-status="">
-        <view class="orders-icon">
-          <t-icon name="order" size="20" color="#ffffff" />
-          <view class="orders-dot" wx:if="{{orderBadge.count}}">{{orderBadge.count}}</view>
-        </view>
+        <view class="orders-icon"><t-icon name="order" size="20" color="#3078C0" /></view>
         <text class="orders-label">全部订单</text>
       </view>
     </view>
@@ -42,40 +45,40 @@
 
   <view class="card menu">
     <view class="cell" bindtap="goAddress">
-      <t-icon name="location" size="18" color="#1A1A1A" />
+      <t-icon name="location" size="18" color="#111111" />
       <view class="cell-label" style="margin-left:16rpx;">收货地址</view>
       <view class="cell-value"></view>
-      <t-icon name="chevron-right" size="14" color="#C0C6CF" />
+      <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
     <view class="cell" bindtap="goRefundList">
-      <t-icon name="service" size="18" color="#1A1A1A" />
+      <t-icon name="service" size="18" color="#111111" />
       <view class="cell-label" style="margin-left:16rpx;">售后记录</view>
       <view class="cell-value"></view>
-      <t-icon name="chevron-right" size="14" color="#C0C6CF" />
+      <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
     <view class="cell" bindtap="showInfo">
-      <t-icon name="info-circle" size="18" color="#1A1A1A" />
+      <t-icon name="info-circle" size="18" color="#111111" />
       <view class="cell-label" style="margin-left:16rpx;">配送说明</view>
       <view class="cell-value"></view>
-      <t-icon name="chevron-right" size="14" color="#C0C6CF" />
+      <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
     <view class="cell" bindtap="contactService">
-      <t-icon name="service" size="18" color="#1A1A1A" />
+      <t-icon name="service" size="18" color="#111111" />
       <view class="cell-label" style="margin-left:16rpx;">联系客服</view>
       <view class="cell-value"></view>
-      <t-icon name="chevron-right" size="14" color="#C0C6CF" />
+      <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
     <view class="cell" bindtap="goSetting">
-      <t-icon name="setting" size="18" color="#1A1A1A" />
+      <t-icon name="setting" size="18" color="#111111" />
       <view class="cell-label" style="margin-left:16rpx;">设置</view>
       <view class="cell-value"></view>
-      <t-icon name="chevron-right" size="14" color="#C0C6CF" />
+      <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
     <view class="cell" bindtap="logout" wx:if="{{user}}">
-      <t-icon name="logout" size="18" color="#1A1A1A" />
+      <t-icon name="logout" size="18" color="#111111" />
       <view class="cell-label" style="margin-left:16rpx;">退出登录</view>
       <view class="cell-value"></view>
-      <t-icon name="chevron-right" size="14" color="#C0C6CF" />
+      <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
   </view>
 

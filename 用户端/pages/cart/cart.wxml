@@ -5,7 +5,7 @@
     </view>
     <view class="card">
       <view class="shop-row">
-        <t-icon name="shop" size="18" color="#2E7CF6" />
+        <t-icon name="shop" size="18" color="#3078C0" />
         <text class="shop-name">零栋铺子</text>
         <text class="text-weak text-sm">无人车配送</text>
       </view>
@@ -35,7 +35,7 @@
     </view>
   </view>
   <view wx:else class="empty">
-    <view class="empty-icon"><t-icon name="cart" size="40" color="#C9D2DE" /></view>
+    <view class="empty-icon"><t-icon name="cart" size="40" color="#D8D8D8" /></view>
     <view class="empty-text">购物车还是空的</view>
   </view>
 

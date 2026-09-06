@@ -1,14 +1,14 @@
 .detail-page {
   min-height: 100vh;
-  background: #F6F8FB;
+  background: #FAFAFA;
   padding-bottom: 48rpx;
 }
 
 .status-head {
-  background: linear-gradient(180deg, #4E9AF8 0%, #2E7CF6 100%);
-  color: #ffffff;
+  background: linear-gradient(180deg, #9CCDF2 0%, #6FB2E7 40%, #EAF2FA 100%);
+  color: #111111;
   padding: 48rpx 32rpx 44rpx;
-  border-radius: 0 0 32rpx 32rpx;
+  border-radius: 0 0 12rpx 12rpx;
 }
 
 .status-title {
@@ -51,17 +51,17 @@
 }
 
 .p-dot.on {
-  background: #2E7CF6;
+  background: #3078C0;
   border-color: #D6E8FF;
 }
 
 .p-label {
   font-size: 24rpx;
-  color: #99A3B0;
+  color: #999999;
 }
 
 .p-label.on {
-  color: #2E7CF6;
+  color: #3078C0;
   font-weight: 600;
 }
 
@@ -74,7 +74,7 @@
 }
 
 .p-line.on {
-  background: #2E7CF6;
+  background: #3078C0;
 }
 
 .progress-sub {
@@ -95,7 +95,7 @@
   font-size: 96rpx;
   font-weight: 700;
   letter-spacing: 16rpx;
-  color: #2E7CF6;
+  color: #3078C0;
   margin: 8rpx 0;
 }
 
@@ -112,7 +112,7 @@
 }
 
 .info-label {
-  color: #1A1A1A;
+  color: #111111;
   flex-shrink: 0;
   margin-right: 24rpx;
 }
@@ -128,7 +128,7 @@
   width: 44rpx;
   height: 44rpx;
   border-radius: 12rpx;
-  background: #EAF3FF;
+  background: #DCE9F8;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -137,7 +137,7 @@
 .shop-name {
   font-size: 30rpx;
   font-weight: 600;
-  color: #1A1A1A;
+  color: #111111;
 }
 
 .item {
@@ -149,7 +149,7 @@
 .item-pic {
   width: 88rpx;
   height: 88rpx;
-  border-radius: 16rpx;
+  border-radius: 12rpx;
   flex-shrink: 0;
 }
 
@@ -161,12 +161,12 @@
 
 .item-name {
   font-size: 28rpx;
-  color: #1A1A1A;
+  color: #111111;
 }
 
 .price-num-sm {
   font-size: 30rpx;
-  color: #FA4A2D;
+  color: var(--brand);
 }
 
 .total-row {
@@ -176,7 +176,7 @@
   gap: 12rpx;
   margin-top: 12rpx;
   padding-top: 16rpx;
-  border-top: 1rpx solid #F2F4F8;
+  border-top: 1rpx solid #F0F0F0;
 }
 
 .foot-actions {

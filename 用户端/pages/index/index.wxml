@@ -2,13 +2,13 @@
   <view class="home-top">
     <view class="brand-row">
       <view class="brand-loc">
-        <t-icon name="location" size="16" color="#2E7CF6" />
+        <t-icon name="location" size="16" color="#3078C0" />
         <text class="brand-name">川师成龙校区</text>
-        <t-icon name="chevron-right" size="14" color="#99A3B0" />
+        <t-icon name="chevron-right" size="14" color="#999999" />
       </view>
     </view>
     <view class="search-box" bindtap="goSearch">
-      <t-icon name="search" size="16" color="#99A3B0" />
+      <t-icon name="search" size="16" color="#999999" />
       <text class="search-text">搜索热卤、饮品、套餐</text>
     </view>
   </view>
@@ -31,7 +31,7 @@
   <view class="section">
     <view class="section-head">
       <view class="section-title">零栋铺子</view>
-      <view class="section-more" bindtap="goAll">全部<t-icon name="chevron-right" size="12" color="#2E7CF6" /></view>
+      <view class="section-more" bindtap="goAll">全部<t-icon name="chevron-right" size="12" color="#3078C0" /></view>
     </view>
     <scroll-view scroll-x class="goods-scroll" enhanced show-scrollbar="{{false}}">
       <view class="goods-row">
@@ -57,7 +57,7 @@
 
   <view class="cart-bar" wx:if="{{cartCount}}" bindtap="goCart">
     <view class="cart-bar-icon">
-      <t-icon name="robot-1" size="24" color="#2E7CF6" />
+      <t-icon name="robot-1" size="24" color="#3078C0" />
       <view class="cart-bar-badge">{{cartCount}}</view>
     </view>
     <view class="cart-bar-info">

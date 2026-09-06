@@ -1,6 +1,6 @@
 .addr-page {
   min-height: 100vh;
-  background: #F6F8FB;
+  background: #FAFAFA;
   padding-bottom: 200rpx;
   box-sizing: border-box;
 }
@@ -8,11 +8,12 @@
 .addr-item {
   display: flex;
   align-items: center;
-  border-radius: 24rpx;
+  border: 1rpx solid #EBEBEB;
+  border-radius: 12rpx;
 }
 
 .addr-item.active {
-  border: 1rpx solid #2E7CF6;
+  border: 1rpx solid #3078C0;
 }
 
 .addr-main {
@@ -28,7 +29,7 @@
 .addr-name {
   font-size: 30rpx;
   font-weight: 600;
-  color: #1A1A1A;
+  color: #111111;
 }
 
 .addr-line2 {
@@ -40,4 +41,11 @@
 
 .addr-del {
   padding-left: 24rpx;
+}
+
+.addr-set-default {
+  display: inline-block;
+  margin-top: 16rpx;
+  font-size: 24rpx;
+  color: #3078C0;
 }

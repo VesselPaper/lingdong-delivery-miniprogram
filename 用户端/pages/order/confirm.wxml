@@ -1,45 +1,48 @@
 <view class="confirm-page">
-  <view class="hero-area">
-    <view class="loc-pill" bindtap="showPointPicker">
-      <t-icon name="location" size="14" color="#2E7CF6" />
-      <text class="{{selectedPoint ? '' : 'loc-placeholder'}}">{{selectedPoint ? selectedPoint.name : '请选择配送站'}}</text>
-    </view>
-  </view>
-
-  <!-- 收货地址（关联「我的-收货地址」） -->
-  <view class="card addr-card" bindtap="showAddressPicker">
-    <view class="addr-icon"><t-icon name="location" size="18" color="#2E7CF6" /></view>
-    <view class="addr-body" wx:if="{{selectedAddress}}">
-      <view class="addr-line1">
-        <text class="addr-name">{{selectedAddress.contact_name}}</text>
-        <text class="addr-phone">{{selectedAddress.contact_phone}}</text>
-        <view class="tag tag-green" wx:if="{{selectedAddress.is_default}}">默认</view>
+  <!-- 上部分：信息显示 -->
+  <view class="card info-card">
+    <!-- 第一行：送达楼栋 + 详细地址（加大显示，点击弹出楼栋选择） -->
+    <view class="addr-main" bindtap="showPointPicker">
+      <block wx:if="{{selectedPoint}}">
+        <view class="addr-line">
+          <t-icon name="location" size="18" color="#3078C0" />
+          <text class="addr-main-text">{{selectedPoint.name}}{{selectedAddress && selectedAddress.detail ? ' · ' + selectedAddress.detail : ''}}</text>
+          <t-icon name="chevron-right" size="14" color="#C0C0C0" />
+        </view>
+      </block>
+      <view wx:else class="addr-line">
+        <t-icon name="location" size="18" color="#3078C0" />
+        <text class="addr-main-text addr-placeholder">请选择送达楼栋</text>
+        <t-icon name="chevron-right" size="14" color="#C0C0C0" />
       </view>
-      <view class="addr-line2 text-sub">{{selectedAddress.landmark_name}}{{selectedAddress.detail ? ' · ' + selectedAddress.detail : ''}}</view>
     </view>
-    <view class="addr-body" wx:else>
-      <view class="addr-placeholder">请选择收货地址</view>
+    <!-- 第二行：收货人（可编辑） -->
+    <view class="info-row">
+      <text class="info-label">收货人：</text>
+      <input class="info-input" placeholder="请输入收餐人姓名" placeholder-class="field-placeholder" value="{{contactName}}" bind:input="onName" />
     </view>
-    <view class="addr-arrow"><t-icon name="chevron-right" size="14" color="#C0C6CF" /></view>
+    <!-- 第三行：联系电话（可编辑） -->
+    <view class="info-row">
+      <text class="info-label">联系电话：</text>
+      <input class="info-input" type="number" placeholder="请输入联系电话" placeholder-class="field-placeholder" value="{{contactPhone}}" bind:input="onPhone" />
+    </view>
+    <!-- 第四行：预计送达时间（左右两部分） -->
+    <view class="time-row" bindtap="openTimeSheet">
+      <view class="time-mode">{{deliveryMode === 'asap' ? '立即送出' : '指定时间'}}</view>
+      <view class="time-val blue">{{deliveryMode === 'asap' ? '预计 ' + asapEta + ' 送达' : scheduledTime}}</view>
+      <t-icon name="edit" size="14" color="#3078C0" />
+    </view>
   </view>
 
-  <view class="card dest-card" bindtap="showPointPicker">
-    <view class="dest-header">
-      <text class="dest-title">送到哪</text>
-      <view class="dest-arrow"><t-icon name="chevron-right" size="14" color="#2E7CF6" /></view>
+  <!-- 下部分：优惠券 + 商品信息 -->
+  <view class="card goods-card">
+    <view class="cell">
+      <view class="cell-label">优惠券</view>
+      <view class="cell-value">暂无可用</view>
+      <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
-    <view class="dest-sub" wx:if="{{selectedPoint}}">{{selectedPoint.building}} {{selectedPoint.floor}} · 机器人送达点</view>
-  </view>
-
-  <view class="card time-card" bindtap="openTimeSheet">
-    <text class="time-label">预计送达时间：</text>
-    <text class="{{deliveryTime ? 'time-value' : 'time-placeholder'}}">{{deliveryTime || '请选择配送时间'}}</text>
-    <t-icon name="edit" size="14" color="#2E7CF6" />
-  </view>
-
-  <view class="card">
     <view class="shop-row">
-      <view class="shop-badge"><t-icon name="shop" size="14" color="#2E7CF6" /></view>
+      <view class="shop-badge"><t-icon name="shop" size="14" color="#3078C0" /></view>
       <text class="shop-name">零栋铺子</text>
       <view class="tag tag-orange" wx:if="{{shopClosed}}">歇业</view>
     </view>
@@ -59,13 +62,21 @@
     </view>
     <view class="fee-row">
       <text class="fee-label">打包费</text>
-      <t-icon name="info-circle" size="12" color="#C0C6CF" />
+      <t-icon name="info-circle" size="12" color="#C0C0C0" />
       <text class="fee-val">¥0</text>
     </view>
     <view class="fee-row">
       <text class="fee-label">配送费</text>
-      <t-icon name="info-circle" size="12" color="#C0C6CF" />
+      <t-icon name="info-circle" size="12" color="#C0C0C0" />
       <text class="fee-val">¥0</text>
+    </view>
+    <view class="discount-row">
+      <text class="discount-label">总优惠</text>
+      <text class="discount-val">¥0.00</text>
+    </view>
+    <view class="discount-row total-row">
+      <text class="discount-label">合计：</text>
+      <text class="discount-total">¥{{total}}</text>
     </view>
     <view class="remark-row">
       <text class="remark-label">备注信息</text>
@@ -73,43 +84,15 @@
     </view>
   </view>
 
-  <view class="card">
-    <view class="section-title">收货信息</view>
-    <view class="field">
-      <view class="field-label">姓名</view>
-      <input class="field-input" placeholder="收餐人姓名" placeholder-class="field-placeholder" value="{{contactName}}" bind:input="onName" />
-    </view>
-    <view class="field">
-      <view class="field-label">电话</view>
-      <input class="field-input" placeholder="收餐人手机号" placeholder-class="field-placeholder" value="{{contactPhone}}" type="number" bind:input="onPhone" />
-    </view>
-  </view>
-
-  <view class="card">
-    <view class="cell">
-      <view class="cell-label">优惠券</view>
-      <view class="cell-value">暂无可用</view>
-      <t-icon name="chevron-right" size="14" color="#C0C6CF" />
-    </view>
-    <view class="discount-row">
-      <text class="discount-label">总优惠</text>
-      <text class="discount-val">¥0.00</text>
-    </view>
-    <view class="discount-row">
-      <text class="discount-label">合计：</text>
-      <text class="discount-total">¥{{total}}</text>
-      <t-icon name="chevron-right" size="14" color="#C0C6CF" />
-    </view>
-  </view>
-
   <view class="disclaimer-link">
     免责说明
-    <t-icon name="info-circle" size="12" color="#99A3B0" />
+    <t-icon name="info-circle" size="12" color="#999999" />
   </view>
 
+  <!-- 底部支付 -->
   <view class="bottom-bar safe-bottom">
     <view class="pay-icon">
-      <t-icon name="robot-1" size="22" color="#2E7CF6" />
+      <t-icon name="robot-1" size="22" color="#3078C0" />
     </view>
     <view class="pay-total">
       <text class="text-sub">共计</text>
@@ -120,13 +103,14 @@
     </view>
   </view>
 
+  <!-- 选择送达楼栋 -->
   <view wx:if="{{showPicker}}" class="popup-mask" bindtap="closePicker">
     <view class="popup-sheet" catchtap="noop">
       <view class="popup-close" bindtap="closePicker">
-        <t-icon name="close" size="20" color="#C0C6CF" />
+        <t-icon name="close" size="20" color="#C0C0C0" />
       </view>
       <view class="picker">
-        <view class="picker-title">选择送达点位</view>
+        <view class="picker-title">选择送达楼栋</view>
         <view class="picker-list">
           <view
             class="picker-item {{selectedPoint && selectedPoint.id === item.id ? 'active' : ''}}"
@@ -136,62 +120,30 @@
             <view class="picker-name">{{item.name}}</view>
             <view class="picker-sub text-weak text-sm">{{item.building}} {{item.floor}}</view>
           </view>
+          <view wx:if="{{!points.length}}" class="picker-empty text-weak text-sm">暂无可用送达点</view>
         </view>
       </view>
     </view>
   </view>
 
-  <view wx:if="{{showAddressPicker}}" class="popup-mask" bindtap="closeAddressPicker">
-    <view class="popup-sheet" catchtap="noop">
-      <view class="popup-close" bindtap="closeAddressPicker">
-        <t-icon name="close" size="20" color="#C0C6CF" />
-      </view>
-      <view class="picker">
-        <view class="picker-title">选择收货地址</view>
-        <view class="picker-list">
-          <view
-            class="picker-item {{selectedAddress && selectedAddress.id === item.id ? 'active' : ''}}"
-            wx:for="{{addresses}}" wx:key="id"
-            bindtap="chooseAddress" data-index="{{index}}"
-          >
-            <view class="addr-pick-line1">
-              <text class="picker-name">{{item.contact_name}}</text>
-              <text class="addr-pick-phone text-weak text-sm">{{item.contact_phone}}</text>
-              <view class="tag tag-green" wx:if="{{item.is_default}}">默认</view>
-            </view>
-            <view class="picker-sub text-weak text-sm">{{item.landmark_name}}{{item.detail ? ' · ' + item.detail : ''}}</view>
-          </view>
-          <view wx:if="{{!addresses.length}}" class="picker-empty text-weak text-sm">暂无收货地址，请先新增</view>
-        </view>
-        <view class="btn btn-block addr-add-btn" bindtap="addAddress">新增收货地址</view>
-      </view>
-    </view>
-  </view>
-
+  <!-- 选择预计送达时间（尽快送达默认 + 从当前时间向后递增的指定时间档） -->
   <view wx:if="{{showTimeSheet}}" class="popup-mask" bindtap="closeTimeSheet">
     <view class="popup-sheet" catchtap="noop">
       <view class="popup-close" bindtap="closeTimeSheet">
-        <t-icon name="close" size="20" color="#C0C6CF" />
+        <t-icon name="close" size="20" color="#C0C0C0" />
       </view>
       <view class="tsheet">
         <view class="picker-title">选择预计送达时间</view>
-        <view class="tsheet-body">
-          <view class="tsheet-days">
-            <view
-              class="tsheet-day {{timeDay === item ? 'on' : ''}}"
-              wx:for="{{timeDays}}" wx:key="*this"
-              bindtap="chooseDay" data-day="{{item}}"
-            >{{item}}</view>
-          </view>
-          <scroll-view scroll-y class="tsheet-times" enhanced show-scrollbar="{{false}}">
-            <view class="tsheet-times-inner">
-              <view
-                class="tsheet-time"
-                wx:for="{{timeSlots}}" wx:key="*this"
-                bindtap="chooseTime" data-slot="{{item}}"
-              >{{item}}</view>
-            </view>
-          </scroll-view>
+        <view class="tsheet-opt {{deliveryMode === 'asap' ? 'on' : ''}}" bindtap="chooseAsap">
+          <text>尽快送达</text>
+          <text class="tsheet-sub">预计 {{asapEta}} 送达</text>
+        </view>
+        <view
+          class="tsheet-opt {{deliveryMode === 'scheduled' && scheduledTime === item.value ? 'on' : ''}}"
+          wx:for="{{timeOptions}}" wx:key="value"
+          bindtap="chooseScheduled" data-item="{{item}}"
+        >
+          <text>{{item.value}}</text>
         </view>
       </view>
     </view>

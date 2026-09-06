@@ -14,7 +14,7 @@
   width: 112rpx;
   height: 112rpx;
   border-radius: 50%;
-  background: linear-gradient(180deg, #4E9AF8 0%, #2E7CF6 100%);
+  background: #DCE9F8;
   border: 4rpx solid rgba(255, 255, 255, 0.8);
   display: flex;
   align-items: center;
@@ -31,7 +31,7 @@
 .user-name {
   font-size: 34rpx;
   font-weight: 600;
-  color: #1A1A1A;
+  color: #111111;
 }
 
 .user-phone {
@@ -46,25 +46,24 @@
   margin-top: 12rpx;
   padding: 6rpx 20rpx;
   background: #ffffff;
-  border-radius: 999rpx;
+  border-radius: 8rpx;
   font-size: 24rpx;
-  color: #2E7CF6;
-  box-shadow: 0 4rpx 12rpx rgba(31, 63, 122, 0.08);
+  color: #3078C0;
 }
 
 /* 我的订单 */
 .orders-card {
   background: #ffffff;
-  border-radius: 24rpx;
+  border: 1rpx solid #EBEBEB;
+  border-radius: 12rpx;
   padding: 28rpx 8rpx 24rpx;
   margin-bottom: 20rpx;
-  box-shadow: 0 4rpx 20rpx rgba(31, 63, 122, 0.05);
 }
 
 .orders-title {
   font-size: 28rpx;
   font-weight: 600;
-  color: #1A1A1A;
+  color: #111111;
   padding: 0 24rpx 20rpx;
 }
 
@@ -83,8 +82,8 @@
 .orders-icon {
   width: 72rpx;
   height: 72rpx;
-  border-radius: 20rpx;
-  background: linear-gradient(180deg, #4E9AF8 0%, #2E7CF6 100%);
+  border-radius: 12rpx;
+  background: #DCE9F8;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -99,7 +98,7 @@
   min-width: 28rpx;
   height: 28rpx;
   padding: 0 6rpx;
-  border-radius: 999rpx;
+  border-radius: 50%;
   background: #E64340;
   border: 3rpx solid #ffffff;
   color: #ffffff;
@@ -120,8 +119,8 @@
 /* 菜单 */
 .menu {
   padding: 0 !important;
-  border-radius: 24rpx;
-  box-shadow: 0 4rpx 20rpx rgba(31, 63, 122, 0.05);
+  border: 1rpx solid #EBEBEB;
+  border-radius: 12rpx;
 }
 
 .menu .cell {

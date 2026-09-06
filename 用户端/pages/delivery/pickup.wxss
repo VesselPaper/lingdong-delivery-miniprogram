@@ -9,7 +9,7 @@
 .pickup-title {
   font-size: 40rpx;
   font-weight: 700;
-  color: #222;
+  color: #111111;
 }
 
 .pickup-status {
@@ -61,7 +61,7 @@
 .bin-state {
   font-size: 30rpx;
   font-weight: 600;
-  color: #222;
+  color: #111111;
 }
 
 .bin-countdown {
@@ -80,4 +80,34 @@
   flex-direction: column;
   gap: 24rpx;
   margin-top: 24rpx;
+}
+
+/* 一车多单诚实化提示（P1-1 缓解） */
+.batch-order-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid #F0F0F0;
+}
+.batch-order-row:last-child {
+  border-bottom: none;
+}
+.batch-order-no {
+  font-size: 26rpx;
+  color: #111111;
+}
+.batch-order-no.mine {
+  color: #3078C0;
+  font-weight: 600;
+}
+.batch-order-lm {
+  flex: 1;
+}
+.batch-order-tag {
+  font-size: 20rpx;
+  color: #ffffff;
+  background: #3078C0;
+  border-radius: 6rpx;
+  padding: 2rpx 12rpx;
 }

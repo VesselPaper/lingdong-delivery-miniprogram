@@ -9,6 +9,24 @@ function formatTime(t) {
   return s.length >= 16 ? s.slice(0, 16) : s
 }
 
+// 订单状态 → 状态文字颜色 class（不同状态不同颜色，便于辨认）
+const ST_CLASS = { 0: 'orange', 1: 'orange', 2: 'blue', 3: 'green', 4: 'gray', 5: 'gray', 6: 'red', 7: 'gray' }
+
+// 排序：进行中（待支付/待接单/配送中/已送达）在前，已完结（已完成/取消/异常/退款）在后；
+// 组内按下单时间早的在前
+function sortOrders(list) {
+  const ts = (o) => {
+    const t = new Date(String(o.created_at || '').replace(' ', 'T')).getTime()
+    return isNaN(t) ? 0 : t
+  }
+  return [...list].sort((a, b) => {
+    const ga = Number(a.status) <= 3 ? 0 : 1
+    const gb = Number(b.status) <= 3 ? 0 : 1
+    if (ga !== gb) return ga - gb
+    return ts(a) - ts(b)
+  })
+}
+
 Page({
   data: {
     active: '',
@@ -38,7 +56,7 @@ Page({
   async loadOrders() {
     try {
       const qs = this.data.active !== '' ? '?status=' + this.data.active : ''
-      const list = await request.get(api.orderList + qs)
+      const list = sortOrders(await request.get(api.orderList + qs))
       const orders = await this.decorate(list)
       this.setData({ orders })
     } catch (e) { /* handled */ }
@@ -51,6 +69,7 @@ Page({
       const itemCount = detail.items.reduce((s, it) => s + it.quantity, 0)
       const first = detail.items[0] || {}
       out.push(Object.assign({}, o, {
+        stClass: ST_CLASS[Number(o.status)] || 'gray',
         item_count: itemCount,
         first_name: first.goods_name || '',
         first_qty: first.quantity || 0,
@@ -92,7 +111,7 @@ Page({
     const res = await new Promise((resolve) => {
       wx.showModal({
         title: '确定取消该订单？',
-        confirmColor: '#2E7CF6',
+        confirmColor: '#3078C0',
         success: (r) => resolve(r.confirm)
       })
     })

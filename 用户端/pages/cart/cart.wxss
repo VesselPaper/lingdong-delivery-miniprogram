@@ -32,7 +32,7 @@
   align-items: center;
   gap: 12rpx;
   padding-bottom: 20rpx;
-  border-bottom: 1rpx solid #F2F4F8;
+  border-bottom: 1rpx solid #F0F0F0;
 }
 
 .shop-name {
@@ -55,7 +55,7 @@
   width: 40rpx;
   height: 40rpx;
   border-radius: 50%;
-  border: 2rpx solid #C9D2DE;
+  border: 2rpx solid #D8D8D8;
   box-sizing: border-box;
   margin-right: 16rpx;
   flex-shrink: 0;
@@ -73,7 +73,7 @@
   width: 104rpx;
   height: 104rpx;
   border-radius: 8rpx;
-  background: #F5F7FA;
+  background: #F5F5F5;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -117,7 +117,7 @@
 .stepper-btn.plus.disabled {
   background: #E3E7EE;
   border-color: #E3E7EE;
-  color: #B0B8C4;
+  color: #999999;
 }
 
 .item-price {

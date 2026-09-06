@@ -16,6 +16,17 @@
     <view class="info-row text-sub"><text>送达点位</text><text>{{order.landmark_name}}</text></view>
   </view>
 
+  <!-- 一车多单诚实化提示（P1-1 缓解）：本车同批订单，按订单号核对后取走自己的餐 -->
+  <view class="card" wx:if="{{order.batch_order_count > 1}}">
+    <view class="section-title">本车共 {{order.batch_order_count}} 单</view>
+    <view class="batch-order-row" wx:for="{{order.batch_orders}}" wx:key="id">
+      <text class="batch-order-no {{item.id === orderId ? 'mine' : ''}}">订单 {{item.daily_seq}}</text>
+      <text class="batch-order-lm text-weak text-sm">{{item.landmark_name}}</text>
+      <text class="batch-order-tag" wx:if="{{item.id === orderId}}">本单</text>
+    </view>
+    <view class="text-weak text-sm" style="margin-top:16rpx;">单舱多单无法完全隔离，请按订单号核对后取走自己的餐，勿错拿他人餐品。</view>
+  </view>
+
   <view class="bin-card" wx:if="{{phase === 'ready' || phase === 'open' || phase === 'autoClosed'}}">
     <view class="bin-circle {{phase === 'open' ? 'on' : ''}}">
       <text class="bin-circle-text">{{phase === 'open' ? '开' : '关'}}</text>

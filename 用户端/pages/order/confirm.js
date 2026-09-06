@@ -13,20 +13,14 @@ Page({
     showPicker: false,
     addresses: [],
     selectedAddress: null,
-    showAddressPicker: false,
     remark: '',
     contactName: '',
     contactPhone: '',
     submitting: false,
-    deliveryTime: '',
-    timeDays: ['今天', '明天'],
-    timeSlots: [
-      '09:00-09:20', '09:20-09:40', '09:40-10:00',
-      '10:00-10:20', '10:20-10:40', '10:40-11:00',
-      '11:00-11:20', '11:20-11:40',
-      '17:00-17:20', '17:20-17:40'
-    ],
-    timeDay: '今天',
+    deliveryMode: 'asap',          // asap=尽快送达；scheduled=指定时间
+    asapEta: '',                   // 尽快送达的预计到达时间 HH:MM
+    scheduledTime: '',             // 指定时间的显示值
+    timeOptions: [],               // 指定时间候选（依据当前真实时间向后递增生成）
     showTimeSheet: false,
     shopClosed: false
   },
@@ -58,6 +52,7 @@ Page({
     await Promise.all([this.loadPoints(), this.loadAddresses()])
     this.loadUser()
     this.loadShopStatus()
+    this.buildTimeOptions()
     this.ready = true
   },
 
@@ -145,29 +140,9 @@ Page({
 
   noop() {},
 
-  // 手动选点位时，解除与收货地址的绑定
+  // 选择送达楼栋：仅更换送达点位，收餐人/详细地址仍沿用默认地址信息
   choosePoint(e) {
-    this.setData({ selectedPoint: e.currentTarget.dataset.item, selectedAddress: null, showPicker: false })
-  },
-
-  showAddressPicker() {
-    this.setData({ showAddressPicker: true })
-  },
-
-  closeAddressPicker() {
-    this.setData({ showAddressPicker: false })
-  },
-
-  chooseAddress(e) {
-    const addr = this.data.addresses[Number(e.currentTarget.dataset.index)]
-    if (!addr) return
-    this.applyAddress(addr)
-    this.setData({ showAddressPicker: false })
-  },
-
-  addAddress() {
-    this.setData({ showAddressPicker: false })
-    wx.navigateTo({ url: '/pages/address/edit' })
+    this.setData({ selectedPoint: e.currentTarget.dataset.item, showPicker: false })
   },
 
   openTimeSheet() {
@@ -178,13 +153,30 @@ Page({
     this.setData({ showTimeSheet: false })
   },
 
-  chooseDay(e) {
-    this.setData({ timeDay: e.currentTarget.dataset.day })
+  // 依据当前真实时间向后生成送达时间：默认「尽快送达」（约 30 分钟后），
+  // 指定时间从当前时刻起每 30 分钟一档依次递增（不再展示全部时段）
+  buildTimeOptions() {
+    const pad = (n) => String(n).padStart(2, '0')
+    const fmt = (d) => pad(d.getHours()) + ':' + pad(d.getMinutes())
+    const now = new Date()
+    const base = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), now.getMinutes(), 0, 0)
+    const asap = new Date(base.getTime() + 30 * 60000)
+    const options = []
+    for (let i = 1; i <= 6; i++) {
+      const start = new Date(base.getTime() + i * 30 * 60000)
+      const end = new Date(start.getTime() + 20 * 60000)
+      options.push({ value: fmt(start) + '-' + fmt(end) })
+    }
+    this.setData({ deliveryMode: 'asap', asapEta: fmt(asap), scheduledTime: '', timeOptions: options })
   },
 
-  chooseTime(e) {
-    const slot = e.currentTarget.dataset.slot
-    this.setData({ deliveryTime: this.data.timeDay + ' ' + slot, showTimeSheet: false })
+  chooseAsap() {
+    this.setData({ deliveryMode: 'asap', scheduledTime: '', showTimeSheet: false })
+  },
+
+  chooseScheduled(e) {
+    const item = e.currentTarget.dataset.item
+    this.setData({ deliveryMode: 'scheduled', scheduledTime: item.value, showTimeSheet: false })
   },
 
   onRemark(e) { this.setData({ remark: e.detail && typeof e.detail === 'object' ? e.detail.value : e.detail }) },
@@ -192,11 +184,12 @@ Page({
   onPhone(e) { this.setData({ contactPhone: e.detail && typeof e.detail === 'object' ? e.detail.value : e.detail }) },
 
   async submit() {
+    if (this.data.submitting) return   // 重入保护（P0-3 顺带：防重复提交）
     if (this.data.shopClosed) {
       wx.showToast({ title: '店铺歇业中，暂无法下单', icon: 'none' })
       return
     }
-    const { items, selectedPoint, remark, contactName, contactPhone } = this.data
+    const { items, selectedPoint, remark, contactName, contactPhone, selectedAddress } = this.data
     if (!items.length) return
     if (!selectedPoint) {
       wx.showToast({ title: '请选择送达点位', icon: 'none' })
@@ -216,6 +209,9 @@ Page({
         landmark_id: String(selectedPoint.id),
         landmark_name: selectedPoint.name,
         remark,
+        contact_name: contactName,
+        contact_phone: contactPhone,
+        address_id: selectedAddress ? selectedAddress.id : undefined,
         items: items.map((it) => ({ goods_id: it.goods_id, quantity: it.quantity }))
       })
       wx.removeStorageSync('checkout_items')

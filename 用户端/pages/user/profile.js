@@ -5,7 +5,7 @@ Page({
   data: {
     user: {},
     userInitial: '零',
-    orderBadge: { unread: false, count: 0 }
+    orderBadge: { unread: false, count: 0, paying: 0, delivering: 0, arrived: 0, finished: 0 }
   },
 
   onShow() {

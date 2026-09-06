@@ -1,7 +1,7 @@
 <view class="glist">
   <view class="search-area">
     <view class="search-box">
-      <t-icon name="search" size="16" color="#99A3B0" />
+      <t-icon name="search" size="16" color="#999999" />
       <input
         class="search-input"
         value="{{keyword}}"
@@ -17,7 +17,7 @@
 
   <view class="store-card">
     <view class="store-icon">
-      <t-icon name="shop" size="20" color="#2E7CF6" />
+      <t-icon name="shop" size="20" color="#3078C0" />
     </view>
     <view class="store-info">
       <view class="store-name-row">
@@ -29,7 +29,7 @@
         <text class="store-free">免配送费</text>
       </view>
       <view class="store-hours">
-        <t-icon name="time" size="12" color="#99A3B0" />
+        <t-icon name="time" size="12" color="#999999" />
         <text>11:00-13:00 / 17:00-19:00</text>
       </view>
     </view>
@@ -60,7 +60,7 @@
       >
         <view class="main-inner">
           <view wx:if="{{!groups.length}}" class="empty">
-            <view class="empty-icon"><t-icon name="app" size="40" color="#C9D2DE" /></view>
+            <view class="empty-icon"><t-icon name="app" size="40" color="#D8D8D8" /></view>
             <view class="empty-text">没有找到相关商品</view>
           </view>
           <block wx:for="{{groups}}" wx:key="name" wx:for-index="gi">
@@ -97,7 +97,7 @@
                         <view class="stepper-btn plus disabled" catchtap="onStep" data-id="{{item.id}}" data-delta="1">+</view>
                       </view>
                       <view wx:else class="add-btn disabled" catchtap="onStep" data-id="{{item.id}}" data-delta="1">
-                        <t-icon name="add" size="14" color="#B0B8C4" />
+                        <t-icon name="add" size="14" color="#999999" />
                       </view>
                     </block>
                     <block wx:else>
@@ -122,7 +122,7 @@
 
   <view class="cart-bar" wx:if="{{cartCount}}" bindtap="goCart">
     <view class="cart-bar-icon">
-      <t-icon name="robot-1" size="24" color="#2E7CF6" />
+      <t-icon name="robot-1" size="24" color="#3078C0" />
       <view class="cart-bar-badge">{{cartCount}}</view>
     </view>
     <view class="cart-bar-info">

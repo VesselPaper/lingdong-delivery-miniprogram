@@ -53,7 +53,7 @@
 
   <view class="card">
     <view class="shop-row">
-      <view class="shop-badge"><t-icon name="shop" size="14" color="#2E7CF6" /></view>
+      <view class="shop-badge"><t-icon name="shop" size="14" color="#3078C0" /></view>
       <text class="shop-name">零栋铺子</text>
     </view>
     <view class="items">

@@ -13,10 +13,10 @@
       <view class="order-card" bindtap="goDetail" data-id="{{item.id}}">
         <view class="o-head">
           <view class="o-store">
-            <view class="o-store-icon"><t-icon name="shop" size="13" color="#2E7CF6" /></view>
+            <view class="o-store-icon"><t-icon name="shop" size="13" color="#3078C0" /></view>
             <text class="o-store-name">零栋铺子</text>
           </view>
-          <text class="o-status">{{item.status_text}}</text>
+          <text class="o-status st-{{item.stClass}}">{{item.status_text}}</text>
         </view>
         <view class="o-meta text-weak text-sm">下单时间 {{item.created_time}}</view>
         <view class="o-main">
@@ -46,7 +46,7 @@
       </view>
     </block>
     <view wx:if="{{!orders.length}}" class="empty">
-      <view class="empty-icon"><t-icon name="order" size="40" color="#C9D2DE" /></view>
+      <view class="empty-icon"><t-icon name="order" size="40" color="#D8D8D8" /></view>
       <view class="empty-text">暂无订单</view>
     </view>
   </view>

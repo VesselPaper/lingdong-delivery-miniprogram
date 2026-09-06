@@ -15,7 +15,7 @@
     <view class="cell" bindtap="logout">
       <view class="cell-label">退出登录</view>
       <view class="cell-value"></view>
-      <t-icon name="chevron-right" size="14" color="#C0C6CF" />
+      <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
   </view>
 

@@ -29,7 +29,7 @@
 .brand-name {
   font-size: 32rpx;
   font-weight: 600;
-  color: #1A1A1A;
+  color: #111111;
 }
 
 .search-box {
@@ -37,14 +37,14 @@
   align-items: center;
   gap: 12rpx;
   background: #ffffff;
-  border-radius: 999rpx;
+  border: 1rpx solid #EBEBEB;
+  border-radius: 8rpx;
   padding: 18rpx 28rpx;
-  box-shadow: 0 4rpx 16rpx rgba(31, 63, 122, 0.06);
 }
 
 .search-text {
   font-size: 26rpx;
-  color: #99A3B0;
+  color: #999999;
 }
 
 /* 米色福利卡 */
@@ -52,7 +52,7 @@
   margin: 8rpx 32rpx 24rpx;
   background: #F8ECD6;
   border: 1rpx solid #E8D5AC;
-  border-radius: 24rpx;
+  border-radius: 12rpx;
   overflow: hidden;
 }
 
@@ -84,7 +84,7 @@
   font-size: 24rpx;
   color: #A98A4F;
   border: 1rpx solid #D9BE8B;
-  border-radius: 999rpx;
+  border-radius: 8rpx;
   padding: 4rpx 20rpx;
 }
 
@@ -134,7 +134,7 @@
   align-items: center;
   gap: 4rpx;
   font-size: 24rpx;
-  color: #2E7CF6;
+  color: var(--brand);
   margin-bottom: 16rpx;
 }
 
@@ -151,9 +151,9 @@
 .goods-card {
   width: 264rpx;
   background: #ffffff;
-  border-radius: 20rpx;
+  border: 1rpx solid #EBEBEB;
+  border-radius: 12rpx;
   overflow: hidden;
-  box-shadow: 0 4rpx 16rpx rgba(31, 63, 122, 0.06);
   display: inline-block;
   vertical-align: top;
 }
@@ -168,7 +168,7 @@
 .goods-name {
   font-size: 26rpx;
   font-weight: 500;
-  color: #1A1A1A;
+  color: #111111;
   margin: 12rpx 16rpx 0;
 }
 
@@ -186,13 +186,13 @@
 }
 
 .goods-price-now {
-  color: #FA4A2D;
+  color: var(--brand);
   font-size: 30rpx;
   font-weight: 700;
 }
 
 .goods-old {
-  color: #B0B8C4;
+  color: #999999;
   font-size: 20rpx;
   text-decoration: line-through;
 }
@@ -201,7 +201,7 @@
   width: 48rpx;
   height: 48rpx;
   border-radius: 50%;
-  background: #2E7CF6;
+  background: var(--brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -212,8 +212,8 @@
 .go-cart {
   height: 76rpx;
   padding: 0 40rpx;
-  border-radius: 999rpx;
-  background: #2E7CF6;
+  border-radius: 8rpx;
+  background: var(--brand);
   color: #ffffff;
   font-size: 28rpx;
   font-weight: 500;
