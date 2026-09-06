@@ -10,6 +10,7 @@
     "pages/order/detail",
     "pages/delivery/track",
     "pages/delivery/pickup",
+    "pages/delivery/scanPickup",
     "pages/order/refund",
     "pages/order/cancelRequest",
     "pages/refund/list",
@@ -22,7 +23,7 @@
   "window": {
     "backgroundTextStyle": "light",
     "navigationBarBackgroundColor": "#ffffff",
-    "navigationBarTitleText": "零栋无人送餐",
+    "navigationBarTitleText": "零栋GO",
     "navigationBarTextStyle": "black",
     "backgroundColor": "#F6F8FB"
   },

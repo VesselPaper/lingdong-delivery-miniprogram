@@ -18,6 +18,11 @@ Page({
     id: null,
     batch: null,
     phase: 'scanned', // scanned 可开舱 | open 已开舱 | loaded 已关舱(可派发) | dispatched 已派发
+    mock: DEVICE_MOCK, // 按钮标注：模拟打开舱门/打开舱门
+    scanSn: '',        // 扫码带入的无人车编号（需求5）
+    atLoadingPoint: false,
+    dist: '',
+    loadMsg: '',
     sliderX: 0,
     sliderAreaW: 600,
     sliderThumbW: 120,
@@ -27,7 +32,13 @@ Page({
   timer: null,
 
   onLoad(options) {
-    this.setData({ id: Number(options.id) })
+    this.setData({
+      id: Number(options.id),
+      scanSn: String(options.sn || ''),
+      atLoadingPoint: options.at === '1',
+      dist: String(options.dist || ''),
+      loadMsg: decodeURIComponent(String(options.lmsg || ''))
+    })
   },
 
   onShow() {

@@ -2,6 +2,16 @@
   <!-- 批次列表：组单中（可派车）+ 待上货（选择上货） -->
   <search-box value="{{keyword}}" placeholder="搜索批次 / 订单 / 商品 / 点位" bind:input="onSearch" />
 
+  <!-- 扫码识别无人车（需求5）：扫车身二维码 → 进入该车待上货批次上货页 -->
+  <view class="scan-entry" bindtap="scanRobot">
+    <t-icon name="scan" size="40rpx" color="#3078C0" />
+    <view class="scan-entry-main">
+      <view class="scan-entry-title">扫无人车二维码</view>
+      <view class="scan-entry-sub text-weak text-sm">识别无人车 → 进入该车待上货批次（配单→上货→派发）</view>
+    </view>
+    <t-icon name="chevron-right" size="32rpx" color="#C0C0C0" />
+  </view>
+
   <view class="card" wx:if="{{loadingList}}">
     <view class="empty"><view class="empty-text">加载中…</view></view>
   </view>

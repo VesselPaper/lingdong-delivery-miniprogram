@@ -34,6 +34,7 @@ const api = {
   deliveryTrack: '/delivery/track',
   deliveryConfirm: '/delivery/confirm',
   pickupScan: '/delivery/pickup-scan',
+  pickupByCode: '/delivery/pickup-by-code',
   pickupOpen: '/delivery/pickup-open',
   pickupClose: '/delivery/pickup-close',
 

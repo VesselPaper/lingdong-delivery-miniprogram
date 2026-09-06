@@ -32,7 +32,7 @@
     <view class="pickup">
       <view class="pickup-label">取餐码</view>
       <view class="pickup-code">{{order.pickup_code}}</view>
-      <view class="pickup-tip text-weak text-sm">机器人在取餐点输入该号码即可开舱</view>
+      <view class="pickup-tip text-weak text-sm">机器人到达后，扫车身二维码并输入该取餐码即可开舱</view>
     </view>
   </view>
 
@@ -74,10 +74,10 @@
 
   <view class="foot-actions">
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 0}}" bindtap="cancelOrder">取消订单</view>
-    <view class="btn btn-sm" style="flex:1;" wx:if="{{order.status === 0}}" bindtap="payOrder">立即支付</view>
+    <view class="btn btn-sm" style="flex:1;" wx:if="{{order.status === 0}}" bindtap="payOrder">{{payMock ? '模拟支付' : '立即支付'}}</view>
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 1 && order.direct_cancelable}}" bindtap="cancelOrder">取消订单</view>
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 1 && order.request_cancelable}}" bindtap="goCancelRequest">提交取消申请</view>
-    <view class="btn btn-sm" style="flex:1;" wx:if="{{order.status === 3}}" bindtap="simulatePickup">模拟扫码取餐</view>
+    <view class="btn btn-sm" style="flex:1;" wx:if="{{order.status === 3}}" bindtap="goScanPickup">扫码取餐</view>
     <view class="btn btn-sm btn-outline" style="flex:1;" wx:if="{{order.status === 3 || order.status === 4 || order.status === 6}}" bindtap="goRefund">退款/投诉</view>
   </view>
 </view>

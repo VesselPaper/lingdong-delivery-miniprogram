@@ -1,0 +1,36 @@
+.qr-page {
+  padding: 24rpx;
+}
+
+.qr-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 48rpx 24rpx;
+}
+
+.qr-canvas-box {
+  width: 480rpx;
+  height: 480rpx;
+  background: #ffffff;
+  border: 2rpx solid #EEF1F6;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.qr-canvas {
+  width: 480rpx;
+  height: 480rpx;
+}
+
+.qr-sn {
+  margin-top: 24rpx;
+}
+
+.qr-tip {
+  margin-top: 12rpx;
+  text-align: center;
+}

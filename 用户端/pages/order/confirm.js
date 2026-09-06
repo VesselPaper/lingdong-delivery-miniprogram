@@ -22,11 +22,14 @@ Page({
     scheduledTime: '',             // 指定时间的显示值
     timeOptions: [],               // 指定时间候选（依据当前真实时间向后递增生成）
     showTimeSheet: false,
-    shopClosed: false
+    shopClosed: false,
+    payMock: false                 // 运行时标注：结算按钮显示「模拟支付」
   },
 
   async onLoad(options) {
     this.ready = false
+    const flags = wx.getStorageSync('runtimeFlags') || {}
+    this.setData({ payMock: flags.pay_mock === true })
     const cached = wx.getStorageSync('checkout_items')
     if (options.goods_id) {
       try {

@@ -149,3 +149,14 @@
 .task-list {
   padding: 4rpx 0 16rpx;
 }
+
+.robot-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8rpx;
+}
+
+.qr-btn {
+  margin-top: 4rpx;
+}

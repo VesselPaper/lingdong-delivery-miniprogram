@@ -1,5 +1,5 @@
 {
-  "desc": "零栋无人送餐小程序用户端",
+  "desc": "零栋GO小程序用户端",
   "packOptions": {
     "ignore": [
       {
@@ -34,7 +34,7 @@
   },
   "compileType": "miniprogram",
   "libVersion": "3.0.0",
-  "appid": "wx4a150b39e5ea5bcd",
+  "appid": "wxab08bb09bee883ef",
   "projectname": "lingdong-user",
   "condition": {},
   "simulatorPluginLibVersion": {},

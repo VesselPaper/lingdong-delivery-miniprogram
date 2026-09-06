@@ -119,10 +119,9 @@ Page({
     wx.switchTab({ url: '/pages/index/index' })
   },
 
-  // 模拟扫码取餐（测试阶段）：不真扫码，直接进入取餐页（开舱/取餐/关舱逻辑在取餐页）
-  simulatePickup() {
-    if (!this.data.orderId) return wx.showToast({ title: '暂无可取餐订单', icon: 'none' })
-    wx.navigateTo({ url: '/pages/delivery/pickup?order_id=' + this.data.orderId })
+  // 扫码取餐（需求5）：进入扫码取餐页 —— 扫无人车二维码 + 输取餐码定位本人订单
+  goScanPickup() {
+    wx.navigateTo({ url: '/pages/delivery/scanPickup' })
   },
 
   // P1-4：配送异常(6)订单的退款/投诉出口 —— 卡死或异常订单用户必须有自助入口

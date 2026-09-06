@@ -1,0 +1,13 @@
+<view class="qr-page">
+  <view class="qr-card card">
+    <view class="qr-canvas-box">
+      <canvas type="2d" id="qrCanvas" class="qr-canvas"></canvas>
+    </view>
+    <view class="qr-sn text-weak text-sm">无人车编号：{{sn}}</view>
+    <view class="qr-tip text-weak text-sm">商家扫此码可配单上货；用户扫此码后输入取餐码取餐</view>
+  </view>
+
+  <view class="foot-actions">
+    <view class="btn btn-block {{ready && !saving ? '' : 'btn-disabled'}}" bindtap="saveQr">保存二维码（打印后贴于无人车）</view>
+  </view>
+</view>

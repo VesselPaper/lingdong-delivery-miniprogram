@@ -14,6 +14,7 @@
     "pages/orders/exception",
     "pages/device/loading",
     "pages/device/batchDetail",
+    "pages/device/robotQr",
     "pages/goods/list",
     "pages/goods/edit",
     "pages/activity/list",
@@ -25,7 +26,7 @@
   "window": {
     "backgroundTextStyle": "light",
     "navigationBarBackgroundColor": "#ffffff",
-    "navigationBarTitleText": "零栋无人送餐",
+    "navigationBarTitleText": "零栋商家",
     "navigationBarTextStyle": "black",
     "backgroundColor": "#FAFAFA"
   },

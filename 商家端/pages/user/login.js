@@ -4,7 +4,13 @@ const request = require('../../utils/request')
 Page({
   data: {
     merchantCode: '',
-    logging: false
+    logging: false,
+    loginDemo: false // 运行时标注：后端未配商家端微信凭据时按钮显示「模拟登录（演示）」
+  },
+
+  onShow() {
+    const flags = wx.getStorageSync('runtimeFlags') || {}
+    this.setData({ loginDemo: flags.login === 'demo' })
   },
 
   onCodeInput(e) {
@@ -19,9 +25,11 @@ Page({
       const code = await new Promise((resolve, reject) => {
         wx.login({ success: (r) => resolve(r.code), fail: reject })
       })
+      // client 标明商家端：后端用它选「零栋商家」的 appid/secret 走真实 code2session；
       // 不再传 role：服务端不接受客户端自报身份，商家权限只能凭 merchant_code 授予
       const res = await request.post(api.login, {
         code,
+        client: 'merchant',
         nickname: '零栋铺子',
         merchant_code: String(this.data.merchantCode || '').trim()
       })

@@ -3,7 +3,7 @@
     <view class="login-logo">
       <t-icon name="shop-4" size="26" color="#ffffff" />
     </view>
-    <view class="login-title">零栋无人送餐 · 商家端</view>
+    <view class="login-title">零栋商家</view>
     <view class="login-sub">商家登录管理商品与配送</view>
   </view>
 
@@ -24,7 +24,8 @@
   </view>
 
   <view class="login-actions">
-    <view class="btn btn-block {{logging ? 'btn-disabled' : ''}}" bindtap="wechatLogin">微信一键登录</view>
+    <view class="btn btn-block {{logging ? 'btn-disabled' : ''}}" bindtap="wechatLogin">{{loginDemo ? '模拟登录（演示）' : '微信一键登录'}}</view>
+    <view class="login-tip text-weak text-sm" wx:if="{{loginDemo}}">当前后端未配置商家端微信凭据，登录为演示模式（不产生真实微信身份）</view>
     <view class="login-tip text-weak text-sm">登录即同意《商家入驻协议》与《隐私政策》</view>
   </view>
 </view>

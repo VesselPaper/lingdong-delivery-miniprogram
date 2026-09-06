@@ -95,8 +95,9 @@ function toStock(v, fallback = 999) {
 // 角色不再由客户端自报：此前 body 里传 role:'merchant' 就能成为商家，任何人都能自助拿到
 // 改价、上下架、退款、派车（真实调度机器人）等权限。改为校验 .env 的 MERCHANT_INVITE_CODE。
 app.post('/api/auth/login', async (req, res) => {
-  const { code, nickname = '', merchant_code = '' } = req.body || {}
+  const { code, nickname = '', merchant_code = '', client = 'user' } = req.body || {}
   if (!code) return res.status(400).json({ code: 400, msg: '缺少登录凭证' })
+  const clientKey = client === 'merchant' ? 'merchant' : 'user'
 
   // 填了邀请码就必须正确；未配置邀请码时 verifyMerchantCode 恒为 false（安全侧：一律拒绝）
   const wantsMerchant = String(merchant_code).trim() !== ''
@@ -105,12 +106,13 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   let openid = ''
-  if (runtime.realLogin) {
-    // 真实微信登录：配置 WX_APPID / WX_SECRET 后自动启用（RUN_MODE=production 强制要求）
+  const creds = runtime.loginCreds(clientKey)
+  if (creds) {
+    // 真实微信登录：零栋GO（用户端）与零栋商家（商家端）是不同小程序，用各自的 appid/secret
     try {
       const u = 'https://api.weixin.qq.com/sns/jscode2session'
-        + '?appid=' + encodeURIComponent(process.env.WX_APPID)
-        + '&secret=' + encodeURIComponent(process.env.WX_SECRET)
+        + '?appid=' + encodeURIComponent(creds.appid)
+        + '&secret=' + encodeURIComponent(creds.secret)
         + '&js_code=' + encodeURIComponent(code)
         + '&grant_type=authorization_code'
       const resp = await fetch(u)
@@ -146,7 +148,7 @@ app.post('/api/auth/login', async (req, res) => {
   ok(res, {
     token: user.openid,
     user,
-    runtime: { mode: runtime.mode, device_mock: runtime.deviceMock }
+    runtime: { mode: runtime.mode, device_mock: runtime.deviceMock, pay_mock: !runtime.realPay, login: runtime.loginMode(clientKey) }
   })
 })
 
@@ -473,7 +475,7 @@ app.post('/api/order/pay', auth, async (req, res) => {
       appid: WX_APPID,
       openid: row.openid,
       outTradeNo: row.order_no,
-      description: '零栋无人送餐-订单' + row.order_no,
+      description: '零栋GO-订单' + row.order_no,
       amountFen: Math.round(Number(row.total_amount) * 100)
     })
     store.prepare("UPDATE orders SET pay_channel='wxpay', updated_at=datetime('now','localtime') WHERE id=?").run(row.id)
@@ -872,10 +874,8 @@ app.post('/api/delivery/confirm', auth, (req, res) => {
 // ---------- 用户取餐（扫码后：开舱/取餐/关舱/40s自动关/重开） ----------
 // 扫码取餐：校验订单归属 + 已送达，返回取餐上下文（供取餐页展示与操作）
 // 允许 {3,4}：关舱后（订单 4）重新进入取餐页重开舱也放行，与 P1-2 的重开限制配套
-app.post('/api/delivery/pickup-scan', auth, (req, res) => {
-  const order = store.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(Number((req.body || {}).order_id), req.user.id)
-  if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
-  if (![3, 4].includes(Number(order.status))) return res.status(400).json({ code: 400, msg: '机器人还未送达，暂不能取餐' })
+// 取餐上下文（pickup-scan 与 pickup-by-code 共用）：订单 + 同批订单提示 + 任务摘要
+function pickupContext(store, order) {
   const task = order.delivery_task_id ? store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(order.delivery_task_id) : null
   // 一车多单诚实化（P1-1 缓解）：返回同批订单，供取餐页提示「本车共 N 单，按订单号核对后取走自己的餐」
   let batchOrders = []
@@ -884,7 +884,7 @@ app.post('/api/delivery/pickup-scan', auth, (req, res) => {
     batchOrders = store.prepare('SELECT id, order_no, daily_seq, landmark_name FROM orders WHERE batch_id=? AND status IN (2,3) ORDER BY id ASC').all(order.batch_id)
     batchOrderCount = batchOrders.length
   }
-  ok(res, {
+  return {
     order_id: order.id,
     order_no: order.order_no,
     pickup_code: order.pickup_code,
@@ -892,7 +892,27 @@ app.post('/api/delivery/pickup-scan', auth, (req, res) => {
     batch_order_count: batchOrderCount,
     batch_orders: batchOrders,
     task: task ? { task_id: task.id, platform_task_id: task.platform_task_id, device_sn: task.device_sn, task_status: task.task_status, status_text: task.status_text } : null
-  })
+  }
+}
+
+app.post('/api/delivery/pickup-scan', auth, (req, res) => {
+  const order = store.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(Number((req.body || {}).order_id), req.user.id)
+  if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
+  if (![3, 4].includes(Number(order.status))) return res.status(400).json({ code: 400, msg: '机器人还未送达，暂不能取餐' })
+  ok(res, pickupContext(store, order))
+})
+
+// 扫码取餐（需求5）：用户扫无人车二维码 → 输入取餐码 → 校验归属（本人订单、待取餐、取餐码匹配、车一致）
+app.post('/api/delivery/pickup-by-code', auth, (req, res) => {
+  const { device_sn = '', pickup_code = '' } = req.body || {}
+  if (!device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
+  if (!String(pickup_code).trim()) return res.status(400).json({ code: 400, msg: '请输入取餐码' })
+  const order = store.prepare(`
+    SELECT o.* FROM orders o JOIN delivery_tasks d ON d.order_id = o.id
+    WHERE o.user_id=? AND o.status=3 AND o.pickup_code=? AND d.device_sn=? AND d.void_at IS NULL
+    ORDER BY o.id DESC LIMIT 1`).get(req.user.id, String(pickup_code).trim(), device_sn)
+  if (!order) return res.status(400).json({ code: 400, msg: '取餐码不正确或无人车不匹配' })
+  ok(res, pickupContext(store, order))
 })
 
 // 打开舱门取餐（unloading/verify 开舱）。
@@ -965,7 +985,13 @@ function shopWithRuntime(shop) {
   return Object.assign(
     { id: 1, name: '零栋铺子', business_status: 'open', auto_accept: 0 },
     shop || {},
-    { run_mode: runtime.mode, device_mock: runtime.deviceMock }
+    {
+      run_mode: runtime.mode,
+      device_mock: runtime.deviceMock,
+      pay_mock: !runtime.realPay,
+      login_user: runtime.loginMode('user'),
+      login_merchant: runtime.loginMode('merchant')
+    }
   )
 }
 
@@ -1200,6 +1226,18 @@ app.get('/api/merchant/delivery/batch/detail', merchantGuard, (req, res) => {
 async function doDispatchBatch(store, batchId, deviceSn) {
   const b = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(batchId))
   if (!b) throw new Error('批次不存在')
+  // 需求3门禁（真实档）：先确认有可用且空闲的无人车，再占批次 —— 避免占位后再回滚。
+  // 演示档（PLATFORM_MOCK=true）跳过：本地模拟不涉及真车。
+  let sn = deviceSn || b.device_sn || ''
+  if (runtime.realPlatform) {
+    if (!sn) {
+      const r = await platform.pickAvailableRobot()
+      if (r && r.device_sn) sn = r.device_sn
+    }
+    if (!sn) throw new Error('暂无可用无人车，请确认无人车在线后再派车')
+    const busy = await platform.isRobotBusy(store, sn)
+    if (busy.busy) throw new Error(busy.msg)
+  }
   const claim = store.prepare(`
     UPDATE delivery_batches SET status=1, status_text='待上货',
       dispatched_at=datetime('now','localtime'), updated_at=datetime('now','localtime')
@@ -1214,12 +1252,6 @@ async function doDispatchBatch(store, batchId, deviceSn) {
     }
     // 1. 规划配送路线（多地点，最小化顾客总等待）
     const route = batch.planRoute(store, orders)
-    // 2. 指派机器人（可指定；未指定且真实模式时自动挑空闲机器人）
-    let sn = deviceSn || b.device_sn || ''
-    if (!sn && process.env.PLATFORM_MOCK !== 'true') {
-      const r = await platform.pickAvailableRobot()
-      if (r && r.device_sn) sn = r.device_sn
-    }
     store.prepare("UPDATE delivery_batches SET device_sn=?, route=?, updated_at=datetime('now','localtime') WHERE id=?")
       .run(sn, JSON.stringify(route), batchId)
     // 3. 为批次内每单创建平台任务（真实创建排队任务 / 本地 Mock）
@@ -1257,6 +1289,9 @@ app.post('/api/merchant/device/batch/open-bin', merchantGuard, async (req, res) 
   const { batch_id } = req.body || {}
   const b = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(batch_id))
   if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
+  // 需求3门禁：无人车必须已到达上货点才能开舱上货（真实档校验；演示档恒通过）
+  const gate = await platform.robotAtLoadingPoint(store, b.device_sn)
+  if (!gate.ok) return res.status(400).json({ code: 400, msg: '开舱失败：' + gate.msg })
   const results = await platform.verifyBatchLoading(store, b.id)
   const failed = results.filter((r) => !r.ok)
   if (failed.length) {
@@ -1677,6 +1712,8 @@ app.post('/api/merchant/device/scan', merchantGuard, async (req, res) => {
   batchRow.device_sn = deviceSn
   const detail = batch.getBatchDetail(store, batchRow.id)
   const g = await platform.grantControl(deviceSn)
+  // 需求3：附带无人车是否已在上货点，供上货页展示「已就位 ✓ / 距上货点 N 米」
+  const lp = await platform.robotAtLoadingPoint(store, deviceSn)
   audit(req, 'device/scan', 'batch#' + detail.id, 'device_sn=' + deviceSn + ' control=' + (g.ok ? 'granted' : 'fail'))
   ok(res, {
     batch_id: detail.id,
@@ -1688,7 +1725,10 @@ app.post('/api/merchant/device/scan', merchantGuard, async (req, res) => {
     orders: detail.orders,
     route: detail.route,
     control_ok: g.ok,
-    control_msg: g.ok ? '' : g.msg
+    control_msg: g.ok ? '' : g.msg,
+    at_loading_point: lp.at_loading_point,
+    distance_m: lp.distance_m,
+    loading_msg: lp.ok ? '' : lp.msg
   })
 })
 
@@ -1697,6 +1737,9 @@ app.post('/api/merchant/device/open-bin', merchantGuard, async (req, res) => {
   const task = getLoadingTask(req.body)
   if (!task) return res.status(404).json({ code: 404, msg: '任务不存在' })
   if (!task.platform_task_id) return res.status(400).json({ code: 400, msg: '任务未下发到平台' })
+  // 需求3门禁：无人车必须已到达上货点才能开舱上货（真实档校验；演示档恒通过）
+  const gate = await platform.robotAtLoadingPoint(store, task.device_sn)
+  if (!gate.ok) return res.status(400).json({ code: 400, msg: '开舱失败：' + gate.msg })
   const r = await platform.loadingVerify(task.device_sn, task.platform_task_id, { anyCode: task.pickup_code })
   if (r.ok) {
     audit(req, 'device/open-bin', 'task#' + task.id, 'order#' + task.order_id + ' device_sn=' + task.device_sn)

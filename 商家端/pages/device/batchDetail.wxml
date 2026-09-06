@@ -1,11 +1,20 @@
 <view class="batch-detail-page">
   <block wx:if="{{batch}}">
+    <!-- 扫码带入的无人车位置状态（需求3）：显示是否已在上货点 -->
+    <view class="card lp-banner {{atLoadingPoint ? 'lp-ok' : 'lp-wait'}}" wx:if="{{scanSn}}">
+      <view class="lp-banner-title">{{atLoadingPoint ? '无人车已在上货点 ✓' : '无人车未在上货点'}}</view>
+      <view class="lp-banner-sub text-weak text-sm">
+        <text wx:if="{{atLoadingPoint}}">设备 {{scanSn}} 已就位，可以开舱上货</text>
+        <text wx:else>{{loadMsg || ('设备 ' + scanSn + ' 距上货点约 ' + dist + ' 米，请等待其返回后再上货')}}</text>
+      </view>
+    </view>
+
     <!-- 单批次详情：完整批次编号弱化展示 + 订单/商品完整展示 -->
     <batch-card b="{{batch}}" showNo="{{true}}" showGoods="{{true}}" />
 
     <view class="foot-actions">
-      <view class="btn btn-block" hover-class="btn-hover" wx:if="{{phase === 'scanned'}}" bindtap="openBin">模拟打开舱门</view>
-      <view class="btn btn-block" hover-class="btn-hover" wx:if="{{phase === 'open'}}" bindtap="closeBin">关闭舱门</view>
+      <view class="btn btn-block" hover-class="btn-hover" wx:if="{{phase === 'scanned'}}" bindtap="openBin">{{mock ? '模拟打开舱门' : '打开舱门'}}</view>
+      <view class="btn btn-block" hover-class="btn-hover" wx:if="{{phase === 'open'}}" bindtap="closeBin">{{mock ? '模拟关舱' : '关舱'}}</view>
 
       <view class="dispatch-zone" wx:if="{{phase === 'loaded'}}">
         <view class="dispatch-hint {{countdown > 0 ? '' : 'warn'}}">{{countdownText || '请尽快开始配送'}}</view>

@@ -1,7 +1,7 @@
 {
   "name": "lingdong-backend",
   "version": "1.0.0",
-  "description": "零栋无人送餐小程序后端",
+  "description": "零栋GO/零栋商家小程序后端",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

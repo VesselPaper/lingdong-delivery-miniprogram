@@ -9,3 +9,24 @@
   font-weight: 600;
   color: var(--text-main);
 }
+
+.scan-entry {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  background: #F0F6FF;
+  border: 2rpx dashed #3078C0;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin: 20rpx 0;
+}
+
+.scan-entry-main {
+  flex: 1;
+}
+
+.scan-entry-title {
+  font-size: 30rpx;
+  color: #3078C0;
+  font-weight: 600;
+}

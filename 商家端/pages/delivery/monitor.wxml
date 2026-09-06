@@ -30,7 +30,10 @@
           <view class="robot-name">{{item.name}}</view>
           <view class="robot-id text-weak text-sm">{{item.device_sn}}</view>
         </view>
-        <view class="tag {{item.online ? 'tag-green' : ''}}">{{item.online_text}}</view>
+        <view class="robot-actions">
+          <view class="tag {{item.online ? 'tag-green' : ''}}">{{item.online_text}}</view>
+          <view class="btn btn-sm qr-btn" catchtap="goRobotQr" data-sn="{{item.device_sn}}">本车二维码</view>
+        </view>
       </view>
       <view class="robot-meta">
         <view class="meta-item">

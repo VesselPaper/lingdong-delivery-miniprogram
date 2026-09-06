@@ -24,6 +24,9 @@ function pollPaid(orderId, tries) {
 function payOrder(orderId) {
   return request.post(api.orderPay, { id: Number(orderId) })
     .then((res) => {
+      // 模拟支付（PAY_MOCK=true）：后端直接标记已支付并返回 mock 标记，无需拉起收银台。
+      // 前端必须把 mock:true 视为支付成功，否则会误报「支付参数缺失」。
+      if (res && res.mock) return Promise.resolve({ mock: true })
       const params = res && res.payParams
       if (!params) return Promise.reject(new Error('支付参数缺失'))
       return new Promise((resolve, reject) => {

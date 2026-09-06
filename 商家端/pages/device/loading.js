@@ -1,5 +1,6 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
+const scan = require('../../utils/scan')
 
 // 上货配单（一车多单 · 配送批次列表）
 // 只展示「组单中（可派车） + 待上货（可上货）」两类批次；配送中/待取货请看任务页与配送监控。
@@ -87,6 +88,40 @@ Page({
   selectBatch(e) {
     const item = e.detail || {}
     if (item && item.id) wx.navigateTo({ url: '/pages/device/batchDetail?id=' + item.id })
+  },
+
+  // 扫无人车二维码（需求5）：真实摄像头扫码 → 识别设备 → 进入该车待上货批次上货页
+  async scanRobot() {
+    try {
+      const raw = await new Promise((resolve, reject) => {
+        wx.scanCode({ success: (r) => resolve(r.result), fail: reject })
+      })
+      const sn = scan.parseDeviceSn(raw)
+      if (!sn) { wx.showToast({ title: '二维码无效，请扫无人车上的二维码', icon: 'none' }); return }
+      wx.showLoading({ title: '识别无人车' })
+      const data = await request.post(api.deviceScan, { deviceSn: sn })
+      wx.hideLoading()
+      if (!data || !data.batch_id) { wx.showToast({ title: '未识别到待上货批次', icon: 'none' }); return }
+      const q = 'batch_id=' + data.batch_id
+        + '&sn=' + encodeURIComponent(data.device_sn || sn)
+        + '&at=' + (data.at_loading_point ? '1' : '0')
+        + '&dist=' + (data.distance_m === null || data.distance_m === undefined ? '' : data.distance_m)
+        + '&lmsg=' + encodeURIComponent(data.loading_msg || '')
+      wx.navigateTo({ url: '/pages/device/batchDetail?' + q })
+    } catch (e) {
+      wx.hideLoading()
+      const msg = (e && e.message) || ''
+      if (msg.indexOf('cancel') > -1) return
+      if (msg.indexOf('没有待上货') > -1 || msg.indexOf('先派车') > -1) {
+        wx.showModal({
+          title: '该无人车暂无待上货批次',
+          content: '请先在「组单中」批次点「派车配送」并指定本无人车，待其到达上货点后再扫码上货。',
+          showCancel: false
+        })
+      } else {
+        wx.showToast({ title: msg || '扫码失败', icon: 'none' })
+      }
+    }
   },
 
   // 组单中的批次 → 派车配送（创建全部平台任务）

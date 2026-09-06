@@ -1,5 +1,5 @@
 {
-  "desc": "零栋无人送餐小程序商家端",
+  "desc": "零栋商家小程序商家端",
   "packOptions": {
     "ignore": [],
     "include": []
@@ -29,7 +29,7 @@
   },
   "compileType": "miniprogram",
   "libVersion": "3.0.0",
-  "appid": "wx4a150b39e5ea5bcd",
+  "appid": "wx69fddbd975779978",
   "projectname": "lingdong-merchant",
   "condition": {},
   "simulatorPluginLibVersion": {},

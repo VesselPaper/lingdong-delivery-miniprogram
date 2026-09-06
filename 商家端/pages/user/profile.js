@@ -12,7 +12,7 @@ Page({
   showAgreement() {
     wx.showModal({
       title: '零栋用户协议',
-      content: '欢迎使用零栋无人送餐。本平台由零栋科技提供，用户下单即视为同意本协议相关内容。',
+      content: '欢迎使用零栋商家。本平台由零栋科技提供，商家入驻即视为同意本协议相关内容。',
       showCancel: false,
       confirmColor: '#3078C0'
     })

@@ -73,3 +73,29 @@
   font-weight: 600;
   color: var(--success);
 }
+
+.lp-banner {
+  margin: 20rpx 0;
+  padding: 20rpx 24rpx;
+  border-radius: 16rpx;
+}
+
+.lp-ok {
+  background: #EAF9F0;
+  border: 2rpx solid #2BA471;
+}
+
+.lp-wait {
+  background: #FFF7E8;
+  border: 2rpx solid #F5A623;
+}
+
+.lp-banner-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #333333;
+}
+
+.lp-banner-sub {
+  margin-top: 8rpx;
+}

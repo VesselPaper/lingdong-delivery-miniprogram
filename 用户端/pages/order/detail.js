@@ -8,11 +8,13 @@ Page({
     order: {},
     items: [],
     progress: 0,      // 配送进度：0 未接单 / 1 已接单 / 2 配送中 / 3 已送达
-    progressText: ''
+    progressText: '',
+    payMock: false    // 运行时标注：支付按钮显示「模拟支付」
   },
 
   onLoad(options) {
-    this.setData({ id: Number(options.id) })
+    const flags = wx.getStorageSync('runtimeFlags') || {}
+    this.setData({ id: Number(options.id), payMock: flags.pay_mock === true })
   },
 
   onShow() {
@@ -90,9 +92,9 @@ Page({
     } catch (e) { /* handled */ }
   },
 
-  // 模拟扫码取餐（测试阶段）：直接进入取餐页（开舱/取餐/关舱逻辑在取餐页）
-  simulatePickup() {
-    wx.navigateTo({ url: '/pages/delivery/pickup?order_id=' + this.data.id })
+  // 扫码取餐（需求5）：进入扫码取餐页 —— 扫无人车二维码 + 输取餐码定位本人订单
+  goScanPickup() {
+    wx.navigateTo({ url: '/pages/delivery/scanPickup' })
   },
 
   goRefund() {

@@ -14,7 +14,7 @@ function startServer() {
   return new Promise((resolve, reject) => {
     child = spawn(process.execPath, ['server.js'], {
       cwd: __dirname,
-      env: { ...process.env, RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB, PAY_MOCK: 'true', BATCH_WAIT_MS: '100000', MERCHANT_INVITE_CODE: 'test-invite' },
+      env: { ...process.env, RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB, PAY_MOCK: 'true', BATCH_WAIT_MS: '100000', MERCHANT_INVITE_CODE: 'test-invite', WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '' },
       stdio: ['ignore', 'pipe', 'pipe']
     })
     let log = ''
@@ -59,6 +59,7 @@ function assert(cond, msg) {
     const stu = await api('POST', '/auth/login', { code: 'student-test-' + Date.now(), role: 'student', nickname: '测试学生' })
     assert(stu.code === 0, '学生登录')
     const sToken = stu.data.token
+    assert(stu.data.runtime && stu.data.runtime.pay_mock === true && stu.data.runtime.login === 'demo', '登录响应含运行时标志（pay_mock/login=demo，无真实凭据时）')
 
     // 确保营业 + 自动接单开
     await api('PUT', '/merchant/shop', { business_status: 'open', auto_accept: 1 }, mToken)
@@ -159,6 +160,17 @@ function assert(cond, msg) {
     const tr = await api('GET', '/delivery/track?order_id=' + firstOrder, null, sToken)
     assert(tr.code === 0, '配送追踪')
     assert(tr.data.batch && tr.data.batch.multi_order === true, '追踪返回批次信息（一车多单）')
+
+    // ---- 扫码取餐（需求5）：pickup-by-code 按「无人车 + 取餐码」定位本人待取餐订单 ----
+    const firstOrderObj = disp.data.orders.find((o) => Number(o.id) === Number(firstOrder))
+    assert(!!firstOrderObj && !!firstOrderObj.pickup_code, '待取餐订单已生成取餐码')
+    const pbc = await api('POST', '/delivery/pickup-by-code', { device_sn: 'TESTROBOT001', pickup_code: firstOrderObj.pickup_code }, sToken)
+    assert(pbc.code === 0 && Number(pbc.data.order_id) === firstOrder, '扫码输取餐码 → 定位到本人订单')
+    const pbcBad = await api('POST', '/delivery/pickup-by-code', { device_sn: 'TESTROBOT001', pickup_code: '000000' }, sToken)
+    assert(pbcBad.code === 400, '错误取餐码被拒绝')
+    const pbcWrongCar = await api('POST', '/delivery/pickup-by-code', { device_sn: 'OTHERBOT', pickup_code: firstOrderObj.pickup_code }, sToken)
+    assert(pbcWrongCar.code === 400, '扫错车（设备不匹配）被拒绝')
+
     const ps = await api('POST', '/delivery/pickup-scan', { order_id: firstOrder }, sToken)
     assert(ps.code === 0, '取餐扫码')
     const po = await api('POST', '/delivery/pickup-open', { order_id: firstOrder }, sToken)

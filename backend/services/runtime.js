@@ -52,11 +52,29 @@ const unsafeProd = envFlag('ALLOW_UNSAFE_PROD_PLATFORM')
 
 const wxAppid = process.env.WX_APPID || ''
 const wxSecret = process.env.WX_SECRET || ''
+// 商家端独立凭据（零栋商家）：与用户端（零栋GO）是不同的小程序，AppID/AppSecret 各自独立
+const merchantWxAppid = process.env.MERCHANT_WX_APPID || ''
+const merchantWxSecret = process.env.MERCHANT_WX_SECRET || ''
 
 // 派生标志（server.js 一律读这些，不再直接读 process.env，避免守卫与实际行为不一致）
 const realPlatform = !platformMock
 const realPay = !payMock
-const realLogin = !!(wxAppid && wxSecret)
+// 按端判定真实登录是否可用：user=用户端(零栋GO)、merchant=商家端(零栋商家)
+function loginMode(client) {
+  const c = client === 'merchant' ? 'merchant' : 'user'
+  return c === 'merchant'
+    ? (merchantWxAppid && merchantWxSecret ? 'real' : 'demo')
+    : (wxAppid && wxSecret ? 'real' : 'demo')
+}
+// 返回某端 code2session 用的 appid/secret；缺凭据返回 null（调用方走演示登录）
+function loginCreds(client) {
+  if (loginMode(client) !== 'real') return null
+  return client === 'merchant'
+    ? { appid: merchantWxAppid, secret: merchantWxSecret }
+    : { appid: wxAppid, secret: wxSecret }
+}
+// 任一端配齐即视为「真实登录已接通」（仅用于启动告警/describe；具体端判定用 loginMode）
+const realLogin = !!(wxAppid && wxSecret) || !!(merchantWxAppid && merchantWxSecret)
 // 设备控制（开舱/关舱/派发）是否走本地假装：仅演示档为真。
 // 商家端不再硬编码该开关，由 /api/shop/status 与登录响应下发。
 const deviceMock = mode === 'demo'
@@ -111,7 +129,8 @@ function check() {
   if (mode === 'production') {
     if (platformMock) errors.push('RUN_MODE=production 不允许 PLATFORM_MOCK=true：正式档必须走真实配送')
     if (payMock) errors.push('RUN_MODE=production 不允许 PAY_MOCK=true：正式档必须真实收款')
-    if (!realLogin) errors.push('RUN_MODE=production 要求配置 WX_APPID 与 WX_SECRET（真实微信登录）')
+    if (!(wxAppid && wxSecret)) errors.push('RUN_MODE=production 要求用户端真实微信登录：配置 WX_APPID 与 WX_SECRET')
+    if (!(merchantWxAppid && merchantWxSecret)) errors.push('RUN_MODE=production 要求商家端真实微信登录：配置 MERCHANT_WX_APPID 与 MERCHANT_WX_SECRET')
     if (!wxpay.enabled()) {
       errors.push(
         'RUN_MODE=production 要求微信支付四要素齐备：' +
@@ -129,7 +148,10 @@ function check() {
     )
   }
   if (!realLogin) {
-    warnings.push('未配置 WX_APPID/WX_SECRET：登录走演示模式，token=demo_+sha1(客户端 code)，可预测、不可吊销')
+    warnings.push('未配置任何微信登录凭据：登录走演示模式，token=demo_+sha1(客户端 code)，可预测、不可吊销')
+  } else {
+    if (loginMode('user') !== 'real') warnings.push('用户端(零栋GO)未配置 WX_APPID/WX_SECRET：该端登录走演示模式')
+    if (loginMode('merchant') !== 'real') warnings.push('商家端(零栋商家)未配置 MERCHANT_WX_APPID/MERCHANT_WX_SECRET：该端登录走演示模式')
   }
   if (!realPay) {
     warnings.push('PAY_MOCK=true 或未配置支付四要素：支付不产生真实资金流，退款接口也不会真实退钱')
@@ -163,7 +185,10 @@ function describe() {
     run_mode: MODES.includes(mode) ? mode : 'invalid:' + mode,
     device_mock: deviceMock,
     real_login: realLogin,
+    login_user: loginMode('user'),
+    login_merchant: loginMode('merchant'),
     real_pay: realPay,
+    pay_mock: payMock,
     real_platform: realPlatform,
     platform_host: platformHost,
     prod_platform: prodPlatform,
@@ -220,5 +245,7 @@ module.exports = {
   describe,
   canGrantMerchant,
   verifyMerchantCode,
-  warnIfUnsafeDispatch
+  warnIfUnsafeDispatch,
+  loginMode,
+  loginCreds
 }

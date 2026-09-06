@@ -1,0 +1,83 @@
+<view class="pickup-page">
+  <!-- 步骤1：扫无人车二维码 + 输入取餐码（需求5） -->
+  <view wx:if="{{phase === 'scan'}}">
+    <view class="pickup-head">
+      <view class="pickup-title">扫码取餐</view>
+      <view class="pickup-status">扫无人车上的二维码，输入取餐码取走您的餐品</view>
+    </view>
+
+    <view class="card">
+      <view class="scan-field" bindtap="scanRobot">
+        <view class="scan-field-left">
+          <view class="scan-field-title">{{deviceSn ? deviceSn : '点击扫描无人车二维码'}}</view>
+          <view class="scan-field-sub text-weak text-sm">{{deviceSn ? '已识别无人车，可重新扫码' : '二维码内容：LD-R:设备编号（商家端可查看/打印）'}}</view>
+        </view>
+        <view class="btn btn-sm">扫一扫</view>
+      </view>
+
+      <view class="code-field">
+        <view class="code-label">取餐码</view>
+        <input
+          class="code-input"
+          type="number"
+          maxlength="6"
+          placeholder="请输入订单取餐码"
+          placeholder-class="field-placeholder"
+          value="{{pickupCode}}"
+          bindinput="onCodeInput"
+        />
+      </view>
+
+      <view class="btn btn-block {{deviceSn && pickupCode ? '' : 'btn-disabled'}}" bindtap="verify">确认取餐</view>
+
+      <view class="demo-entry text-weak text-sm" wx:if="{{demo}}" bindtap="mockScan">模拟扫码（演示档，填入测试设备号）</view>
+    </view>
+  </view>
+
+  <!-- 步骤2：已定位订单，开舱取餐 -->
+  <block wx:elif="{{order}}">
+    <view class="pickup-head">
+      <view class="pickup-title">取餐</view>
+      <view class="pickup-status">
+        <block wx:if="{{phase === 'ready'}}">校验通过，点击「打开舱门」取餐</block>
+        <block wx:elif="{{phase === 'open'}}">舱门已打开，请取走您的餐品</block>
+        <block wx:elif="{{phase === 'autoClosed'}}">舱门已自动关闭</block>
+        <block wx:elif="{{phase === 'done'}}">取餐完成</block>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="section-title">取餐凭证</view>
+      <view class="info-row text-sub"><text>订单号</text><text>{{order.order_no}}</text></view>
+      <view class="info-row text-sub"><text>取餐码</text><text class="pickup-code">{{order.pickup_code}}</text></view>
+      <view class="info-row text-sub"><text>送达点位</text><text>{{order.landmark_name}}</text></view>
+    </view>
+
+    <!-- 一车多单诚实化提示：本车同批订单，按订单号核对后取走自己的餐 -->
+    <view class="card" wx:if="{{order.batch_order_count > 1}}">
+      <view class="section-title">本车共 {{order.batch_order_count}} 单</view>
+      <view class="batch-order-row" wx:for="{{order.batch_orders}}" wx:key="id">
+        <text class="batch-order-no {{item.id === order.order_id ? 'mine' : ''}}">订单 {{item.daily_seq}}</text>
+        <text class="batch-order-lm text-weak text-sm">{{item.landmark_name}}</text>
+        <text class="batch-order-tag" wx:if="{{item.id === order.order_id}}">本单</text>
+      </view>
+      <view class="text-weak text-sm" style="margin-top:16rpx;">单舱多单无法完全隔离，请按订单号核对后取走自己的餐，勿错拿他人餐品。</view>
+    </view>
+
+    <view class="bin-card" wx:if="{{phase === 'ready' || phase === 'open' || phase === 'autoClosed'}}">
+      <view class="bin-circle {{phase === 'open' ? 'on' : ''}}">
+        <text class="bin-circle-text">{{phase === 'open' ? '开' : '关'}}</text>
+      </view>
+      <view class="bin-state">{{phase === 'open' ? '舱门已开启' : (phase === 'autoClosed' ? '舱门已关闭' : '舱门待开启')}}</view>
+      <view class="bin-countdown" wx:if="{{phase === 'open'}}">{{countdown}}s 后自动关舱</view>
+      <view class="bin-tip text-weak text-sm" wx:if="{{phase === 'autoClosed'}}">长时间未关闭已自动关舱，若未取到餐可点击重新打开</view>
+    </view>
+
+    <view class="foot-actions">
+      <view class="btn btn-block" wx:if="{{phase === 'ready'}}" bindtap="openBin">打开舱门</view>
+      <view class="btn btn-block" wx:if="{{phase === 'open'}}" bindtap="closeBin">关闭舱门</view>
+      <view class="btn btn-block" wx:if="{{phase === 'autoClosed'}}" bindtap="reopen">重新打开</view>
+      <view class="btn btn-block" wx:if="{{phase === 'done'}}" bindtap="done">完成</view>
+    </view>
+  </block>
+</view>

@@ -3,12 +3,13 @@
     <view class="login-logo">
       <t-icon name="robot-1" size="26" color="#3078C0" />
     </view>
-    <view class="login-title">零栋无人送餐</view>
-    <view class="login-sub">机器人配送 校园点餐新体验</view>
+    <view class="login-title">零栋GO</view>
+    <view class="login-sub">无人车配送 校园点餐新体验</view>
   </view>
 
   <view class="login-actions">
-    <view class="btn btn-block" bindtap="wechatLogin">微信一键登录</view>
+    <view class="btn btn-block {{logging ? 'btn-disabled' : ''}}" bindtap="wechatLogin">{{loginDemo ? '模拟登录（演示）' : '微信一键登录'}}</view>
+    <view class="login-tip text-weak text-sm" wx:if="{{loginDemo}}">当前后端未配置用户端微信凭据，登录为演示模式（不产生真实微信身份）</view>
     <view class="login-tip text-weak text-sm">登录即同意《用户协议》与《隐私政策》</view>
   </view>
 </view>

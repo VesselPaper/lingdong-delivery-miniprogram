@@ -815,6 +815,71 @@ async function loadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
+// ---------------- 无人车位置门禁（需求3：配单/上货必须先确认车在上货点） ----------------
+// 判据：设备实时位置（eviz robotpose）与 loadingPoint 点位坐标距离 ≤ 阈值；
+// 兜底：该设备最近任务状态 ∈ {30,40}（30=到达上货点 / 40=上货中）视为已就位。
+// MOCK 档恒 ok（demo 冒烟不受影响）；位置/设备拿不到 → 保守拒绝，宁可挡住不可假装。
+const LOADING_RADIUS_M = Number(process.env.LOADING_POINT_RADIUS_M || 5)
+
+async function robotAtLoadingPoint(store, deviceSn) {
+  if (MOCK) return { ok: true, at_loading_point: true, distance_m: 0 }
+  if (!deviceSn) return { ok: false, msg: '缺少设备编号', at_loading_point: false, distance_m: null }
+  const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
+  if (!loading) return { ok: false, msg: '未配置上货点（loadingPoint）点位', at_loading_point: false, distance_m: null }
+  // 任务状态兜底：该设备最近任务已到达上货点/上货中
+  const t = store.prepare("SELECT * FROM delivery_tasks WHERE device_sn=? AND void_at IS NULL ORDER BY id DESC LIMIT 1").get(deviceSn)
+  if (t && [30, 40].includes(Number(t.task_status))) {
+    return { ok: true, at_loading_point: true, distance_m: 0, by_task_status: true }
+  }
+  // 上货点坐标缺失时无法算距离，只能依赖任务状态（上面已判）
+  const lx = Number(loading.pos_x)
+  const ly = Number(loading.pos_y)
+  if (!Number.isFinite(lx) || !Number.isFinite(ly) || (lx === 0 && ly === 0)) {
+    return { ok: false, msg: '上货点未同步平台坐标，无法判断无人车是否就位', at_loading_point: false, distance_m: null }
+  }
+  const pos = t ? await getDevicePosition(store, t.id) : null
+  if (!pos || isNaN(pos.x) || isNaN(pos.y)) {
+    return { ok: false, msg: '无法获取无人车位置，请确认无人车在线并到达上货点', at_loading_point: false, distance_m: null }
+  }
+  const dx = Number(pos.x) - lx
+  const dy = Number(pos.y) - ly
+  const dist = Math.sqrt(dx * dx + dy * dy)
+  if (dist <= LOADING_RADIUS_M) {
+    return { ok: true, at_loading_point: true, distance_m: Math.round(dist * 100) / 100 }
+  }
+  return {
+    ok: false,
+    msg: `无人车未在上货点（距上货点约 ${Math.round(dist)} 米），请等待其返回后再上货`,
+    at_loading_point: false,
+    distance_m: Math.round(dist * 100) / 100
+  }
+}
+
+// 无人车是否空闲可接单（派车门禁用）：
+// 存在 50-79 活跃任务（配送中/待取餐）算忙；设备列表状态为配送/巡逻/异常/离线/运维/升级算忙；
+// 设备列表查不到该车 → 保守拒绝。MOCK 档恒空闲。
+async function isRobotBusy(store, deviceSn) {
+  if (MOCK) return { ok: true, busy: false, msg: '' }
+  if (!deviceSn) return { ok: false, busy: true, msg: '缺少设备编号' }
+  const active = store.prepare(`
+    SELECT COUNT(*) c FROM delivery_tasks d JOIN orders o ON o.id = d.order_id
+    WHERE d.device_sn=? AND d.void_at IS NULL AND d.task_status BETWEEN 50 AND 79`).get(deviceSn)
+  if (active && Number(active.c) > 0) return { ok: false, busy: true, msg: '无人车正在配送中，请等其返回后再派车' }
+  const r = await getDeviceList()
+  if (r.ok && r.robots && r.robots.length) {
+    const me = r.robots.find((x) => x.device_sn === deviceSn)
+    if (me) {
+      if (!me.online) return { ok: false, busy: true, msg: '无人车当前离线，无法派车' }
+      const busyStatus = ['Delivery', 'delivery', 'patrol', 'Patrol', 'exception', 'remoteDevOps', 'update', 'interaction', 'lightTask']
+      if (busyStatus.includes(me.machine_status)) {
+        return { ok: false, busy: true, msg: '无人车正在' + (me.machine_text || '忙碌') + '，请等其空闲后再派车' }
+      }
+      return { ok: true, busy: false, msg: '' }
+    }
+  }
+  return { ok: false, busy: true, msg: '无法确认无人车状态（设备列表查询失败或未找到该车）' }
+}
+
 // ---------------- 取消/退款时的真实召回（P0-4 修复） ----------------
 // 排队中（未被机器人拉取，task_status<10）→ 取消排队任务；已上货/途中 → 强制关闭任务（舱内有货自动开舱让用户取货）。
 // 本地库是唯一真相源：召回失败只记 recall_status=2 待人工，绝不回滚本地取消。
@@ -885,4 +950,4 @@ async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, createTasksForBatch, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask }
+module.exports = { createQueueTask, createTasksForBatch, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, isRobotBusy }

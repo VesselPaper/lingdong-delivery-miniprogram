@@ -202,5 +202,12 @@ Page({
   goDetailByOrder(e) {
     const o = e.detail || {}
     if (o && o.id) wx.navigateTo({ url: '/pages/orders/detail?id=' + o.id })
+  },
+
+  // 本车二维码 → 打印贴车（商家配单上货 / 用户扫码取餐共用此码）
+  goRobotQr(e) {
+    const sn = (e.currentTarget.dataset && e.currentTarget.dataset.sn) || ''
+    if (!sn) return
+    wx.navigateTo({ url: '/pages/device/robotQr?sn=' + encodeURIComponent(sn) })
   }
 })

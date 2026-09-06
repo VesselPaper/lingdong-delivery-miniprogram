@@ -99,7 +99,7 @@
       <text class="pay-price">¥{{total}}</text>
     </view>
     <view class="btn {{submitting || shopClosed ? 'btn-disabled' : ''}}" bindtap="submit" style="flex-shrink:0; margin-left:24rpx; padding:0 64rpx;">
-      {{shopClosed ? '店铺歇业' : (submitting ? '提交中...' : '支付')}}
+      {{shopClosed ? '店铺歇业' : (submitting ? '提交中...' : (payMock ? '模拟支付' : '支付'))}}
     </view>
   </view>
 
