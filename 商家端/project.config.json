@@ -1,7 +1,16 @@
 {
   "desc": "零栋商家小程序商家端",
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "value": "小程序头像",
+        "type": "folder"
+      },
+      {
+        "value": "示例设计图",
+        "type": "folder"
+      }
+    ],
     "include": []
   },
   "setting": {
@@ -10,6 +19,7 @@
     "enhance": true,
     "postcss": true,
     "minified": true,
+    "ignoreUploadUnusedFiles": true,
     "compileWorklet": false,
     "uglifyFileName": false,
     "uploadWithSourceMap": true,

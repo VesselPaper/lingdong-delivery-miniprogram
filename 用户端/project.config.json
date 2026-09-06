@@ -5,6 +5,10 @@
       {
         "value": "示例设计图",
         "type": "folder"
+      },
+      {
+        "value": "小程序头像",
+        "type": "folder"
       }
     ],
     "include": []
@@ -15,6 +19,7 @@
     "enhance": true,
     "postcss": true,
     "minified": true,
+    "ignoreUploadUnusedFiles": true,
     "compileWorklet": false,
     "uglifyFileName": false,
     "uploadWithSourceMap": true,
