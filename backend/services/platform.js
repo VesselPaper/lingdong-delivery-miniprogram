@@ -357,6 +357,8 @@ async function pickAvailableRobot() {
 // 每单一个平台任务（outOrderNo 独立、取餐码独立），同一批次所有任务共用同一设备/货仓；
 // 停靠顺序来自批次 route，按 stop 顺序创建并以 priority 递减提示平台按序配送。
 async function createTasksForBatch(store, batch, orders, route) {
+  // 防御：用最新批次行（派车流程会在中途写入 device_sn，调用方传入的对象可能仍是旧值）
+  batch = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(batch.id) || batch
   const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get() || null
   const stopOfOrder = new Map() // orderId -> { stop, priority }
   route.forEach((stop) => {
@@ -429,6 +431,8 @@ async function realDispatchBatch(store, taskId, order, loading, unloading, batch
     consigneePrincipalPhone: order.contact_phone || ''
   }
   try {
+    // 排队任务（queue/create）：完整上货流程。注：机器人充电中不拉取排队任务（见 逻辑树/树 图四），
+    // 待与越凡确认待机策略后再切换为可用派车方式。
     const r = await requestPlatform('POST', '/open-api/v1/deliveryTask/queue/create', body)
     const ok = r && (r.code === 'COMM_200' || r.success === true)
     if (ok) {
@@ -534,6 +538,8 @@ async function realDispatch(store, taskId, order, loading, unloading) {
     consigneePrincipalPhone: order.contact_phone || ''
   }
   try {
+    // 排队任务（queue/create）：完整上货流程。注：机器人充电中不拉取排队任务（见 逻辑树/树 图四），
+    // 待与越凡确认待机策略后再切换为可用派车方式。
     const r = await requestPlatform('POST', '/open-api/v1/deliveryTask/queue/create', body)
     const ok = r && (r.code === 'COMM_200' || r.success === true)
     if (ok) {

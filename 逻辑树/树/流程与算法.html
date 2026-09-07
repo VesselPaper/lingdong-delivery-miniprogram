@@ -167,6 +167,35 @@ flowchart LR
 </pre>
 </div>
 
+<div class="card">
+  <h2>四、真机派车机制实测（2026-09-07 记录）</h2>
+  <p style="margin:0 0 8px;color:#666;font-size:13px">图一是目标流程。本节记录第一次真机联调时平台的真实行为，以及据此确定的下一步待办。颜色约定同图一。</p>
+<pre class="mermaid">
+flowchart TB
+    T1["现象：机器人待机后自动回充电桩充电"]:::dec
+    T1 --> T2["目标：充电中也应能执行配送任务"]:::mer
+    T2 --> T3{"方式① 排队任务"}:::dec
+    T3 -->|实测| T4["有完整上货流程 去上货点 开舱 上货 关舱 派发"]:::bot
+    T4 --> T5["但充电中不拉取任务 30秒无响应 与是否指定设备无关"]:::err
+    T2 --> T6{"方式② 直接下发"}:::dec
+    T6 -->|实测| T7["充电中能收到任务并执行"]:::bot
+    T7 --> T8["但平台视为货已在舱 开舱验证报 不在取货阶段"]:::err
+    T8 --> T9["且机器人去上货点会卡住原地转圈"]:::err
+    T2 --> T10{"方式③ 独立舱门控制 drawerCtrl"}:::dec
+    T10 -->|实测| T11["可单独开关舱门 不受任务状态限制"]:::bot
+    T5 --> T12["结论：三条路各缺一半 流程暂未打通"]:::dec
+    T9 --> T12
+    T12 --> T13["待办① 联系越凡：改机器人待机配置 待机点不充电 让排队任务可拉取"]:::mer
+    T12 --> T14["待办② 联系越凡：确认直接下发为何卡在去上货点转圈"]:::mer
+    T12 --> T15["备选方案：直接下发加独立开舱 组合流程待与越凡确认后验证"]:::mer
+    classDef user fill:#e7f5ff,stroke:#1971c2,color:#1864ab;
+    classDef mer fill:#ffe8cc,stroke:#d9480f,color:#d9480f;
+    classDef bot fill:#d3f9d8,stroke:#2f9e44,color:#2b8a3e;
+    classDef dec fill:#ffe3e3,stroke:#c92a2a,color:#c92a2a;
+    classDef err fill:#ffc9c9,stroke:#c92a2a,color:#a61e1e;
+</pre>
+</div>
+
 <footer>需要联网加载渲染引擎（jsdelivr CDN）｜若显示异常请检查网络后刷新</footer>
 
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>

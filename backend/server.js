@@ -1254,6 +1254,8 @@ async function doDispatchBatch(store, batchId, deviceSn) {
     const route = batch.planRoute(store, orders)
     store.prepare("UPDATE delivery_batches SET device_sn=?, route=?, updated_at=datetime('now','localtime') WHERE id=?")
       .run(sn, JSON.stringify(route), batchId)
+    // 同步内存中的批次对象，供 createTasksForBatch 取 device_sn（它创建平台任务必须指定设备）
+    b.device_sn = sn
     // 3. 为批次内每单创建平台任务（真实创建排队任务 / 本地 Mock）
     await platform.createTasksForBatch(store, b, orders, route)
     // 4. 兜底置为配送中（已由并入批次时置 2）
