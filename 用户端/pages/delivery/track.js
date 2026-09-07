@@ -8,11 +8,19 @@ Page({
     task: null,
     position: null,
     percent: null,           // P1-12：后端按地图 bbox 归一化的百分比坐标 {x,y}，无真实坐标时为 null
+    map: null,               // 地图数据：{ bbox, landmarks[], route[] }（landmarks/route 均为百分比坐标）
     taskText: '等待接单',
     progressPercent: 0,
     progressStep: 0,
     posX: 10,
     posY: 80,
+    // 地图缩放/平移（自绘地图，非微信 map 组件：平台坐标为 SLAM 米制，无经纬度）
+    mapScale: 1,
+    mapScaleMin: 0.8,
+    mapScaleMax: 4,
+    mapOffsetX: 0,
+    mapOffsetY: 0,
+    mapMoving: false,
     empty: false,
     loading: false
   },
@@ -99,6 +107,7 @@ Page({
         batch: data.batch || null,
         position: data.position || null,
         percent: data.percent || null,
+        map: data.map || null,
         taskText,
         progressPercent: percent,
         progressStep: step,
@@ -115,8 +124,76 @@ Page({
     this.load()
   },
 
-  goOrder() {
-    wx.switchTab({ url: '/pages/index/index' })
+  noop() {},
+
+  // 路线折线段：两点百分比坐标 → 线段长度（%）与角度（deg）
+  routeSegLen(a, b) {
+    const dx = Number(b.x) - Number(a.x)
+    const dy = Number(b.y) - Number(a.y)
+    return Math.sqrt(dx * dx + dy * dy)
+  },
+
+  routeSegDeg(a, b) {
+    const dx = Number(b.x) - Number(a.x)
+    const dy = Number(b.y) - Number(a.y)
+    // CSS 坐标 y 向下，百分比坐标 y 向下（已按 bbox 归一化），atan2 直接算
+    return Math.round(Math.atan2(dy, dx) * 180 / Math.PI)
+  },
+
+  // ---------- 地图缩放/平移（自绘地图） ----------
+  onMapTouchStart(e) {
+    const t = e.touches || []
+    if (t.length >= 2) {
+      // 双指：记录初始距离与中心，进入缩放模式
+      const d = Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
+      this._pinch = { dist: d, scale: this.data.mapScale }
+    } else {
+      // 单指：记录起点，进入平移模式
+      this._pan = { x: t[0] && t[0].clientX, y: t[0] && t[0].clientY, ox: this.data.mapOffsetX, oy: this.data.mapOffsetY }
+      this.setData({ mapMoving: true })
+    }
+  },
+
+  onMapTouchMove(e) {
+    const t = e.touches || []
+    if (this._pinch && t.length >= 2) {
+      const d = Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
+      if (this._pinch.dist > 0) {
+        const next = this._pinch.scale * (d / this._pinch.dist)
+        this.applyMapScale(next)
+      }
+    } else if (this._pan && t.length === 1) {
+      const dx = t[0].clientX - this._pan.x
+      const dy = t[0].clientY - this._pan.y
+      this.setData({
+        mapOffsetX: this._pan.ox + dx,
+        mapOffsetY: this._pan.oy + dy
+      })
+    }
+  },
+
+  onMapTouchEnd() {
+    this._pinch = null
+    this._pan = null
+    this.setData({ mapMoving: false })
+  },
+
+  // 应用缩放（以地图中心为锚点，限制范围）
+  applyMapScale(next) {
+    const s = Math.max(this.data.mapScaleMin, Math.min(this.data.mapScaleMax, next))
+    this.setData({ mapScale: s })
+  },
+
+  onZoomIn() {
+    this.applyMapScale(this.data.mapScale * 1.3)
+  },
+
+  onZoomOut() {
+    this.applyMapScale(this.data.mapScale / 1.3)
+  },
+
+  onMapReset() {
+    this.setData({ mapScale: 1, mapOffsetX: 0, mapOffsetY: 0 })
   },
 
   // 扫码取餐（需求5）：进入扫码取餐页 —— 扫无人车二维码 + 输取餐码定位本人订单

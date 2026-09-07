@@ -29,18 +29,42 @@
       </view>
     </view>
 
-    <!-- P1-12：地图卡仅在拿到真实坐标百分比时渲染（percent 非空）；mock 档无真实坐标，走下方文本展示 -->
-    <view class="map-card" wx:if="{{percent}}">
-      <view class="map-grid"></view>
-      <view class="map-route"></view>
-      <view class="map-robot" style="left: {{posX}}%; top: {{posY}}%;">
-        <view class="map-robot-dot"><t-icon name="robot-1" size="14" color="#ffffff" /></view>
+    <!-- 自绘地图：可双指缩放/平移，显示全部点位 + 配送路线 + 机器人实时位置（平台为 SLAM 坐标，无经纬度，故不用微信 map 组件） -->
+    <view class="map-card" wx:if="{{map && map.landmarks}}">
+      <view class="map-canvas"
+        style="transform: scale({{mapScale}}) translate({{mapOffsetX}}px, {{mapOffsetY}}px);"
+        catchtouchstart="onMapTouchStart"
+        catchtouchmove="onMapTouchMove"
+        catchtouchend="onMapTouchEnd"
+        catchtouchcancel="onMapTouchEnd">
+        <!-- 网格底图 -->
+        <view class="map-grid"></view>
+        <!-- 路线折线：相邻停靠点连线（hidden 在 wx:for 内求值，index 可用；wx:if 会先于 for 求值导致 index 不可用） -->
+        <view wx:for="{{map.route}}" wx:key="index" hidden="{{index === 0}}"
+          class="map-route-seg" style="left: {{map.route[index-1].x}}%; top: {{map.route[index-1].y}}%; width: {{routeSegLen(map.route[index-1], item)}}%; transform: rotate({{routeSegDeg(map.route[index-1], item)}}deg);">
+        </view>
+        <!-- 全部点位 -->
+        <view wx:for="{{map.landmarks}}" wx:key="id"
+          class="map-landmark {{item.type === 'loadingPoint' ? 'is-loading' : ''}}"
+          style="left: {{item.x}}%; top: {{item.y}}%;">
+          <view class="map-landmark-dot"></view>
+          <view class="map-landmark-name">{{item.name}}</view>
+        </view>
+        <!-- 目的地高亮（本单送达点） -->
+        <view class="map-dest" wx:if="{{percent}}" style="left: {{posX}}%; top: {{posY}}%; opacity: 0;"></view>
+        <!-- 机器人实时位置 -->
+        <view class="map-robot" wx:if="{{percent}}" style="left: {{posX}}%; top: {{posY}}%;">
+          <view class="map-robot-dot"><t-icon name="robot-1" size="14" color="#ffffff" /></view>
+        </view>
       </view>
-      <view class="map-dest" style="left: 80%; top: 76%;">
-        <t-icon name="location" size="20" color="#3078C0" />
+      <!-- 缩放控制条 -->
+      <view class="map-zoombar" catchtap="noop">
+        <view class="map-zoom-btn" catchtap="onZoomIn">＋</view>
+        <view class="map-zoom-btn" catchtap="onZoomOut">－</view>
+        <view class="map-zoom-btn" catchtap="onMapReset">复位</view>
       </view>
       <view class="map-tip">
-        <text class="text-sm">{{order.landmark_name}}</text>
+        <text class="text-sm">{{order.landmark_name}} · 双指缩放查看</text>
       </view>
     </view>
 

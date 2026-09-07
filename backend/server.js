@@ -813,12 +813,51 @@ app.get('/api/delivery/track', auth, async (req, res) => {
     try {
       const bb = await platform.getMapBbox(store)
       if (bb && bb.maxX > bb.minX && bb.maxY > bb.minY) {
-        const rx = Math.max(0, Math.min(1, (Number(pos.x) - bb.minX) / (bb.maxX - bb.minX)))
-        const ry = Math.max(0, Math.min(1, (Number(pos.y) - bb.minY) / (bb.maxY - bb.minY)))
-        percent = { x: Math.round(rx * 100), y: Math.round((1 - ry) * 100) }
+        // 与 map.landmarks/route 同用 8% 内边距归一化，保证机器人位置与点位/路线对齐
+        const PAD = 8
+        const rx = PAD + ((Number(pos.x) - bb.minX) / (bb.maxX - bb.minX)) * (100 - 2 * PAD)
+        const ry = PAD + (1 - (Number(pos.y) - bb.minY) / (bb.maxY - bb.minY)) * (100 - 2 * PAD)
+        percent = { x: Math.round(rx), y: Math.round(ry) }
       }
     } catch (e) { /* 地图元数据不可用则不下发 percent，前端走文本展示 */ }
   }
+  // 地图数据：bbox + 全部点位（归一化为百分比坐标）+ 批次路线停靠点百分比序列，
+  // 供用户端追踪页渲染「可缩放自绘地图」（点位标记 + 路线折线 + 机器人实时位置）。
+  let map = null
+  try {
+    const bb = await platform.getMapBbox(store)
+    if (bb && bb.maxX > bb.minX && bb.maxY > bb.minY) {
+      const toPct = (x, y) => {
+        // 8% 内边距，避免点位贴边显示不全
+        const PAD = 8
+        return {
+          x: Math.round(PAD + ((Number(x) - bb.minX) / (bb.maxX - bb.minX)) * (100 - 2 * PAD)),
+          y: Math.round(PAD + (1 - (Number(y) - bb.minY) / (bb.maxY - bb.minY)) * (100 - 2 * PAD))
+        }
+      }
+      const pts = store.prepare("SELECT id,name,type,pos_x,pos_y FROM landmarks WHERE pos_x IS NOT NULL AND pos_y IS NOT NULL").all()
+      const landmarks = pts.map((p) => Object.assign({ id: p.id, name: p.name, type: p.type }, toPct(p.pos_x, p.pos_y)))
+      // 路线：批次停靠点坐标（含上货点起点）
+      let route = []
+      if (order.batch_id) {
+        const b = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(order.batch_id)
+        if (b && b.route) {
+          const stops = JSON.parse(b.route)
+          const loading = store.prepare("SELECT pos_x,pos_y FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
+          if (loading && Number.isFinite(Number(loading.pos_x))) {
+            route.push(Object.assign({ name: '商铺上货' }, toPct(loading.pos_x, loading.pos_y)))
+          }
+          for (const s of stops) {
+            const lm = store.prepare('SELECT name,pos_x,pos_y FROM landmarks WHERE id=?').get(s.landmark_id)
+            if (lm && Number.isFinite(Number(lm.pos_x))) {
+              route.push(Object.assign({ name: lm.name }, toPct(lm.pos_x, lm.pos_y)))
+            }
+          }
+        }
+      }
+      map = { bbox: bb, landmarks, route }
+    }
+  } catch (e) { /* 地图数据不可用则不下发 map，前端走文本展示 */ }
   // 一车多单：同批次信息（一个仓多个人拿 → 告知用户本车共几单、已取几单）
   let batchInfo = null
   if (order.batch_id) {
@@ -854,6 +893,7 @@ app.get('/api/delivery/track', auth, async (req, res) => {
     task_text: taskText,
     position: pos,
     percent,
+    map,
     batch: batchInfo
   })
 })

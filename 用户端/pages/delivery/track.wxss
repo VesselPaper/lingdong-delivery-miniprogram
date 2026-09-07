@@ -80,38 +80,85 @@
 
 .map-card {
   position: relative;
-  height: 320rpx;
-  background: #DCE9F8;
+  height: 520rpx;
+  background: #EAF2FA;
   border-radius: 12rpx;
   overflow: hidden;
   margin-bottom: 20rpx;
 }
 
+/* 缩放/平移的画布容器：整个内容一起变换 */
+.map-canvas {
+  position: absolute;
+  inset: 0;
+  transform-origin: center center;
+  transition: transform 0.05s linear;
+}
+
 .map-grid {
   position: absolute;
   inset: 0;
-  background: #DCE9F8;
+  background:
+    linear-gradient(rgba(48,120,192,0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(48,120,192,0.10) 1px, transparent 1px),
+    #EAF2FA;
+  background-size: 44rpx 44rpx;
 }
 
-.map-route {
+/* 路线折线段：以起点为锚，旋转角度 + 宽度即长度（百分比相对容器宽） */
+.map-route-seg {
   position: absolute;
-  left: 8%; top: 76%;
-  width: 72%;
-  height: 4rpx;
+  height: 6rpx;
   background: #3078C0;
-  transform: rotate(-28deg);
+  border-radius: 3rpx;
   transform-origin: left center;
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
+/* 点位标记 */
+.map-landmark {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.map-landmark-dot {
+  width: 18rpx;
+  height: 18rpx;
+  border-radius: 50%;
+  background: #94A3B8;
+  border: 4rpx solid #ffffff;
+  box-shadow: 0 0 0 2rpx rgba(148,163,184,0.5);
+}
+
+.map-landmark.is-loading .map-landmark-dot {
+  background: #F59F00;
+  box-shadow: 0 0 0 2rpx rgba(245,159,0,0.5);
+}
+
+.map-landmark-name {
+  margin-top: 2rpx;
+  font-size: 18rpx;
+  color: #475569;
+  white-space: nowrap;
+  background: rgba(255,255,255,0.85);
+  padding: 0 6rpx;
+  border-radius: 4rpx;
+}
+
+/* 机器人实时位置 */
 .map-robot {
   position: absolute;
+  transform: translate(-50%, -50%);
   transition: all 0.6s ease;
+  z-index: 3;
 }
 
 .map-robot-dot {
-  width: 64rpx;
-  height: 64rpx;
+  width: 56rpx;
+  height: 56rpx;
   border-radius: 50%;
   background: #3078C0;
   border: 4rpx solid #ffffff;
@@ -119,10 +166,36 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
+  box-shadow: 0 4rpx 12rpx rgba(48,120,192,0.4);
 }
 
 .map-dest {
   position: absolute;
+}
+
+/* 缩放控制条 */
+.map-zoombar {
+  position: absolute;
+  right: 16rpx;
+  bottom: 64rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  z-index: 4;
+}
+
+.map-zoom-btn {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 10rpx;
+  background: rgba(255,255,255,0.95);
+  box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #3078C0;
 }
 
 .map-tip {
@@ -130,6 +203,7 @@
   left: 0; right: 0; bottom: 8rpx;
   text-align: center;
   color: #111111;
+  z-index: 4;
 }
 
 .pickup-code {
