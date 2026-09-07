@@ -7,6 +7,8 @@
     <view class="login-sub">商家登录管理商品与配送</view>
   </view>
 
+  <!-- 【临时放开】测试阶段免邀请码登录，邀请码输入框注释掉；恢复时取消注释即可 -->
+  <!--
   <view class="login-code">
     <view class="login-code-head">
       <text class="login-code-label">商家邀请码</text>
@@ -22,6 +24,7 @@
     />
     <view class="login-code-tip text-weak text-sm">商家权限只能凭邀请码授予，客户端无法自行声明身份。</view>
   </view>
+  -->
 
   <view class="login-actions">
     <view class="btn btn-block {{logging ? 'btn-disabled' : ''}}" bindtap="wechatLogin">{{loginDemo ? '模拟登录（演示）' : '微信一键登录'}}</view>
