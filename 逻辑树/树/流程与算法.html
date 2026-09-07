@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>送餐无人车 · 流程与算法</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
+    background: #f2f4f7; margin: 0; padding: 28px 20px 60px; color: #1f2937;
+  }
+  h1 { text-align: center; font-size: 26px; margin: 0 0 6px; }
+  .sub { text-align: center; color: #6b7280; font-size: 14px; margin-bottom: 28px; }
+  .card {
+    background: #fff; border-radius: 14px; padding: 22px 18px 14px;
+    margin: 0 auto 30px; max-width: 1500px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.07);
+  }
+  .card h2 {
+    font-size: 18px; margin: 0 0 4px; padding-left: 12px;
+    border-left: 5px solid #1971c2; color: #1864ab;
+  }
+  .legend { color: #868e96; font-size: 13px; margin: 6px 0 14px 12px; }
+  .legend span { margin-right: 14px; }
+  .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .mermaid { display: flex; justify-content: center; overflow-x: auto; padding: 6px 0 10px; }
+  .err { color: #c92a2a; text-align: center; font-size: 14px; padding: 10px; }
+  footer { text-align: center; color: #adb5bd; font-size: 12px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>送餐无人车 · 流程与算法</h1>
+<div class="sub">Mermaid 纯文本版（源码见同目录 流程与算法.md）｜布局自动排版，改文字即可更新</div>
+
+<div class="card">
+  <h2>一、主流程（下单 → 组单 → 派车 → 上货 → 真实配送 → 扫码取餐）</h2>
+  <div class="legend">
+    <span><span class="sw" style="background:#e7f5ff;border:2px solid #1971c2;"></span>用户端</span>
+    <span><span class="sw" style="background:#ffe8cc;border:2px solid #d9480f;"></span>商家端·后端</span>
+    <span><span class="sw" style="background:#d3f9d8;border:2px solid #2f9e44;"></span>机器人</span>
+    <span><span class="sw" style="background:#ffe3e3;border:2px solid #c92a2a;"></span>决策点</span>
+    <span><span class="sw" style="background:#ffc9c9;border:2px solid #c92a2a;"></span>异常/错误返回</span>
+  </div>
+<pre class="mermaid">
+flowchart TB
+    U1["① 用户：下单 选点位·收餐人"]:::user --> U2["② 用户：模拟支付 0.01元"]:::user
+    U2 -->|支付成功| M1["商家：新订单待接单"]:::mer
+    M1 --> D1{"自动接单已开启？"}:::dec
+    D1 -->|是| M2["商家：自动并入组单批次"]:::mer
+    D1 -->|否| M3["商家：点接单确认并入"]:::mer
+    M2 --> A1a["后端：计算本单商品件数 n（SUM quantity）"]:::mer
+    M3 --> A1a
+    A1a --> D1b{"存在组单中批次 且 实时已装件数＋n ≤ 12？"}:::dec
+    D1b -->|是| A1b["并入：取已装最多的组单中批次（同多取最新）"]:::mer
+    D1b -->|否| A1c["新建批次：BD＋随机码 当日序号＋1（大单也走新建）"]:::mer
+    A1b --> M4["后端：批次成立 状态0 组单中"]:::mer
+    A1c --> M4
+    M4 --> D2{"派车方式？"}:::dec
+    D2 -->|自动| M5["商家：批次满12件 或 成立后等待满90秒 自动派车"]:::mer
+    D2 -->|手动| M6["商家：点派车选择机器人"]:::mer
+    M5 --> P1["后端：确认机器人 未指定则自动选空闲车"]:::mer
+    M6 --> P1
+    P1 --> D1c{"机器人空闲校验通过？"}:::dec
+    D1c -->|否| E2b["报错：机器人忙 请换车"]:::err
+    E2b -.->|换车重试| P1
+    D1c -->|是| P2{"CAS 抢占 批次状态0变1 成功？"}:::dec
+    P2 -->|否| E2c["报错：该批次已派车 不能重复派车"]:::err
+    E2c -.->|重新派车| P1
+    P2 -->|是| P3["后端：查询批次内订单（空则回滚到组单中）"]:::mer
+    P3 --> A2a["路径规划：订单按点位分组 同点位多单合并一站"]:::mer
+    A2a --> D1d{"平台点位已同步坐标？"}:::dec
+    D1d -->|是| A2b["贪心最近邻：从上货点出发 每次去最近未访问点位"]:::mer
+    D1d -->|否| A2c["按点位 sort 顺序生成路线"]:::mer
+    A2b --> A2d["停靠顺序写入 batch.route"]:::mer
+    A2c --> A2d
+    A2d --> P4["后端：按路线停靠顺序创建平台任务 第一站优先"]:::mer
+    P4 --> P5["后端：批次状态1 待上货"]:::mer
+    P5 -->|调度| R1["机器人：被调度前往上货点"]:::bot
+    P5 --> M8["商家：上货页扫码识别LD-R"]:::mer
+    M8 --> D3{"匹配到待上货批次？"}:::dec
+    D3 -->|否| E1["404 请先派车并指定本机器人"]:::err
+    D3 -->|是| M9["后端：授予控制权·查询就位"]:::mer
+    R1 --> R2["机器人：到达上货点 任务30"]:::bot
+    M9 --> M10["商家：展示 已就位 距上货点N米"]:::mer
+    M10 --> D4{"机器人已到上货点≤5米？"}:::dec
+    D4 -->|否| E2["400 拒绝开舱 等待到位"]:::err
+    D4 -->|是| M11["③ 开舱上货"]:::mer
+    R2 --> R3["机器人：上货中 任务40"]:::bot
+    M11 -->|开舱| R3
+    M11 --> M12["④ 关舱锁抽屉"]:::mer
+    M12 -->|关舱| R4["机器人：已上货 任务50"]:::bot
+    M12 --> M13["⑤ 滑块派发"]:::mer
+    M13 -->|派发| R5["机器人：去往取货点 任务60"]:::bot
+    M13 --> M14["后端：批次状态2 配送中"]:::mer
+    R5 --> R6["机器人：到达取货点 任务70"]:::bot
+    R6 -->|⑥ 已送达| U4["用户：机器人已送达 扫码取餐"]:::user
+    U4 --> U5["⑦ 用户：扫LD-R车身码·取餐码"]:::user
+    U5 --> U6["⑧ 开舱取餐 40秒"]:::user
+    U6 -->|取餐开舱| R7["机器人：取餐完成 任务80"]:::bot
+    U6 --> U7["⑨ 关舱 订单完成"]:::user
+    classDef user fill:#e7f5ff,stroke:#1971c2,color:#1864ab;
+    classDef mer fill:#ffe8cc,stroke:#d9480f,color:#d9480f;
+    classDef bot fill:#d3f9d8,stroke:#2f9e44,color:#2b8a3e;
+    classDef dec fill:#ffe3e3,stroke:#c92a2a,color:#c92a2a;
+    classDef err fill:#ffc9c9,stroke:#c92a2a,color:#a61e1e;
+</pre>
+</div>
+
+<div class="card">
+  <h2>二、异常与兜底（取消退款 / 配送异常 / 取餐超时）</h2>
+<pre class="mermaid">
+flowchart LR
+    subgraph C1["异常① 取消与退款"]
+        direction TB
+        x1[用户或商家取消订单] --> x2[本地落账：退款·库存回补]
+        x2 --> x3[平台召回机器人]
+        x3 -->|召回成功| x4[批次取消·状态4 已取消]
+        x3 -->|召回失败| x5[标记待人工处理]
+    end
+    subgraph C2["异常② 配送异常"]
+        direction TB
+        y1[配送异常上报] --> y2{商家二选一}
+        y2 -->|继续配送| y3[忽略异常 任务继续]
+        y2 -->|终止配送| y4[召回机器人·批次取消]
+        y4 --> y5[check-order 兜底查询终态]
+    end
+    subgraph C3["异常③ 取餐超时"]
+        direction TB
+        z1[取餐超时] --> z2[幂等打标 防重复处理]
+        z2 --> z3{终态守卫：订单已完结？}
+        z3 -->|否| z4[按超时规则处理]
+        z3 -->|是| z5[忽略 保持终态]
+    end
+    classDef err fill:#ffe3e3,stroke:#c92a2a,color:#c92a2a;
+    class x5,y4,z2,z4 err;
+</pre>
+</div>
+
+<div class="card">
+  <h2>三、状态机（任务 · 批次 · 订单）</h2>
+<pre class="mermaid">
+flowchart LR
+    subgraph S1["机器人任务状态"]
+        direction LR
+        s0[排队0] --> s30[到达上货点30] --> s40[上货中40] --> s50[已上货50] --> s60[去往取货点60] --> s70[到达取货点70] --> s80[任务完成80]
+    end
+    subgraph S2["批次状态"]
+        direction LR
+        p0[组单中0] --> p1[待上货1] --> p2[配送中2] --> p3[已完成3]
+        p0 -.取消.-> p4[已取消4]
+        p1 -.取消.-> p4
+        p2 -.取消.-> p4
+    end
+    subgraph S3["订单状态"]
+        direction LR
+        o0[待支付0] --> o1[待接单1] --> o2[配送中2] --> o3[已送达3] --> o4[已完成4]
+        o0 -.取消.-> o5[已取消5]
+        o1 -.取消.-> o5
+        o2 -.取消.-> o5
+        o3 -.取消.-> o5
+        o2 -.异常.-> o6[配送异常6]
+        o6 -.退款.-> o7[已退款7]
+        o4 -.退款.-> o7
+        o5 -.退款.-> o7
+    end
+</pre>
+</div>
+
+<footer>需要联网加载渲染引擎（jsdelivr CDN）｜若显示异常请检查网络后刷新</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#e7f5ff',
+      primaryBorderColor: '#1971c2',
+      primaryTextColor: '#1f2937',
+      lineColor: '#6b7280',
+      fontFamily: '"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif',
+      fontSize: '15px'
+    },
+    flowchart: { curve: 'basis', htmlLabels: true, nodeSpacing: 40, rankSpacing: 55 },
+    securityLevel: 'loose'
+  });
+</script>
+</body>
+</html>
