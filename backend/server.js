@@ -94,16 +94,21 @@ function toStock(v, fallback = 999) {
 // ---------- 登录 ----------
 // 角色不再由客户端自报：此前 body 里传 role:'merchant' 就能成为商家，任何人都能自助拿到
 // 改价、上下架、退款、派车（真实调度机器人）等权限。改为校验 .env 的 MERCHANT_INVITE_CODE。
+// 【临时放开】测试阶段暂不校验邀请码：商家端(client=merchant)登录即授予商家角色，方便联调；
+// 恢复邀请码校验时取消下方 102-106 行注释并把 wantsMerchant 改回原定义即可。
 app.post('/api/auth/login', async (req, res) => {
   const { code, nickname = '', merchant_code = '', client = 'user' } = req.body || {}
   if (!code) return res.status(400).json({ code: 400, msg: '缺少登录凭证' })
   const clientKey = client === 'merchant' ? 'merchant' : 'user'
 
   // 填了邀请码就必须正确；未配置邀请码时 verifyMerchantCode 恒为 false（安全侧：一律拒绝）
-  const wantsMerchant = String(merchant_code).trim() !== ''
-  if (wantsMerchant && !runtime.verifyMerchantCode(String(merchant_code).trim())) {
-    return res.status(403).json({ code: 403, msg: '商家邀请码不正确' })
-  }
+  // 【临时放开】暂不校验邀请码，以下校验注释掉：
+  // const wantsMerchant = String(merchant_code).trim() !== ''
+  // if (wantsMerchant && !runtime.verifyMerchantCode(String(merchant_code).trim())) {
+  //   return res.status(403).json({ code: 403, msg: '商家邀请码不正确' })
+  // }
+  // 临时定义：商家端登录即商家（无需邀请码）；用户端填了码也按商家处理（升级逻辑保留）
+  const wantsMerchant = client === 'merchant' || String(merchant_code).trim() !== ''
 
   let openid = ''
   const creds = runtime.loginCreds(clientKey)
