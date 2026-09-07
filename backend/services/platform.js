@@ -452,6 +452,44 @@ async function realDispatchBatch(store, taskId, order, loading, unloading, batch
   }
 }
 
+// 召唤空闲机器人到上货点待命（轻任务 lightTask，不创建配送任务、不锁定批次）：
+// 组单中批次有订单时调用，让机器人提前就位等待商家上货；上货定型时才创建配送任务。
+// 注意：召唤会中断正在执行的配送任务（平台语义），调用前须确认无活跃配送。
+async function summonToLoadingPoint(store) {
+  if (MOCK) return { ok: true, msg: '模拟召唤成功' }
+  if (!platformReady()) return { ok: false, msg: '未配置平台凭据' }
+  const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
+  if (!loading || !loading.platform_landmark_id || !loading.platform_map_id || !loading.platform_building_id) {
+    return { ok: false, msg: '上货点未配置平台映射' }
+  }
+  const r = await getDeviceList()
+  if (!r.ok || !r.robots || !r.robots.length) return { ok: false, msg: '无机器人可召唤' }
+  // 空闲/充电/待机/返程中的车优先
+  const free = r.robots.find((x) => x.online && ['idle', 'standby', 'charging', 'returnChargingPile', 'returnStandby'].includes(x.machine_status))
+  const robot = free || r.robots.find((x) => x.online) || null
+  if (!robot) return { ok: false, msg: '无在线机器人可召唤' }
+  try {
+    const body = {
+      principalId: PRINCIPAL_ID,
+      deviceSn: robot.device_sn,
+      landmarkId: loading.platform_landmark_id,
+      mapId: loading.platform_map_id,
+      buildingId: loading.platform_building_id,
+      expireTime: String(Date.now() + 10 * 60 * 1000), // 10 分钟失效，之后自动返程
+      remark: '组单中批次待上货，召唤至商铺上货点',
+      action: { waitTime: 600 }
+    }
+    const resp = await requestPlatform('POST', '/open-api/v1/lightTask', body)
+    if (resp && (resp.code === 'COMM_200' || resp.success === true)) {
+      console.log('[platform] 召唤机器人 ' + robot.device_sn + ' → 商铺上货点')
+      return { ok: true, device_sn: robot.device_sn }
+    }
+    return { ok: false, msg: (resp && resp.msg) || '召唤失败' }
+  } catch (e) {
+    return { ok: false, msg: '召唤异常：' + e.message }
+  }
+}
+
 // 批次内待上货任务列表（任务状态 < 50）
 function batchPendingTasks(store, batchId) {
   return store.prepare(`
@@ -956,4 +994,4 @@ async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, createTasksForBatch, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, isRobotBusy }
+module.exports = { createQueueTask, createTasksForBatch, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, isRobotBusy, summonToLoadingPoint }

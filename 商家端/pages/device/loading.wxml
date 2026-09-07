@@ -22,9 +22,9 @@
     <view class="empty"><view class="empty-text">加载中…</view></view>
   </view>
 
-  <!-- 组单中批次：上货（商品数） -->
+  <!-- 组单中批次：上货（商品数）——机器人已在上货点待命，点「上货」即定型并进入上货页 -->
   <block wx:if="{{openBatches.length}}">
-    <view class="section-label">组单中（等待派车）</view>
+    <view class="section-label">组单中（机器人已到上货点待命）</view>
     <batch-card
       wx:for="{{openBatches}}" wx:key="id"
       b="{{item}}" action="select" selectText="{{'上货（' + item.total_items + '件）'}}" showGoods="{{true}}"
@@ -39,7 +39,7 @@
 
   <empty-view
     show="{{!loadingList && !openBatches.length && !readyBatches.length && !keyword}}"
-    text="暂无待配单批次。新订单接单后自动组单派车，机器人将到上货点等待。"
+    text="暂无待配单批次。新订单接单后自动组单，机器人将到上货点等待。"
     icon="app" />
   <empty-view
     show="{{keyword && !openBatches.length && !readyBatches.length && !loadingList}}"

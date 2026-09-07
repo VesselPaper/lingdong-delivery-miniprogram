@@ -84,10 +84,25 @@ Page({
     })
   },
 
-  // 选择待上货批次 → 进入批次上货详情页（左上角返回回到本列表）
-  selectBatch(e) {
+  // 上货按钮：批次定型 + 进入上货详情页
+  //  - 组单中批次（status=0）：先创建配送任务定型（机器人已在上货点待命），再进入上货页
+  //  - 待上货批次（status=1）：已定型，直接进入上货页
+  async selectBatch(e) {
     const item = e.detail || {}
-    if (item && item.id) wx.navigateTo({ url: '/pages/device/batchDetail?id=' + item.id })
+    if (!item || !item.id) return
+    const st = Number(item.status)
+    if (st === 0) {
+      wx.showLoading({ title: '创建配送任务' })
+      try {
+        await request.post(api.batchDispatch, { batch_id: item.id })
+        wx.hideLoading()
+      } catch (err) {
+        wx.hideLoading()
+        wx.showToast({ title: (err && err.message) || '创建任务失败，请稍后重试', icon: 'none' })
+        return
+      }
+    }
+    wx.navigateTo({ url: '/pages/device/batchDetail?id=' + item.id })
   },
 
   // 扫无人车二维码（需求5）：真实摄像头扫码 → 识别设备 → 进入该车待上货批次上货页

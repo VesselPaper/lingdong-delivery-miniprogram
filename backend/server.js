@@ -1944,13 +1944,11 @@ setInterval(async () => {
       const n = Number(cnt && cnt.c || 0)
       if (n <= 0) continue
       const items = Number(cnt && cnt.items || 0)
-      // 有订单就自动派车（接单后机器人自动前往上货点等待上货）：
-      // 组单中批次内存在待配送订单即派车（扫描间隔默认 15s，不等待满容量或 90s 超时）。
-      // 一车多单依赖同一时刻多个订单并入同一批次后一并派车。
-      if (n > 0) {
-        console.log('[batch] 自动派车 ' + b.batch_no + ' 共' + n + '单' + items + '件')
-        await doDispatchBatch(store, b.id, '')
-      }
+      // 有订单就召唤机器人到上货点待命（不创建配送任务、不锁定批次）：
+      // 批次保持组单中持续接收新订单（多单合并），商家点「上货」定型时才创建配送任务。
+      // 召唤失败（如无在线车）静默，批次仍在组单中，商家上货时若车未到会提示等待。
+      console.log('[batch] 检测到待上货订单，召唤机器人 ' + b.batch_no + ' 共' + n + '单' + items + '件')
+      await platform.summonToLoadingPoint(store)
     }
   } catch (e) { console.warn('[batch] 自动派车扫描异常', e.message) }
 }, BATCH_SCAN_MS)
