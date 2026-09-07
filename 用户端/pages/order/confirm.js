@@ -194,12 +194,10 @@ Page({
     }
     const { items, selectedPoint, remark, contactName, contactPhone, selectedAddress } = this.data
     if (!items.length) return
-    // P1-8：单笔订单总件数不得超过单车容量（后端 BATCH_MAX_ITEMS=12，此处前端先行拦截，
-    // 避免用户凑满购物车一次性提交后收到「超出容量」报错。后端仍会再次校验，以后端为准。）
+    // 超出单车容量不再拦截：后端会自动拆分成多个订单分批配送，这里仅提示用户
     const totalQty = items.reduce((s, it) => s + Number(it.quantity || 0), 0)
     if (totalQty > 12) {
-      wx.showToast({ title: '单笔订单最多 12 件商品（超出单车容量），请分开下单', icon: 'none' })
-      return
+      wx.showToast({ title: '您购买的商品较多，将自动拆分为多个订单分批配送', icon: 'none', duration: 2500 })
     }
     if (!selectedPoint) {
       wx.showToast({ title: '请选择送达点位', icon: 'none' })
@@ -233,15 +231,26 @@ Page({
         remark
       })
       request.put(api.updateProfile, { nickname: contactName, phone: contactPhone }).catch(() => {})
-      let paid = false
-      try {
-        await pay.payOrder(res.order_id)
-        paid = true
-      } catch (e) { /* 用户取消或支付失败：订单已生成，稍后可支付 */ }
-      wx.showToast({ title: paid ? '支付成功' : '订单已生成，请稍后支付', icon: paid ? 'success' : 'none' })
-      setTimeout(() => {
-        wx.redirectTo({ url: '/pages/order/detail?id=' + res.order_id })
-      }, 600)
+      // 拆单：后端返回 orders 数组时逐个支付（mock 支付无成本），否则按单订单处理
+      const orderIds = res.split ? (res.orders || []).map((o) => o.order_id) : [res.order_id]
+      let paid = 0
+      for (const oid of orderIds) {
+        try {
+          await pay.payOrder(oid)
+          paid += 1
+        } catch (e) { /* 用户取消或支付失败：订单已生成，稍后可支付 */ }
+      }
+      if (orderIds.length > 1) {
+        wx.showToast({ title: '已拆为 ' + orderIds.length + ' 个订单，将分批配送', icon: 'none', duration: 2500 })
+        setTimeout(() => {
+          wx.redirectTo({ url: '/pages/order/list' })
+        }, 700)
+      } else {
+        wx.showToast({ title: paid ? '支付成功' : '订单已生成，请稍后支付', icon: paid ? 'success' : 'none' })
+        setTimeout(() => {
+          wx.redirectTo({ url: '/pages/order/detail?id=' + res.order_id })
+        }, 600)
+      }
     } catch (e) {
       this.setData({ submitting: false })
     }

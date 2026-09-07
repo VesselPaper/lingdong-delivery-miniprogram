@@ -390,6 +390,30 @@ async function realRefundOrLocal(order, refundId, amount) {
   return { ok: true, local: true, refundNo: '' }
 }
 
+// 订单拆单：按 maxItems 件上限把购物车行贪心拆成多个子订单行块（每块 ≤ maxItems 件）。
+// 例：A×15 → [[A12],[A3]]；A×8+B×7 → [[A8,B4],[B3]]
+function splitOrderChunks(lineItems, maxItems) {
+  const chunks = []
+  let cur = []
+  let curQty = 0
+  for (const it of lineItems) {
+    let q = it.quantity
+    while (q > 0) {
+      const take = Math.min(q, maxItems - curQty)
+      cur.push({ goods: it.goods, quantity: take })
+      curQty += take
+      q -= take
+      if (curQty >= maxItems) {
+        chunks.push(cur)
+        cur = []
+        curQty = 0
+      }
+    }
+  }
+  if (cur.length) chunks.push(cur)
+  return chunks
+}
+
 app.post('/api/order/create', auth, (req, res) => {
   try {
     const shop = store.prepare('SELECT * FROM shops WHERE id=1').get() || {}
@@ -417,33 +441,49 @@ app.post('/api/order/create', auth, (req, res) => {
       total += g.price * q
       return { goods: g, quantity: q }
     })
-    // 单笔订单总件数不得超过单车容量（P1-8）：超容量订单此前会静默装进一个装不下的批次，
-    // 商家硬塞压坏/少装必然客诉，而系统还记录「批次已完成」。这里直接拒单，提示分批下单。
+    // 单笔订单总件数超过单车容量（BATCH_MAX_ITEMS=12）时自动拆单：不再拒单，
+    // 按 12 件上限贪心拆成多个子订单，每个子订单独立组单/派车/配送/取餐。
     const totalItems = lineItems.reduce((s, it) => s + it.quantity, 0)
-    if (totalItems > batch.BATCH_MAX_ITEMS) {
-      return res.status(400).json({ code: 400, msg: '单笔订单最多 ' + batch.BATCH_MAX_ITEMS + ' 件商品（超出单车容量），请分开下单' })
+    // 拆单前整体预校验库存（拆单后同一商品会被分多次扣减，先确认总量够，避免中途失败）
+    for (const it of lineItems) {
+      const g = store.prepare('SELECT stock FROM goods WHERE id=?').get(it.goods.id)
+      if (!g || Number(g.stock) < it.quantity) throw new Error('「' + it.goods.name + '」库存不足')
     }
-    const orderNo = 'LD' + Date.now().toString().slice(-8) + Math.random().toString(36).slice(2, 6).toUpperCase()
-    const pickupCode = String(Math.floor(1000 + Math.random() * 9000))
-    // 当日序号：每天从 1 重置（商家端卡面展示「订单 N」，完整订单号只在详情页显示）
-    const seqRow = store.prepare("SELECT COUNT(*) c FROM orders WHERE date(created_at)=date('now','localtime')").get()
-    const info = store.prepare(`INSERT INTO orders
+    const chunks = totalItems > batch.BATCH_MAX_ITEMS ? splitOrderChunks(lineItems, batch.BATCH_MAX_ITEMS) : [lineItems]
+    const created = []
+    const seqRowBase = store.prepare("SELECT COUNT(*) c FROM orders WHERE date(created_at)=date('now','localtime')").get()
+    let seq = Number(seqRowBase && seqRowBase.c || 0)
+    const orderNoNew = () => 'LD' + Date.now().toString().slice(-8) + Math.random().toString(36).slice(2, 6).toUpperCase()
+    const pickupCodeNew = () => String(Math.floor(1000 + Math.random() * 9000))
+    const insOrder = store.prepare(`INSERT INTO orders
       (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, status, remark, pickup_code, daily_seq)
       VALUES (?,?,?,?,?,?,?,0,?,?,?)`)
-      .run(orderNo, req.user.id, String(landmark_id), lm.name, cname, cphone, total.toFixed(2), remark, pickupCode, Number(seqRow && seqRow.c || 0) + 1)
-    const orderId = Number(info.lastInsertRowid)
     const insItem = store.prepare('INSERT INTO order_items (order_id, goods_id, goods_name, goods_image, price, quantity) VALUES (?,?,?,?,?,?)')
     const decStock = store.prepare('UPDATE goods SET stock=stock-? WHERE id=? AND stock>=?')
-    for (const { goods, quantity } of lineItems) {
-      insItem.run(orderId, goods.id, goods.name, goods.image, goods.price, quantity)
-      // 条件更新扣库存（P1-5）：校验与扣减原子，扣不到即超卖（不再用 MAX(0,…) 抹掉超卖痕迹）
-      const r = decStock.run(quantity, goods.id, quantity)
-      if (r.changes === 0) throw new Error('「' + goods.name + '」库存不足')
+    for (const chunk of chunks) {
+      const chunkTotal = chunk.reduce((s, it) => s + it.goods.price * it.quantity, 0)
+      const orderNo = orderNoNew()
+      const pickupCode = pickupCodeNew()
+      seq += 1
+      const info = insOrder.run(orderNo, req.user.id, String(landmark_id), lm.name, cname, cphone, chunkTotal.toFixed(2), remark, pickupCode, seq)
+      const orderId = Number(info.lastInsertRowid)
+      for (const { goods, quantity } of chunk) {
+        insItem.run(orderId, goods.id, goods.name, goods.image, goods.price, quantity)
+        // 条件更新扣库存（P1-5）：校验与扣减原子，扣不到即超卖
+        const r = decStock.run(quantity, goods.id, quantity)
+        if (r.changes === 0) throw new Error('「' + goods.name + '」库存不足')
+      }
+      created.push({ order_id: orderId, order_no: orderNo, total_amount: chunkTotal, pickup_code: pickupCode, items: chunk.length })
     }
     // 购物车只删本次订单实际包含的商品（P1-6）：不再无条件清空整张购物车
     const cartGids = [...new Set(lineItems.map((it) => it.goods.id))]
     cartGids.forEach((gid) => store.prepare('DELETE FROM cart WHERE user_id=? AND goods_id=?').run(req.user.id, gid))
-    ok(res, { order_id: orderId, order_no: orderNo, total_amount: total, pickup_code: pickupCode })
+    if (created.length === 1) {
+      const o = created[0]
+      ok(res, { order_id: o.order_id, order_no: o.order_no, total_amount: o.total_amount, pickup_code: o.pickup_code })
+    } else {
+      ok(res, { orders: created, split: true, split_count: created.length, total_amount: total })
+    }
   } catch (e) {
     // 业务错误统一 400 JSON（P2-7）：不再让裸 throw 变成 HTML 500
     res.status(400).json({ code: 400, msg: e.message || '下单失败' })
