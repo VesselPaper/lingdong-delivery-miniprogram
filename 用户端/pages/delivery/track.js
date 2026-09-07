@@ -89,9 +89,28 @@ Page({
       const task = data.task || null
       // 服务端已给出更准确的状态文案（含组单中/待上货等批次阶段）
       const taskText = data.task_text || (task ? task.status_text : data.order_status_text)
-      const stepMap = { 0: 0, 10: 1, 20: 2, 30: 2, 50: 3, 60: 3, 70: 4, 80: 4 }
-      const step = task ? (stepMap[task.task_status] || 0) : 0
-      const percent = task ? Math.min(100, step * 25) : 0
+      // 任务状态 → 进度阶段：0 未开始 / 1 已接单 / 2 取餐(上货) / 3 配送中 / 4 送达
+      // 必须覆盖全状态码：漏掉 40(上货中) 会让配送中订单的进度条回退到 0（用户看不到配送阶段）
+      const stepMap = {
+        0: 0,                // 排队中
+        10: 1,               // 已接收
+        20: 2, 30: 2, 40: 2, // 去上货点 / 到达上货点 / 上货中 → 取餐阶段
+        50: 3, 60: 3,        // 已上货 / 去往取货点 → 配送中
+        70: 4, 80: 4,        // 到达取货点 / 任务完成 → 送达
+        // 异常/失败/取消/关闭：进度归零，具体文案由 taskText 展示
+        90: 0, 91: 0, 92: 0, 93: 0, 94: 0, 95: 0,
+        100: 0, 101: 0, 102: 0, 103: 0, 104: 0, 105: 0, 106: 0,
+        110: 0, 120: 0, 130: 0, 131: 0, 132: 0, 140: 0, 150: 0
+      }
+      let step = 0
+      if (task) {
+        step = stepMap[task.task_status] || 0
+      } else if (Number(data.order_status) === 2) {
+        step = 1 // 已接单但还没建任务（组单中/待上货），进度从「已接单」开始
+      } else if (Number(data.order_status) === 3) {
+        step = 4 // 已送达待取餐
+      }
+      const percent = Math.min(100, step * 25)
       let posX = this.data.posX
       let posY = this.data.posY
       // P1-12：位置百分比由后端按真实坐标 ÷ 地图 bbox 计算下发（x 左→右、y 下→上）。
