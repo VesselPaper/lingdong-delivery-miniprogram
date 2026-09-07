@@ -30,6 +30,28 @@
   font-weight: 500;
 }
 
+/* 配单上货红点：待配单订单数 */
+.scan-btn {
+  position: relative;
+}
+
+.scan-badge {
+  position: absolute;
+  top: -12rpx;
+  right: -12rpx;
+  min-width: 34rpx;
+  height: 34rpx;
+  padding: 0 8rpx;
+  border-radius: 17rpx;
+  background: #E64340;
+  color: #ffffff;
+  font-size: 20rpx;
+  line-height: 34rpx;
+  text-align: center;
+  box-sizing: border-box;
+  box-shadow: 0 2rpx 6rpx rgba(230,67,64,0.4);
+}
+
 .list {
   padding: 16rpx 24rpx 48rpx;
 }

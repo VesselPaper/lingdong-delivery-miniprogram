@@ -17,14 +17,12 @@
       <view class="btn btn-block" hover-class="btn-hover" wx:if="{{phase === 'open'}}" bindtap="closeBin">{{mock ? '模拟关舱' : '关舱'}}</view>
 
       <view class="dispatch-zone" wx:if="{{phase === 'loaded'}}">
-        <view class="dispatch-hint {{countdown > 0 ? '' : 'warn'}}">{{countdownText || '请尽快开始配送'}}</view>
-        <movable-area class="slider-area">
-          <movable-view class="slider-thumb"
-            direction="horizontal" x="{{sliderX}}" animation="{{false}}" bindchange="onSliderChange" bindtouchend="onSliderEnd">
-            <text class="slider-arrow">→</text>
-          </movable-view>
-        </movable-area>
-        <view class="dispatch-label text-weak text-sm">向右滑动立即配送</view>
+        <view class="dispatch-hint {{countdown > 0 ? '' : 'warn'}}">{{countdownText || '货品已上齐，可以开始配送'}}</view>
+        <!-- 圆形「开始配送」按钮（舱门已关闭后才会出现） -->
+        <view class="dispatch-circle" hover-class="dispatch-circle-hover" bindtap="dispatchAll">
+          <t-icon name="play-circle" size="44rpx" color="#ffffff" />
+          <text class="dispatch-circle-text">开始配送</text>
+        </view>
       </view>
 
       <view class="success-box" wx:if="{{phase === 'dispatched'}}">

@@ -13,17 +13,45 @@
 /* 派发滑块 / 成功态 */
 .dispatch-zone {
   margin-top: 8rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .dispatch-hint {
   text-align: center;
   font-size: 26rpx;
   color: var(--text-sub);
-  margin-bottom: 20rpx;
+  margin-bottom: 24rpx;
 }
 
 .dispatch-hint.warn {
   color: var(--danger);
+}
+
+/* 圆形「开始配送」按钮（仅舱门关闭后显示） */
+.dispatch-circle {
+  width: 220rpx;
+  height: 220rpx;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 8rpx 24rpx rgba(48,120,192,0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  transition: transform 0.15s ease;
+}
+
+.dispatch-circle-hover {
+  transform: scale(0.94);
+}
+
+.dispatch-circle-text {
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 600;
 }
 
 .slider-area {

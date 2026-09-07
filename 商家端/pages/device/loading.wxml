@@ -1,13 +1,19 @@
 <view class="load-page">
-  <!-- 批次列表：组单中（可派车）+ 待上货（选择上货） -->
+  <!-- 批次列表：组单中 + 待上货（接单后后端自动派车，商家只负责上货） -->
   <search-box value="{{keyword}}" placeholder="搜索批次 / 订单 / 商品 / 点位" bind:input="onSearch" />
+
+  <!-- 自动派车提示：有待配单批次时提示机器人正在前往上货点 -->
+  <view class="auto-dispatch-tip" wx:if="{{(openBatches.length || readyBatches.length) && !keyword}}">
+    <t-icon name="info-circle" size="30rpx" color="#3078C0" />
+    <text class="auto-dispatch-text">检测到有订单，配送车将到上货点等待，请做好上货准备</text>
+  </view>
 
   <!-- 扫码识别无人车（需求5）：扫车身二维码 → 进入该车待上货批次上货页 -->
   <view class="scan-entry" bindtap="scanRobot">
     <t-icon name="scan" size="40rpx" color="#3078C0" />
     <view class="scan-entry-main">
       <view class="scan-entry-title">扫无人车二维码</view>
-      <view class="scan-entry-sub text-weak text-sm">识别无人车 → 进入该车待上货批次（配单→上货→派发）</view>
+      <view class="scan-entry-sub text-weak text-sm">识别无人车 → 进入该车待上货批次（上货→关舱→配送）</view>
     </view>
     <t-icon name="chevron-right" size="32rpx" color="#C0C0C0" />
   </view>
@@ -16,24 +22,24 @@
     <view class="empty"><view class="empty-text">加载中…</view></view>
   </view>
 
-  <!-- 组单中批次：派车配送 -->
+  <!-- 组单中批次：上货（商品数） -->
   <block wx:if="{{openBatches.length}}">
-    <view class="section-label">组单中</view>
+    <view class="section-label">组单中（等待派车）</view>
     <batch-card
       wx:for="{{openBatches}}" wx:key="id"
-      b="{{item}}" action="dispatch" showGoods="{{true}}"
-      bind:dispatch="dispatchBatch" />
+      b="{{item}}" action="select" selectText="{{'上货（' + item.total_items + '件）'}}" showGoods="{{true}}"
+      bind:select="selectBatch" />
   </block>
 
-  <!-- 待上货批次：选择该批次上货（无分类标题，列表直接展示） -->
+  <!-- 待上货批次：上货（商品数） -->
   <batch-card
     wx:for="{{readyBatches}}" wx:key="id"
-    b="{{item}}" action="select" showGoods="{{true}}"
+    b="{{item}}" action="select" selectText="{{'上货（' + item.total_items + '件）'}}" showGoods="{{true}}"
     bind:select="selectBatch" />
 
   <empty-view
     show="{{!loadingList && !openBatches.length && !readyBatches.length && !keyword}}"
-    text="暂无待上货批次。新订单接单后自动组单，派车后在此上货。"
+    text="暂无待配单批次。新订单接单后自动组单派车，机器人将到上货点等待。"
     icon="app" />
   <empty-view
     show="{{keyword && !openBatches.length && !readyBatches.length && !loadingList}}"

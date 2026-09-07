@@ -16,12 +16,11 @@ Page({
     this.loadPendingBatches()
   },
 
-  // 待上货/组单中批次数量（底部「配单上货」按钮角标）
+  // 待配单订单数（底部「配单上货」按钮角标）：组单中 + 待上货批次内订单总数（非批次数）
   async loadPendingBatches() {
     try {
       const data = await request.get(api.devicePending, {}, { silent: true })
-      const cnt = ((data.open_batches || []).length + (data.ready_batches || []).length)
-      this.setData({ pendingBatchCount: cnt })
+      this.setData({ pendingBatchCount: Number(data.pending_orders || 0) })
     } catch (e) { /* 忽略 */ }
   },
 

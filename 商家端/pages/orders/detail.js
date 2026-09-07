@@ -51,20 +51,8 @@ Page({
     if (!res) return
     try {
       const r = await request.post(api.orderConfirm, { id: this.data.id })
-      wx.showToast({ title: '已接单', icon: 'success' })
+      wx.showToast({ title: '已接单，并入批次 ' + (r.batch_no || ''), icon: 'success' })
       this.load()
-      // 优化流程：接单后直达配单/上货页
-      const go = await new Promise((resolve2) => {
-        wx.showModal({
-          title: '订单已并入配送批次',
-          content: '是否立即前往配单页，为批次派车并上货配送？',
-          confirmText: '去配单',
-          cancelText: '稍后',
-          confirmColor: '#2E7CF6',
-          success: (r2) => resolve2(r2.confirm)
-        })
-      })
-      if (go) wx.navigateTo({ url: '/pages/device/loading' })
     } catch (e) { /* handled */ }
   }
 })

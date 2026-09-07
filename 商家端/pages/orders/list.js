@@ -23,7 +23,8 @@ Page({
     orders: [],         // 扁平订单（待接单 / 异常）
     groups: [],         // 按批次分组（待上货 / 配送中 / 待取货）
     keyword: '',
-    shopOpen: true
+    shopOpen: true,
+    pendingOrders: 0    // 右上角「配单上货」红点：待配单的订单数（非批次数）
   },
   rawOrders: [],
   rawGroups: [],
@@ -32,6 +33,15 @@ Page({
     await shopState.loadShop()
     this.setData({ shopOpen: shopState.isOpen() })
     this.load()
+    this.loadPendingCount()
+  },
+
+  // 右上角「配单上货」红点：待配单订单数（组单中 + 待上货批次内订单总数）
+  async loadPendingCount() {
+    try {
+      const data = await request.get(api.devicePending, {}, { silent: true })
+      this.setData({ pendingOrders: Number(data.pending_orders || 0) })
+    } catch (e) { /* 忽略 */ }
   },
 
   onLoad(options) {
@@ -168,18 +178,7 @@ Page({
       const r = await request.post(api.orderConfirm, { id })
       wx.showToast({ title: '已接单，并入批次 ' + (r.batch_no || ''), icon: 'success' })
       this.load()
-      // 优化流程：接单后直达配单/上货页，免去「任务→商品→扫码配单」多步操作
-      const go = await new Promise((resolve2) => {
-        wx.showModal({
-          title: '订单已并入配送批次',
-          content: '是否立即前往配单页，为批次派车并上货配送？',
-          confirmText: '去配单',
-          cancelText: '稍后',
-          confirmColor: '#3078C0',
-          success: (r2) => resolve2(r2.confirm)
-        })
-      })
-      if (go) wx.navigateTo({ url: '/pages/device/loading' })
+      this.loadPendingCount()
     } catch (e) { /* handled */ }
   },
 

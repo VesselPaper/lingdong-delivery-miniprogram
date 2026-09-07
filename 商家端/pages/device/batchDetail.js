@@ -112,16 +112,17 @@ Page({
     if (!this.data.batch) return
     if (DEVICE_MOCK) {
       wx.showModal({
-        title: '是否立即配单',
-        content: '',
+        title: '是否立即配送',
+        content: '确认关闭舱门？关闭舱门后机器人才会开始移动配送。',
         confirmText: '立即配送',
         cancelText: '稍后',
         confirmColor: '#3078C0',
         success: (r) => {
+          // 舱门关闭后才允许配送：此处关舱已成功（模拟），是则直接开始配送
+          this.setData({ phase: 'loaded' })
           if (r.confirm) {
             this.dispatchAll()
           } else {
-            this.setData({ phase: 'loaded' })
             this.startCountdown(180)
           }
         }
@@ -134,16 +135,17 @@ Page({
       .then(() => {
         wx.hideLoading()
         wx.showModal({
-          title: '是否立即配单',
-          content: '',
+          title: '是否立即配送',
+          content: '确认关闭舱门？关闭舱门后机器人才会开始移动配送。',
           confirmText: '立即配送',
           cancelText: '稍后',
           confirmColor: '#3078C0',
           success: (r) => {
+            // 安全：平台确认关舱成功（舱门已关闭）后才允许开始配送
+            this.setData({ phase: 'loaded' })
             if (r.confirm) {
               this.dispatchAll()
             } else {
-              this.setData({ phase: 'loaded' })
               this.startCountdown(180)
             }
           }
@@ -153,8 +155,14 @@ Page({
   },
 
   // 开始配送（整批确认上货）。测试阶段：模拟成功并推进本地状态；真实代码保留在下方分支。
+  // 安全前置（P1-x）：舱门开着时车不能移动 —— 只有 phase=loaded（已关舱）才允许开始配送。
   dispatchAll() {
-    if (!this.data.batch || this.data.phase === 'dispatched') return
+    if (!this.data.batch) return
+    if (this.data.phase === 'dispatched') return
+    if (this.data.phase !== 'loaded') {
+      wx.showToast({ title: '请先关闭舱门后再开始配送', icon: 'none' })
+      return
+    }
     if (DEVICE_MOCK) {
       wx.showLoading({ title: '开始配送' })
       request.post(api.batchMockDispatch, { batch_id: this.data.batch.id })

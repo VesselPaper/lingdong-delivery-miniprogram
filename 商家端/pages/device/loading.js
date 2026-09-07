@@ -52,8 +52,8 @@ Page({
         else if (pendingPhase && st === 2) { cls = 'blue'; ds = '待上货' }
         return Object.assign({}, o, { stClass: cls, displayStatus: ds })
       })
-      // 待上货批次全为配送异常订单：不提供「选择该批次上货」（改由任务页异常处理）
-      let action = kind === 'open' ? 'dispatch' : (kind === 'ready' ? 'select' : '')
+      // 组单中/待上货批次统一走「上货」入口（派车由后端接单后自动完成，商家不再手动派车）
+      let action = (kind === 'open' || kind === 'ready') ? 'select' : ''
       if (kind === 'ready' && orders.length && orders.every((o) => Number(o.status) === 6)) action = ''
       return Object.assign({}, b, { action, index: idx, statusTagClass: BATCH_TAG_CLASS[Number(b.status)] || 'tag-gray', orders })
     })
@@ -115,38 +115,12 @@ Page({
       if (msg.indexOf('没有待上货') > -1 || msg.indexOf('先派车') > -1) {
         wx.showModal({
           title: '该无人车暂无待上货批次',
-          content: '请先在「组单中」批次点「派车配送」并指定本无人车，待其到达上货点后再扫码上货。',
+          content: '请先在商家端「接单」，接单后机器人会自动前往上货点；待其到达后再扫码上货。',
           showCancel: false
         })
       } else {
         wx.showToast({ title: msg || '扫码失败', icon: 'none' })
       }
-    }
-  },
-
-  // 组单中的批次 → 派车配送（创建全部平台任务）
-  async dispatchBatch(e) {
-    const item = e.detail || {}
-    if (!item || !item.id) return
-    const res = await new Promise((resolve) => {
-      wx.showModal({
-        title: '为批次 ' + (item.daily_seq || '') + ' 派车配送？',
-        content: '本批共 ' + (item.total_orders || 0) + ' 单。派车后机器人将按规划路线依次配送，请准备好货品后开舱上货。',
-        confirmText: '派车',
-        confirmColor: '#3078C0',
-        success: (r) => resolve(r.confirm)
-      })
-    })
-    if (!res) return
-    wx.showLoading({ title: '派车中' })
-    try {
-      await request.post(api.batchDispatch, { batch_id: item.id })
-      wx.hideLoading()
-      wx.showToast({ title: '已派车，机器人前往上货点', icon: 'success' })
-      this.loadPending()
-    } catch (e) {
-      wx.hideLoading()
-      wx.showToast({ title: (e && e.message) || '派车失败', icon: 'none' })
     }
   }
 })

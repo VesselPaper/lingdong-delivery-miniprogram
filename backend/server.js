@@ -322,6 +322,7 @@ function maybeAutoAccept(store, order) {
   try {
     batch.addOrderToBatch(store, cur)
     console.log('[order] 自动接单 order=' + cur.id + ' ' + cur.order_no + ' → 批次并入')
+    // 派车由批次自动派车扫描统一处理（有订单即派，机器人自动前往上货点），保证一车多单组单窗口
     return true
   } catch (e) {
     console.warn('[order] 自动接单并入批次失败', e.message)
@@ -1210,7 +1211,7 @@ app.post('/api/merchant/order/exception/retry', merchantGuard, (req, res) => {
     void_at=datetime('now','localtime'), updated_at=datetime('now','localtime')
     WHERE order_id=? AND task_status < 80 AND void_at IS NULL`).run(order.id)
   batch.removeOrderFromBatch(store, order)
-  // 并入新的组单中批次（商家随后派车配送）
+  // 并入新的组单中批次（派车由批次自动派车扫描统一处理）
   const b = batch.addOrderToBatch(store, store.prepare('SELECT * FROM orders WHERE id=?').get(order.id))
   store.prepare("UPDATE orders SET exception_handled='retry ' || datetime('now','localtime'), updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
   console.log('[exception] 配送异常订单重新配送 order=' + order.id + ' → batch=' + b.batch_no + ' user=' + req.user.id)
@@ -1768,7 +1769,12 @@ app.get('/api/merchant/device/pending', merchantGuard, (req, res) => {
   const readyBatches = store.prepare('SELECT * FROM delivery_batches WHERE status=1 ORDER BY id DESC LIMIT 10').all()
   const activeBatches = store.prepare('SELECT * FROM delivery_batches WHERE status=2 ORDER BY id DESC LIMIT 10').all()
   const wrap = (list) => list.map((b) => batch.getBatchDetail(store, b.id)).filter(Boolean)
-  ok(res, { open_batches: wrap(openBatches), ready_batches: wrap(readyBatches), active_batches: wrap(activeBatches) })
+  const open = wrap(openBatches)
+  const ready = wrap(readyBatches)
+  // 待配单订单数（配单上货红点）：组单中 + 待上货批次内的订单总数（按订单计，非批次数）
+  const pendingOrders = open.reduce((s, b) => s + (b.orders || []).length, 0)
+    + ready.reduce((s, b) => s + (b.orders || []).length, 0)
+  ok(res, { open_batches: open, ready_batches: ready, active_batches: wrap(activeBatches), pending_orders: pendingOrders })
 })
 
 // 扫码识别机器人 → 定位待上货批次（一车多单）：返回批次与全部订单
@@ -1938,14 +1944,11 @@ setInterval(async () => {
       const n = Number(cnt && cnt.c || 0)
       if (n <= 0) continue
       const items = Number(cnt && cnt.items || 0)
-      const full = items >= batch.BATCH_MAX_ITEMS
-      let autoGo = false
-      if (Number(shop.auto_accept) === 1) {
-        const t = new Date(String(b.updated_at || '').replace(' ', 'T')).getTime()
-        autoGo = !isNaN(t) && (Date.now() - t) >= batch.BATCH_WAIT_MS
-      }
-      if (full || autoGo) {
-        console.log('[batch] 自动派车 ' + b.batch_no + ' 共' + n + '单' + items + '件' + (full ? '（已达容量上限）' : '（等待期满）'))
+      // 有订单就自动派车（接单后机器人自动前往上货点等待上货）：
+      // 组单中批次内存在待配送订单即派车（扫描间隔默认 15s，不等待满容量或 90s 超时）。
+      // 一车多单依赖同一时刻多个订单并入同一批次后一并派车。
+      if (n > 0) {
+        console.log('[batch] 自动派车 ' + b.batch_no + ' 共' + n + '单' + items + '件')
         await doDispatchBatch(store, b.id, '')
       }
     }

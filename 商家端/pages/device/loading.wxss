@@ -2,6 +2,23 @@
   padding-bottom: 80rpx;
 }
 
+/* 自动派车提示条：检测到有订单，配送车将到上货点等待 */
+.auto-dispatch-tip {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  background: #E8F1FC;
+  border-radius: 12rpx;
+  padding: 16rpx 20rpx;
+  margin-bottom: 8rpx;
+}
+
+.auto-dispatch-text {
+  font-size: 26rpx;
+  color: #3078C0;
+  flex: 1;
+}
+
 /* 区块小标题（仅「组单中」保留；待上货列表直接展示，无冗余标题） */
 .section-label {
   padding: 24rpx 8rpx 12rpx;
