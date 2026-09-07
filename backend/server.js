@@ -1947,7 +1947,7 @@ setInterval(async () => {
       // 有订单就召唤机器人到上货点待命（不创建配送任务、不锁定批次）：
       // 批次保持组单中持续接收新订单（多单合并），商家点「上货」定型时才创建配送任务。
       // 召唤失败（如无在线车）静默，批次仍在组单中，商家上货时若车未到会提示等待。
-      console.log('[batch] 检测到待上货订单，召唤机器人 ' + b.batch_no + ' 共' + n + '单' + items + '件')
+      // 每轮扫描都会尝试召唤，为免刷屏此处不打印；召唤动作在 platform.summonToLoadingPoint 内处理。
       await platform.summonToLoadingPoint(store)
     }
   } catch (e) { console.warn('[batch] 自动派车扫描异常', e.message) }

@@ -481,7 +481,7 @@ async function summonToLoadingPoint(store) {
     }
     const resp = await requestPlatform('POST', '/open-api/v1/lightTask', body)
     if (resp && (resp.code === 'COMM_200' || resp.success === true)) {
-      console.log('[platform] 召唤机器人 ' + robot.device_sn + ' → 商铺上货点')
+      // 召唤成功不打印（扫描每 15s 一轮，避免刷屏；机器人是否就位由上货页实时展示）
       return { ok: true, device_sn: robot.device_sn }
     }
     return { ok: false, msg: (resp && resp.msg) || '召唤失败' }
@@ -641,9 +641,7 @@ function applyStatus(store, taskId, status, text) {
     // 且只更新任务自身，绝不联动订单 / 库存 / 批次 —— 那些副作用在取消时已执行过一次。
     if (st === 150 && Number(task.task_status) !== 150) {
       updateTask(store, taskId, text || STATUS_TEXT[150], 150)
-      console.warn(`[platform] 任务${taskId} 已作废，仅记录平台关闭确认(150)，不联动订单`)
-    } else {
-      console.warn(`[platform] 丢弃迟到状态 ${st}「${text || STATUS_TEXT[st] || ''}」：任务${taskId} 已作废或订单已终态`)
+      // 任务已作废，仅记录平台关闭确认(150)，不联动订单（静默，避免轮询刷屏）
     }
     return
   }
@@ -674,7 +672,7 @@ function applyStatus(store, taskId, status, text) {
       try { goodsStats.settleSales(store, order.id) } catch (e) { /* 忽略 */ }
     }
   } else if (orderStatus !== null) {
-    console.warn(`[platform] 忽略订单状态迁移 ${order.status}→${orderStatus}（任务${taskId} 状态${st}）`)
+    // 订单已终态或迁移被守卫拦截：忽略（静默，避免轮询刷屏）
   }
   // 一车多单联动：任务完成时更新批次取餐计数与完成判断
   const fresh = store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(taskId)

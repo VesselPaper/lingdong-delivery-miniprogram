@@ -169,10 +169,16 @@ function check() {
 }
 
 // 启动断言：打印诊断信息，不合法则退出进程。必须在 require('./platform') 之前调用。
+// 为精简控制台输出，合法的运行提示（warnings）合并为一行简短汇总，不再逐条长警告。
 function assertBootable() {
   const r = check()
-  r.warnings.forEach((w) => console.warn('[runtime] 警告：' + w))
-  if (r.ok) return r
+  if (r.ok) {
+    if (r.warnings.length) {
+      const topics = r.warnings.map((w) => w.split('：')[0] || w.slice(0, 8)).join(' / ')
+      console.log('[runtime] 运行提示：' + topics)
+    }
+    return r
+  }
   console.error('\n[runtime] 启动被拒绝：运行模式与开关组合不合法\n')
   r.errors.forEach((e, i) => console.error(`  ${i + 1}. ${e.split('\n').join('\n     ')}\n`))
   console.error('  说明见 backend/.env.example 的「运行模式」章节。\n')
@@ -213,18 +219,10 @@ function verifyMerchantCode(code) {
   return crypto.timingSafeEqual(a, b)
 }
 
-// 派车告警：一批多单会循环调用（见 platform.js createTasksForBatch），按批次去重避免刷屏
-const warnedDispatch = new Set()
-function warnIfUnsafeDispatch(ctx) {
-  if (!(realPlatform && prodPlatform && unsafeProd && mode !== 'production')) return
-  const key = String((ctx && (ctx.batch_id || ctx.batch_no || ctx.order_id)) || 'single')
-  if (warnedDispatch.has(key)) return
-  if (warnedDispatch.size > 500) warnedDispatch.clear()
-  warnedDispatch.add(key)
-  console.warn(
-    `[runtime] ⚠ 正在向【生产】物流平台 ${platformHost} 下发真实配送任务（${key}）。` +
-    `当前 RUN_MODE=${mode}，登录=${realLogin ? '真实' : '演示'}，支付=${realPay ? '真实' : '模拟'}。`
-  )
+// 派车告警已按要求静默：pilot 档连接生产平台的真实调度风险只在启动摘要提示一次，
+// 不再每次派车刷屏「真实机器人会被真实调度」。
+function warnIfUnsafeDispatch() {
+  return
 }
 
 module.exports = {
