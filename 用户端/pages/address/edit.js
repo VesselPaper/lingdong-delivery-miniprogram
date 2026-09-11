@@ -18,7 +18,8 @@ Page({
   async loadPoints() {
     try {
       const points = await request.get(api.landmarkList)
-      this.setData({ points })
+      // 送达点位只展示机器人可送达的取餐点（deliverPoint），排除商铺上货点（loadingPoint）
+      this.setData({ points: (points || []).filter((p) => p.type === 'deliverPoint') })
     } catch (e) { /* handled */ }
   },
 
