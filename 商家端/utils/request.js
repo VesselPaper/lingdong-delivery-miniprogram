@@ -22,6 +22,12 @@ function request(options) {
   return new Promise((resolve, reject) => {
     const header = { 'Content-Type': 'application/json' }
     const token = wx.getStorageSync('token')
+    if (needAuth && !token) {
+      // 未登录：不发请求，直接进登录页（消除未登录时的 401 红字）
+      wx.reLaunch({ url: '/pages/user/login' })
+      reject(new Error('请先登录'))
+      return
+    }
     if (needAuth && token) {
       header.Authorization = 'Bearer ' + token
     }
