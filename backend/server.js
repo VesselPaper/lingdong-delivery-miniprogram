@@ -1341,7 +1341,22 @@ async function doDispatchBatch(store, batchId, deviceSn) {
       const r = await platform.pickAvailableRobot()
       if (r && r.device_sn) sn = r.device_sn
     }
-    if (!sn) throw new Error('暂无可用无人车，请确认无人车在线后再派车')
+    if (!sn) {
+      // 无可用车：给商家明确提示（设备状态 + 引导），而不是笼统报错
+      let reason = '机器人未上线或处于忙碌状态'
+      try {
+        const dev = await platform.getDeviceList()
+        if (dev.ok && dev.robots && dev.robots.length) {
+          const states = dev.robots.map((x) => `${x.name || x.device_sn}（${x.online ? '在线·' + (x.machine_text || '未知') : '离线'}）`).join('、')
+          reason = '当前设备：' + states + '。请先开机上线后再派车上货'
+        } else if (dev.ok && (!dev.robots || !dev.robots.length)) {
+          reason = '平台暂无已注册机器人，请联系越凡确认设备配置'
+        } else if (dev.msg) {
+          reason = '查询设备状态失败：' + dev.msg
+        }
+      } catch (e) { /* 设备状态查询失败则用默认文案 */ }
+      throw new Error('暂无可用无人车：' + reason)
+    }
     const busy = await platform.isRobotBusy(store, sn)
     if (busy.busy) throw new Error(busy.msg)
   }

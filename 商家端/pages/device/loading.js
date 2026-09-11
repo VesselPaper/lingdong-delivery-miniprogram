@@ -98,7 +98,13 @@ Page({
         wx.hideLoading()
       } catch (err) {
         wx.hideLoading()
-        wx.showToast({ title: (err && err.message) || '创建任务失败，请稍后重试', icon: 'none' })
+        // 明确提示（弹窗而非一闪而过的 toast）：机器人离线/忙碌等要给商家可操作的引导
+        wx.showModal({
+          title: '暂时无法上货',
+          content: (err && err.message) || '创建配送任务失败，请稍后重试',
+          showCancel: false,
+          confirmText: '知道了'
+        })
         return
       }
     }
