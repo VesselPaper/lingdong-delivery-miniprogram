@@ -181,6 +181,23 @@ git pull        # 拉取最新代码
   - **不想要本地改动**：`git checkout .` → `git pull`（⚠️ 会丢弃本机未提交的改动）
 - `.env` 不会随代码同步（已 gitignore）：本地演示保持 `PLATFORM_MOCK=true` 即可；要跑真实配送需线下获取平台凭据填到本地 `backend/.env`。
 
+### 9. 成员提交改动：请用「合并」流程（不要覆盖）
+
+> 多人协作约定：**推送前必先 pull，绝不 force 覆盖远端**。force push 会丢弃其他成员的提交。
+
+标准提交流程（在本地项目文件夹里）：
+
+```bash
+git add .                    # 暂存你的改动
+git commit -m "改动说明"      # 本地提交
+git pull origin main         # ★ 先拉取合并（有冲突先手动解决再继续）
+git push origin main         # 再推送（普通推送，不要加 --force）
+```
+
+- **有冲突时**：`git pull` 会提示冲突文件，手动改好 → `git add .` → `git commit -m "解决冲突"` → `git push origin main`。
+- 改文件前建议先 `git pull` 再动手，减少冲突；`config.js` 的 baseUrl、`backend/.env` 这类本机配置尽量不提交（如已提交，成员用 `git stash` 保留本机值）。
+- 提交信息写清楚改了什么（一句话中文即可），方便成员快速了解每次变更。
+
 ## 真实业务逻辑说明
 
 - 登录：测试阶段为演示登录（未配置 WX_APPID/WX_SECRET 时点击微信登录直接成功）；正式环境启用真实 code2session（server.js 中注释保留，配置 .env 后取消注释）。
