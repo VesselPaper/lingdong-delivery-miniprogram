@@ -27,10 +27,19 @@ Page({
   async load() {
     try {
       const data = await request.get(api.orderDetail + '?id=' + this.data.id)
+      // 取餐超时提示（商家运营视角）：已送达(3)未取时按阶段给文案
+      const st = Number(data.status)
+      const pickupHint = (st === 3 && !data.picked_up_at)
+        ? (data.picking_up_at ? '用户正在取餐（舱门已打开）'
+          : Number(data.pickup_timeout_stage) === 1 ? '取餐超时：先送其他单，稍后返回，再等 15 分钟'
+          : Number(data.pickup_timeout_stage) === 2 ? '已返回再等，即将取消退款，请留意'
+          : '')
+        : ''
       this.setData({
         order: Object.assign({}, data, { stClass: ST_CLASS[Number(data.status)] || 'gray' }),
         items: data.items,
-        payed: data.status > 0
+        payed: data.status > 0,
+        pickupHint
       })
     } catch (e) { /* handled */ }
   },

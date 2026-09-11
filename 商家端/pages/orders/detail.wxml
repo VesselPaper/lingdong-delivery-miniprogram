@@ -6,7 +6,7 @@
       <view class="status-title st-{{order.stClass}}">订单 {{order.daily_seq}} · {{order.status_text}}</view>
       <view class="status-sub text-sm text-sub" wx:if="{{order.status === 1}}">请尽快接单，机器人将在门店等待装货</view>
       <view class="status-sub text-sm text-sub" wx:if="{{order.status === 2}}">机器人已接单，正在配送</view>
-      <view class="status-sub text-sm text-sub" wx:if="{{order.status === 3}}">机器人已到达取餐点</view>
+      <view class="status-sub text-sm text-sub" wx:if="{{order.status === 3}}">机器人已到达取餐点{{pickupHint ? ' · ' + pickupHint : ''}}</view>
       <view class="status-sub text-sm text-sub" wx:if="{{order.status === 6}}">配送异常，请在任务页处理（重新配送 / 取消退款）</view>
     </view>
   </view>

@@ -286,6 +286,17 @@ const FREE_CANCEL_WINDOW_MS = Number(process.env.FREE_CANCEL_WINDOW_MS || 10 * 6
 const PICKUP_REOPEN_WINDOW_MS = Number(process.env.PICKUP_REOPEN_WINDOW_MS || 10 * 60 * 1000)
 const MAX_PICKUP_OPEN = Number(process.env.MAX_PICKUP_OPEN || 3)
 
+// 取餐超时（未取餐处理）：订单「已送达(3)」后用户一直不取餐的两段式超时。
+// 一段：delivered_at + PICKUP_TIMEOUT_MS（默认 15 分钟）未取 → 若批次还有别的单，机器人先送其他单、稍后返回再等；
+// 二段：已返回/无其他单可送时再等 PICKUP_RETRY_TIMEOUT_MS（默认 15 分钟）仍未取 → 驳回订单（取消并退款）。
+// 「正在取餐」（picking_up_at 置位）期间计时暂停，防止用户取货时刚好超时被误判。
+// 取餐守卫：picking_up_at 超过 PICKUP_PICKING_GUARD_MS（默认 5 分钟，覆盖平台 40s 自动关舱）仍未关舱
+// → 视为「打开后没取」，清位回到待取货、恢复计时（防永久暂停卡死）。扫描间隔 PICKUP_SCAN_MS 默认 30s。
+const PICKUP_TIMEOUT_MS = Number(process.env.PICKUP_TIMEOUT_MS || 15 * 60 * 1000)
+const PICKUP_RETRY_TIMEOUT_MS = Number(process.env.PICKUP_RETRY_TIMEOUT_MS || 15 * 60 * 1000)
+const PICKUP_PICKING_GUARD_MS = Number(process.env.PICKUP_PICKING_GUARD_MS || 5 * 60 * 1000)
+const PICKUP_SCAN_MS = Number(process.env.PICKUP_SCAN_MS || 30 * 1000)
+
 // 配送卡死阈值（P1-4）：订单停留「配送中」超过该时长且任务非终态 → 视为卡死，向用户开放退款出口。
 // 同时也是超时扫描（未接单/挂起状态）的阈值与扫描间隔。必须定义在模块顶层：
 // orderStuckDelivering 在演示/真实两种档位都会被调用，原先定义在 if (runtime.realPlatform)
@@ -930,6 +941,12 @@ app.get('/api/delivery/track', auth, async (req, res) => {
       taskText = '等待商家接单'
     }
   }
+  // 取餐超时两段式提示：已送达(3)未取时按阶段给文案（正在取餐 / 一段超时·先送其他单 / 已返回再等·即将取消）
+  if (Number(order.status) === 3 && !order.picked_up_at) {
+    if (order.picking_up_at) taskText = '正在取餐（舱门已打开，请取出餐品并关舱）'
+    else if (Number(order.pickup_timeout_stage) === 1) taskText = '取餐超时，先送其他单，稍后返回本点位，请留意'
+    else if (Number(order.pickup_timeout_stage) === 2) taskText = '已再次到达等待，即将取消订单，请尽快取餐'
+  }
   ok(res, {
     order_status: order.status,
     order_status_text: ORDER_STATUS[order.status] || '',
@@ -1017,10 +1034,12 @@ app.post('/api/delivery/pickup-open', auth, async (req, res) => {
     }
   }
   // CAS 抢占 + 次数上限：并发双击只成功一次，超过 MAX_PICKUP_OPEN 次直接拒绝
+  // picking_up_at=现在：打开舱门即标记「正在取餐」（取餐超时计时暂停，防止取货中途被误判超时）
   const claim = store.prepare(`
     UPDATE orders SET
       pickup_opened_at=COALESCE(pickup_opened_at, datetime('now','localtime')),
       pickup_open_count=pickup_open_count+1,
+      picking_up_at=datetime('now','localtime'),
       updated_at=datetime('now','localtime')
     WHERE id=? AND status IN (3,4) AND pickup_open_count < ?`).run(order.id, MAX_PICKUP_OPEN)
   if (claim.changes !== 1) return res.status(400).json({ code: 400, msg: '重新开舱次数已达上限，请联系商家处理' })
@@ -1046,6 +1065,8 @@ app.post('/api/delivery/pickup-close', auth, async (req, res) => {
     const r = await platform.unloadingConfirm(task.device_sn, task.platform_task_id, { contact: order.contact_phone || '', roomNum: order.pickup_code })
     if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg })
   }
+  // 关舱 = 真正取走：清「正在取餐」标记，随后 markOrderPicked（4 已完成 + 结算销量 + 批次计数）
+  store.prepare("UPDATE orders SET picking_up_at=NULL, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
   batch.markOrderPicked(store, order)
   ok(res, { order_id: order.id, status: 4, test: !ready })
 })
@@ -1336,17 +1357,17 @@ async function doDispatchBatch(store, batchId, deviceSn) {
         .run(batchId)
       throw new Error('批次内没有待配送订单')
     }
-    // 1. 规划配送路线（多地点，最小化顾客总等待）
-    const route = batch.planRoute(store, orders)
-    store.prepare("UPDATE delivery_batches SET device_sn=?, route=?, updated_at=datetime('now','localtime') WHERE id=?")
-      .run(sn, JSON.stringify(route), batchId)
+    // 路线规划推迟到「开始配送（关舱后）」执行（用户确认的设计：停靠顺序在货上完、关舱后才确定）。
+    // 因此此处只创建平台任务，不传 route（createTasksForBatch 用固定 priority，仅作提示不影响目的地）；
+    // 路线在 /merchant/device/batch/dispatch（立即配送/开始配送）时用 batch.planRoute 计算并写入 batch.route。
+    store.prepare("UPDATE delivery_batches SET device_sn=?, updated_at=datetime('now','localtime') WHERE id=?")
+      .run(sn, batchId)
     // 同步内存中的批次对象，供 createTasksForBatch 取 device_sn（它创建平台任务必须指定设备）
     b.device_sn = sn
-    // 3. 为批次内每单创建平台任务（真实创建排队任务 / 本地 Mock）
-    await platform.createTasksForBatch(store, b, orders, route)
-    // 4. 兜底置为配送中（已由并入批次时置 2）
+    await platform.createTasksForBatch(store, b, orders, [])
+    // 兜底置为配送中（已由并入批次时置 2）
     store.prepare("UPDATE orders SET status=2, updated_at=datetime('now','localtime') WHERE batch_id=? AND status=1").run(batchId)
-    console.log('[batch] 批次派车 ' + b.batch_no + ' 共' + orders.length + '单 路线' + route.map((s) => s.landmark_name).join('→'))
+    console.log('[batch] 批次定型 ' + b.batch_no + ' 共' + orders.length + '单（路线待开始配送时规划）')
     return batch.getBatchDetail(store, batchId)
   } catch (e) {
     // 回滚：作废本轮已创建的任务 + 批次退回组单中（device_sn/route 一并清掉，避免下次派车沿用旧路线）
@@ -1410,6 +1431,14 @@ app.post('/api/merchant/device/batch/dispatch', merchantGuard, async (req, res) 
   const { batch_id } = req.body || {}
   const b = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(batch_id))
   if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
+  // 开始配送前（商家已上货并关舱）规划路线：按收餐点位分组 + 最近邻，写入 batch.route 供逐点配送/地图展示。
+  // 路线规划失败不阻断配送（每个任务自带收餐点位，仍会逐点送达）。
+  try {
+    const orders = store.prepare('SELECT * FROM orders WHERE batch_id=? AND status IN (1,2)').all(b.id)
+    const route = batch.planRoute(store, orders)
+    store.prepare("UPDATE delivery_batches SET route=?, updated_at=datetime('now','localtime') WHERE id=?")
+      .run(JSON.stringify(route), b.id)
+  } catch (e) { console.warn('[batch] 路线规划失败（继续配送）', e.message) }
   const results = await platform.confirmBatchLoading(store, b.id)
   const failed = results.filter((r) => !r.ok)
   if (failed.length) {
@@ -1734,7 +1763,7 @@ app.post('/api/merchant/delivery/test-complete', merchantGuard, (req, res) => {
       store.prepare("UPDATE delivery_tasks SET task_status=80, status_text='任务完成（测试）', updated_at=datetime('now','localtime') WHERE id=?")
         .run(order.delivery_task_id)
     }
-    store.prepare("UPDATE orders SET status=?, updated_at=datetime('now','localtime') WHERE id=?")
+    store.prepare("UPDATE orders SET status=?, delivered_at=COALESCE(delivered_at, datetime('now','localtime')), updated_at=datetime('now','localtime') WHERE id=?")
       .run(to, id)
     if (to === 4) batch.markOrderPicked(store, order)
     if (order.batch_id) touched.add(order.batch_id)
@@ -1915,6 +1944,114 @@ if (runtime.realPlatform) {
   scanStuckDeliveries()
 }
 
+// ---------- 取餐超时（已送达无人取餐）两段式处理 ----------
+// 订单「已送达(3)」后一直没人取（picked_up_at 为空且未在「正在取餐」picking_up_at 置位期间，计时暂停）：
+//   一段 PICKUP_TIMEOUT_MS（默认 15 分钟）→ stage=1：若批次还有别的单，重排路线（本单停靠点移到最后，
+//     机器人先送其他单）并提示用户；无其他单则继续等待。
+//   其他单送完/取完后 → 重建任务让机器人「回来再等」（recreatePickupTask，真实平台行为待与越凡确认），
+//     记 pickup_revisit_at，stage=2。
+//   二段：pickup_revisit_at + PICKUP_RETRY_TIMEOUT_MS（默认 15 分钟）仍没取 → 驳回（取消并退款）。
+// 打开舱门=「正在取餐」，计时暂停；超过 PICKUP_PICKING_GUARD_MS（默认 5 分钟）未关舱视为打开后没取，计时恢复。
+
+// 把某订单的停靠点移到批次路线末尾（「先送其他单」的展示/地图顺序；机器人实际顺序由平台按任务调度）
+function moveStopToEnd(batchId, orderId) {
+  const b = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(batchId))
+  if (!b) return
+  let route = []
+  try { route = JSON.parse(b.route || '[]') } catch (e) { route = [] }
+  if (!route.length) return
+  const idx = route.findIndex((s) => (s.order_ids || []).map(String).includes(String(orderId)))
+  if (idx < 0) return
+  const [stop] = route.splice(idx, 1)
+  route.push(stop)
+  route.forEach((s, i) => { s.stop = i + 1 })
+  store.prepare("UPDATE delivery_batches SET route=?, updated_at=datetime('now','localtime') WHERE id=?").run(JSON.stringify(route), b.id)
+}
+
+// 返程再等：一段超时单在其批次其他单都送完/取完后，重建任务让机器人再回来等（stage=2 起算二段窗口）
+async function revisitUnpickedOrder(orderId) {
+  const order = store.prepare('SELECT * FROM orders WHERE id=?').get(Number(orderId))
+  if (!order || Number(order.status) !== 3 || order.picked_up_at) return
+  const claim = store.prepare(`UPDATE orders SET pickup_timeout_stage=2, pickup_revisit_at=datetime('now','localtime'), updated_at=datetime('now','localtime')
+    WHERE id=? AND status=3 AND picked_up_at IS NULL AND pickup_timeout_stage=1`).run(order.id)
+  if (claim.changes !== 1) return
+  // 作废旧任务（若还有非终态挂着的），再重建一个同卸载点位的任务
+  store.prepare(`UPDATE delivery_tasks SET task_status=110, status_text='取餐超时返程，任务作废',
+    void_at=COALESCE(void_at, datetime('now','localtime')), updated_at=datetime('now','localtime')
+    WHERE order_id=? AND void_at IS NULL AND task_status < 80`).run(order.id)
+  try {
+    const b = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(order.batch_id)
+    if (b) await platform.recreatePickupTask(store, b, order)
+  } catch (e) { console.warn('[pickup] 返程重建任务失败 order=' + order.id, e.message) }
+  console.log('[pickup] 取餐超时返程再等 order=' + order.id + '（stage=2，二段等待中）')
+}
+
+// 驳回取餐超时单（二段仍没取）：取消并退款（真实微信退款或本地标记），作废任务/摘除批次/回补库存走 orderCancel
+async function rejectUnpickedOrder(orderId) {
+  const order = store.prepare('SELECT * FROM orders WHERE id=?').get(Number(orderId))
+  if (!order || Number(order.status) !== 3 || order.picked_up_at) return
+  const ref = await realRefundOrLocal(order, null, Number(order.total_amount))
+  if (!ref.ok) { console.warn('[pickup] 驳回退款失败 order=' + order.id + ' ' + ref.msg); return }
+  const c = await applyOrderCancelled(order, { finalStatus: 7, reason: '取餐超时，订单驳回退款' })
+  if (!c.claimed) return
+  store.prepare("INSERT INTO refunds (order_id, user_id, type, reason, amount, status, merchant_reply, handled_at, wx_refund_no) VALUES (?,?,?,?,?,?,?,datetime('now','localtime'),?)")
+    .run(order.id, order.user_id, 'refund', '取餐超时，订单驳回退款', order.total_amount, 3, '取餐超时自动退款', ref.refundNo || '')
+  store.prepare("UPDATE orders SET pickup_timeout_stage=3, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
+  console.log('[pickup] 取餐超时驳回退款 order=' + order.id + ' amount=' + order.total_amount + ' user=' + order.user_id)
+}
+
+async function scanPickupTimeouts() {
+  try {
+    const now = new Date()
+    const fmt = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') +
+      ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0')
+    // 1) 取餐守卫：正在取餐超过守卫窗口仍未关舱 → 视为「打开后没取」，清位回待取货（计时恢复，防永久暂停卡死）
+    const guardCut = fmt(new Date(now.getTime() - PICKUP_PICKING_GUARD_MS))
+    store.prepare(`UPDATE orders SET picking_up_at=NULL, updated_at=datetime('now','localtime')
+      WHERE status=3 AND picked_up_at IS NULL AND picking_up_at IS NOT NULL AND picking_up_at < ?`).run(guardCut)
+    // 2) 一段超时：已送达超窗口、未取、未在取餐中、未处理过 → stage=1（重排路线 + 提示）
+    const cs1 = fmt(new Date(now.getTime() - PICKUP_TIMEOUT_MS))
+    const stage1 = store.prepare(`SELECT o.id, o.batch_id FROM orders o
+      WHERE o.status=3 AND o.picked_up_at IS NULL AND o.picking_up_at IS NULL AND o.pickup_timeout_stage=0
+        AND o.delivered_at IS NOT NULL AND o.delivered_at < ?`).all(cs1)
+    for (const r of stage1) {
+      const claim = store.prepare(`UPDATE orders SET pickup_timeout_stage=1, updated_at=datetime('now','localtime')
+        WHERE id=? AND status=3 AND picked_up_at IS NULL AND picking_up_at IS NULL AND pickup_timeout_stage=0`).run(r.id)
+      if (claim.changes !== 1) continue
+      const otherCnt = r.batch_id ? store.prepare(`
+        SELECT COUNT(*) c FROM orders WHERE batch_id=? AND id<>? AND status IN (2,3) AND picked_up_at IS NULL`).get(r.batch_id, r.id) : null
+      const hasOther = Number(otherCnt && otherCnt.c || 0) > 0
+      if (hasOther) {
+        try { moveStopToEnd(r.batch_id, r.id) } catch (e) { /* 重排失败静默 */ }
+        console.log('[pickup] 取餐超时(一段) order=' + r.id + ' 批次=' + r.batch_id + '：先送其他单，稍后返回')
+      } else {
+        console.log('[pickup] 取餐超时(一段) order=' + r.id + ' 批次=' + r.batch_id + '：无其他单，继续等待')
+      }
+    }
+    // 3) 返程再访问：一段超时单所在批次不再有「配送中/未超时待取」的其他单时，重建任务让机器人回来等
+    const revisitCand = store.prepare(`SELECT o.id, o.batch_id FROM orders o
+      WHERE o.status=3 AND o.picked_up_at IS NULL AND o.picking_up_at IS NULL AND o.pickup_timeout_stage=1
+        AND o.pickup_revisit_at IS NULL AND o.delivered_at IS NOT NULL AND o.delivered_at < ?`).all(cs1)
+    for (const r of revisitCand) {
+      const waitCnt = r.batch_id ? store.prepare(`
+        SELECT COUNT(*) c FROM orders
+        WHERE batch_id=? AND id<>? AND (status=2 OR (status=3 AND picked_up_at IS NULL AND pickup_timeout_stage=0))`).get(r.batch_id, r.id) : null
+      if (Number(waitCnt && waitCnt.c || 0) > 0) continue
+      try { await revisitUnpickedOrder(r.id) } catch (e) { console.warn('[pickup] 返程再访问失败 order=' + r.id, e.message) }
+    }
+    // 4) 二段超时：返程后再等满 PICKUP_RETRY_TIMEOUT_MS 仍没取 → 驳回（取消并退款）
+    const cs2 = fmt(new Date(now.getTime() - PICKUP_RETRY_TIMEOUT_MS))
+    const stage2 = store.prepare(`SELECT o.id FROM orders o
+      WHERE o.status=3 AND o.picked_up_at IS NULL AND o.picking_up_at IS NULL AND o.pickup_timeout_stage=2
+        AND o.pickup_revisit_at IS NOT NULL AND o.pickup_revisit_at < ?`).all(cs2)
+    for (const r of stage2) {
+      try { await rejectUnpickedOrder(r.id) } catch (e) { console.warn('[pickup] 驳回取餐超时单失败 order=' + r.id, e.message) }
+    }
+  } catch (e) { /* 扫描异常静默（遵循日志精简约定） */ }
+}
+setInterval(() => { scanPickupTimeouts().catch(() => {}) }, PICKUP_SCAN_MS)
+scanPickupTimeouts().catch(() => {})
+
 // ---------- 批次自动派车（一车多单） ----------
 // 组单中的批次满足任一条件即自动派车：
 //  1) 达到一车容量上限（BATCH_MAX_ORDERS，默认 12 单）
@@ -1929,7 +2066,7 @@ setInterval(async () => {
       const orderIds = store.prepare('SELECT id FROM orders WHERE batch_id=? AND status=2').all(b.id).map((r) => r.id)
       for (const oid of orderIds) {
         store.prepare("UPDATE delivery_tasks SET task_status=70, status_text='到达取货点（模拟）', updated_at=datetime('now','localtime') WHERE order_id=?").run(oid)
-        store.prepare("UPDATE orders SET status=3, updated_at=datetime('now','localtime') WHERE id=?").run(oid)
+        store.prepare("UPDATE orders SET status=3, delivered_at=COALESCE(delivered_at, datetime('now','localtime')), updated_at=datetime('now','localtime') WHERE id=?").run(oid)
         try { goodsStats.settleSales(store, oid) } catch (e) { /* 忽略 */ }
       }
       reconcileBatchState(store, b.id)

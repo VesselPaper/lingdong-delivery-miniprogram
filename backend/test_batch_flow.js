@@ -104,8 +104,6 @@ function assert(cond, msg) {
     assert(disp.code === 0, '批次派车成功')
     assert(disp.data.status === 1, '批次状态→待上货')
     assert(disp.data.orders.length === 4, '批次含 4 单')
-    assert(disp.data.route.length >= 2, '路线含多个停靠点（' + disp.data.route.map((r) => r.landmark_name).join(',') + '）')
-    console.log('    路线: ' + disp.data.route.map((r) => r.stop + ':' + r.landmark_name + '(' + r.order_ids.length + '单)').join(' → '))
 
     // 每单应有独立取餐码且互不相同
     const codes = disp.data.orders.map((o) => o.pickup_code)
@@ -138,6 +136,9 @@ function assert(cond, msg) {
     // 批次状态应到配送中
     const detail = await api('GET', '/merchant/delivery/batch/detail?batch_id=' + batchId, null, mToken)
     assert(detail.code === 0 && detail.data.status === 2, '批次状态→配送中')
+    // 路线在「开始配送（关舱后）」才规划：此时应已有完整停靠顺序
+    assert(detail.data.route.length >= 2, '路线含多个停靠点（' + detail.data.route.map((r) => r.landmark_name).join(',') + '）')
+    console.log('    路线: ' + detail.data.route.map((r) => r.stop + ':' + r.landmark_name + '(' + r.order_ids.length + '单)').join(' → '))
 
     // 任务页 stage=deliver（配送中）应过滤出本批订单，且 stage_text=配送中
     const stageDeliver = await api('GET', '/merchant/orders?stage=deliver', null, mToken)
@@ -246,7 +247,110 @@ function assert(cond, msg) {
     assert(Number(g1r.stock) === 95, '异常退款回补库存：商品1 stock=95（96 -1 ce -1 cf +1 退款回补）')
     tdb.close()
 
-    console.log('\n✅ 全部冒烟测试通过（一车多单完整闭环 + Round3 异常处理/模拟派车）')
+    // ---- 取餐超时（已送达无人取餐）两段式：正在取餐暂停计时 / 一段超时 / 返程再等 / 二段驳回 ----
+    // 独立起一个临时 server（端口 3101 + 独立临时库 + 极小超时窗口），用 test-complete 即时送达，不依赖 mock 到达计时。
+    const PORT2 = 3101
+    const TMP_DB2 = path.join(os.tmpdir(), 'lingdong_pickup_test_' + Date.now() + '.db')
+    const child2 = spawn(process.execPath, ['server.js'], {
+      cwd: __dirname,
+      env: { ...process.env, RUN_MODE: 'demo', PORT: String(PORT2), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB2, PAY_MOCK: 'true',
+        BATCH_WAIT_MS: '100000', MERCHANT_INVITE_CODE: 'test-invite', WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '',
+        PICKUP_TIMEOUT_MS: '1500', PICKUP_RETRY_TIMEOUT_MS: '1500', PICKUP_PICKING_GUARD_MS: '60000', PICKUP_SCAN_MS: '300', BATCH_SCAN_MS: '300', MOCK_ARRIVE_MS: '300' },
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    const BASE2 = 'http://127.0.0.1:' + PORT2 + '/api'
+    const api2 = async (method, pathname, body, token) => {
+      const res = await fetch(BASE2 + pathname, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: body ? JSON.stringify(body) : undefined })
+      return res.json().catch(() => ({}))
+    }
+    await new Promise((resolve, reject) => {
+      let log = ''
+      child2.stdout.on('data', (d) => { log += d }); child2.stderr.on('data', (d) => { log += d })
+      const t0 = Date.now()
+      const timer = setInterval(async () => {
+        try { const r = await fetch(BASE2 + '/shop/status'); if (r.ok) { clearInterval(timer); resolve() } } catch (e) {}
+        if (Date.now() - t0 > 15000) { clearInterval(timer); reject(new Error('server2 start timeout\n' + log)) }
+      }, 300)
+    })
+    try {
+      const m2 = await api2('POST', '/auth/login', { code: 'merchant-pk-' + Date.now(), merchant_code: 'test-invite', nickname: '测试商家' })
+      const mTok2 = m2.data.token
+      const s2 = await api2('POST', '/auth/login', { code: 'student-pk-' + Date.now(), role: 'student', nickname: '测试学生' })
+      const sTok2 = s2.data.token
+      await api2('PUT', '/merchant/shop', { business_status: 'open', auto_accept: 1 }, mTok2)
+      const waitMs = (ms) => new Promise((r) => setTimeout(r, ms))
+      const orderDetail2 = async (id) => (await api2('GET', '/order/detail?id=' + id, null, sTok2)).data
+
+      // 建单 → 派车 → 开/关舱 → mock 开始配送 → test-complete 即时送达（已送达 3 + delivered_at）
+      const mkDelivered = async (lm) => {
+        const c = await api2('POST', '/order/create', { landmark_id: lm, landmark_name: '点位' + lm, contact_name: '测试学生', contact_phone: '13800138000', items: [{ goods_id: 1, quantity: 1 }] }, sTok2)
+        await api2('POST', '/order/pay', { id: c.data.order_id }, sTok2)
+        const pend = await api2('GET', '/merchant/device/pending', null, mTok2)
+        const open = (pend.data.open_batches || []).find((b) => Number(b.status) === 0)
+        await api2('POST', '/merchant/delivery/batch/dispatch', { batch_id: open.id }, mTok2)
+        await api2('POST', '/merchant/device/batch/open-bin', { batch_id: open.id }, mTok2)
+        await api2('POST', '/merchant/device/batch/close-bin', { batch_id: open.id }, mTok2)
+        await api2('POST', '/merchant/device/batch/dispatch', { batch_id: open.id }, mTok2)
+        await api2('POST', '/merchant/delivery/test-complete', { batch_id: open.id, status: 3 }, mTok2)
+        return { order_id: c.data.order_id, batch_id: open.id }
+      }
+
+      // Case 1：打开舱门=「正在取餐」→ 计时暂停，超时窗口内不误判；关舱 → 已完成
+      const o1 = await mkDelivered(2)
+      let d1 = await orderDetail2(o1.order_id)
+      assert(d1.status === 3 && !!d1.delivered_at, '取餐超时用例：订单已送达且 delivered_at 已写')
+      const po = await api2('POST', '/delivery/pickup-open', { order_id: o1.order_id }, sTok2)
+      assert(po.code === 0, '取餐超时用例：打开舱门（正在取餐，计时暂停）')
+      await waitMs(4200) // 超过 PICKUP_TIMEOUT_MS(1500)+秒级精度余量 仍在取餐
+      d1 = await orderDetail2(o1.order_id)
+      assert(!!d1.picking_up_at && d1.pickup_timeout_stage === 0 && d1.status === 3, '取餐中计时暂停：超时窗口内未误判（stage=0）')
+      const pc = await api2('POST', '/delivery/pickup-close', { order_id: o1.order_id }, sTok2)
+      assert(pc.code === 0 && pc.data.status === 4, '取餐中关舱 → 已完成(4)')
+
+      // Case 2：一直不取 → 一段超时(stage=1) → 无其他单 → 返程再等(stage=2) → 二段超时 → 驳回退款(status=7, stage=3)
+      const o2 = await mkDelivered(3)
+      let d2 = await orderDetail2(o2.order_id)
+      assert(d2.status === 3, '取餐超时用例：订单B 已送达未取')
+      await waitMs(4200) // 一段(1500)+秒级精度余量 → stage=1 → 无其他单 → 立即返程再等 stage=2
+      d2 = await orderDetail2(o2.order_id)
+      assert(d2.pickup_timeout_stage >= 2, '一段超时→返程再等：stage≥2（实际 ' + d2.pickup_timeout_stage + '）')
+      await waitMs(4200) // 二段(1500)+余量 → 驳回退款
+      d2 = await orderDetail2(o2.order_id)
+      assert(d2.status === 7 && d2.pickup_timeout_stage === 3, '二段超时→驳回退款：status=7 stage=3')
+
+      // Case 3：同批次两单都不取 → 都一段超时（路线重排不破坏）→ 各自返程再等 → 都驳回（不互相卡死）
+      const c3a = await api2('POST', '/order/create', { landmark_id: 2, landmark_name: '点位2', contact_name: '测试学生', contact_phone: '13800138000', items: [{ goods_id: 1, quantity: 1 }] }, sTok2)
+      await api2('POST', '/order/pay', { id: c3a.data.order_id }, sTok2)
+      const c3b = await api2('POST', '/order/create', { landmark_id: 3, landmark_name: '点位3', contact_name: '测试学生', contact_phone: '13800138000', items: [{ goods_id: 1, quantity: 1 }] }, sTok2)
+      await api2('POST', '/order/pay', { id: c3b.data.order_id }, sTok2)
+      const pend3 = await api2('GET', '/merchant/device/pending', null, mTok2)
+      const open3 = (pend3.data.open_batches || []).find((b) => Number(b.status) === 0)
+      assert(open3 && open3.total_orders === 2, '取餐超时用例：同批次并入 2 单')
+      await api2('POST', '/merchant/delivery/batch/dispatch', { batch_id: open3.id }, mTok2)
+      await api2('POST', '/merchant/device/batch/open-bin', { batch_id: open3.id }, mTok2)
+      await api2('POST', '/merchant/device/batch/close-bin', { batch_id: open3.id }, mTok2)
+      await api2('POST', '/merchant/device/batch/dispatch', { batch_id: open3.id }, mTok2)
+      await api2('POST', '/merchant/delivery/test-complete', { batch_id: open3.id, status: 3 }, mTok2)
+      await waitMs(4200)
+      const da3 = await orderDetail2(c3a.data.order_id)
+      const db3 = await orderDetail2(c3b.data.order_id)
+      assert(da3.pickup_timeout_stage >= 1 && db3.pickup_timeout_stage >= 1, '同批次两单未取：均一段超时 stage≥1')
+      const det3 = await api2('GET', '/merchant/delivery/batch/detail?batch_id=' + open3.id, null, mTok2)
+      assert(Array.isArray(det3.data.route) && det3.data.route.length === 2, '同批次两单：路线重排后仍含 2 站')
+      await waitMs(4200)
+      const da3b = await orderDetail2(c3a.data.order_id)
+      const db3b = await orderDetail2(c3b.data.order_id)
+      assert(da3b.status === 7 && db3b.status === 7, '同批次两单未取：最终均驳回退款 status=7（互不卡死）')
+
+      child2.kill()
+      try { fs.unlinkSync(TMP_DB2); fs.unlinkSync(TMP_DB2 + '-wal'); fs.unlinkSync(TMP_DB2 + '-shm'); } catch (e) {}
+      console.log('  ✔ 取餐超时两段式用例全部通过（正在取餐暂停计时 / 一段超时 / 返程再等 / 二段驳回）')
+    } finally {
+      if (child2 && child2.exitCode === null) child2.kill()
+      try { fs.unlinkSync(TMP_DB2); fs.unlinkSync(TMP_DB2 + '-wal'); fs.unlinkSync(TMP_DB2 + '-shm'); } catch (e) {}
+    }
+
+    console.log('\n✅ 全部冒烟测试通过（一车多单完整闭环 + Round3 异常处理/模拟派车 + 取餐超时两段式）')
   } catch (e) {
     fail = true
     console.error('\n❌ ' + e.message)

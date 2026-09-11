@@ -42,7 +42,14 @@ Page({
       const moving = data.task && Number(data.task.task_status) >= 50
       progress = moving ? 2 : 1
       text = moving ? '机器人配送中' : '已接单，等待装载配送'
-    } else if (st === 3) { progress = 3; text = '机器人已到达 ' + (data.landmark_name || '取餐点') + '，请及时取餐' }
+    } else if (st === 3) {
+      // 取餐超时两段式（后端字段：picking_up_at 正在取餐 / pickup_timeout_stage 0无/1一段超时/2已返回再等/3已驳回）
+      progress = 3
+      if (data.picking_up_at) text = '正在取餐（舱门已打开，请取出餐品并关舱）'
+      else if (Number(data.pickup_timeout_stage) === 1) text = '取餐超时，先送其他单，稍后返回本点位，请留意'
+      else if (Number(data.pickup_timeout_stage) === 2) text = '已再次到达等待，即将取消订单，请尽快取餐'
+      else text = '机器人已到达 ' + (data.landmark_name || '取餐点') + '，请及时取餐'
+    }
     else if (st === 4) { progress = 3; text = '已完成' }
     else { progress = 0; text = data.status_text || '' }
     return { progress, progressText: text }

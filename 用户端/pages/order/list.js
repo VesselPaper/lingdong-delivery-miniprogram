@@ -76,6 +76,13 @@ Page({
         first_image: first.goods_image || '',
         // 下单时间（YYYY-MM-DD HH:mm，去掉秒）
         created_time: formatTime(o.created_at),
+        // 取餐超时/正在取餐提示：已送达(3)未取时覆盖默认「已送达」文案
+        status_text: (Number(o.status) === 3 && !detail.picked_up_at)
+          ? (detail.picking_up_at ? '正在取餐'
+            : Number(detail.pickup_timeout_stage) === 1 ? '取餐超时·稍后返回'
+            : Number(detail.pickup_timeout_stage) === 2 ? '即将取消'
+            : o.status_text)
+          : o.status_text,
         // 取消相关标记（详情接口返回）：免费窗口内可直取消 / 超时须提交申请 / 已有待处理申请
         direct_cancelable: !!detail.direct_cancelable,
         request_cancelable: !!detail.request_cancelable,

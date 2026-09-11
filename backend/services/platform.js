@@ -355,16 +355,19 @@ async function pickAvailableRobot() {
 
 // ---------------- 批次派车：为一车多单批量创建平台任务 ----------------
 // 每单一个平台任务（outOrderNo 独立、取餐码独立），同一批次所有任务共用同一设备/货仓；
-// 停靠顺序来自批次 route，按 stop 顺序创建并以 priority 递减提示平台按序配送。
-async function createTasksForBatch(store, batch, orders, route) {
+// 路线在「开始配送（关舱后）」才规划（见 server.js doDispatchBatch 注释），因此本函数 route 可为空：
+// 传入 route 时按停靠顺序递减 priority 提示平台按序配送；为空时全部用固定 priority=10（仅提示，不影响目的地）。
+async function createTasksForBatch(store, batch, orders, route = []) {
   // 防御：用最新批次行（派车流程会在中途写入 device_sn，调用方传入的对象可能仍是旧值）
   batch = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(batch.id) || batch
   const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get() || null
   const stopOfOrder = new Map() // orderId -> { stop, priority }
-  route.forEach((stop) => {
-    const priority = Math.max(1, 10 - (Number(stop.stop) - 1)) // 第一站最高
-    stop.order_ids.forEach((oid) => stopOfOrder.set(oid, { stop: Number(stop.stop), priority }))
-  })
+  if (route && route.length) {
+    route.forEach((stop) => {
+      const priority = Math.max(1, 10 - (Number(stop.stop) - 1)) // 第一站最高
+      stop.order_ids.forEach((oid) => stopOfOrder.set(oid, { stop: Number(stop.stop), priority }))
+    })
+  }
   const results = []
   for (const order of orders) {
     const unloading = store.prepare('SELECT * FROM landmarks WHERE id=?').get(order.landmark_id)
@@ -488,6 +491,29 @@ async function summonToLoadingPoint(store) {
   } catch (e) {
     return { ok: false, msg: '召唤异常：' + e.message }
   }
+}
+
+// 取餐超时「回来再等」：为未取餐订单重建一个同卸载点位的配送任务，让机器人再跑一趟该点位等待。
+// 与 createTasksForBatch 的区别：**不把订单改回 status=2**（保持已送达 3，避免被「卡死配送中」扫描误伤），
+// 也不重新 loading（货已在舱）。真实平台对「同一单/同一货舱重建 queue/create 任务」是否可行、
+// 是否会先回上货点，待与越凡确认；失败不阻断 —— 二段超时（pickup_revisit_at + PICKUP_RETRY_TIMEOUT_MS）
+// 到期仍会驳回。mock 档走本地任务推进便于联调。
+async function recreatePickupTask(store, batch, order) {
+  const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get() || null
+  const unloading = store.prepare('SELECT * FROM landmarks WHERE id=?').get(order.landmark_id)
+  const info = store.prepare(
+    'INSERT INTO delivery_tasks (order_id, batch_id, platform_task_id, device_sn, task_status, status_text) VALUES (?,?,?,?,?,?)'
+  ).run(order.id, batch.id, '', batch.device_sn || '', 0, '排队中')
+  const taskId = Number(info.lastInsertRowid)
+  store.prepare("UPDATE orders SET delivery_task_id=?, updated_at=datetime('now','localtime') WHERE id=?").run(taskId, order.id)
+  if (MOCK) {
+    const t = { step: 0, taskId }
+    mockTasks.set(taskId, t)
+    t.timer = setTimeout(() => mockAdvance(store, taskId), 6000)
+  } else {
+    await realDispatchBatch(store, taskId, order, loading, unloading, batch, { stop: 1, priority: 10 })
+  }
+  return { task_id: taskId }
 }
 
 // 批次内待上货任务列表（任务状态 < 50）
@@ -663,12 +689,18 @@ function applyStatus(store, taskId, status, text) {
 
   let orderStatus = null
   if (st === 70) orderStatus = 3            // 到达取餐点 -> 已送达（待取餐）
-  else if (st === 80) orderStatus = 4       // 任务完成
+  else if (st === 80) {
+    // 任务完成(80) ≠ 用户已取走：平台 40s 自动关舱后任务同样流转 80，此时用户可能根本没来取。
+    // 只有用户真正「关舱取走」（pickup-close 置了 picked_up_at）才进已完成；否则保持已送达(3)，
+    // 由取餐超时扫描（scanPickupTimeouts）决定「先送其他单/稍后返回/驳回」。已取走则订单已是 4，无需再动。
+    if (!order.picked_up_at) orderStatus = 3
+  }
   else if (st >= 90 && st < 110) orderStatus = 6  // 上货失败(9x) / 取货失败(10x) -> 配送异常
   if (orderStatus !== null && canMoveOrderStatus(order.status, orderStatus)) {
-    store.prepare("UPDATE orders SET status=?, updated_at=datetime('now','localtime') WHERE id=?").run(orderStatus, order.id)
-    // 到达取餐点(3)/任务完成(4) → 本单已售结算（幂等）
-    if (orderStatus === 3 || orderStatus === 4) {
+    store.prepare("UPDATE orders SET status=?, delivered_at=COALESCE(delivered_at, datetime('now','localtime')), updated_at=datetime('now','localtime') WHERE id=?")
+      .run(orderStatus, order.id)
+    // 已送达(3) 即本单已售结算（幂等）——货已送达取餐点；未取餐的驳回不在此处回补（见 orderCancel/goodsStats）
+    if (orderStatus === 3) {
       try { goodsStats.settleSales(store, order.id) } catch (e) { /* 忽略 */ }
     }
   } else if (orderStatus !== null) {
@@ -992,4 +1024,4 @@ async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, createTasksForBatch, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, isRobotBusy, summonToLoadingPoint }
+module.exports = { createQueueTask, createTasksForBatch, recreatePickupTask, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, isRobotBusy, summonToLoadingPoint }

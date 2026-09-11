@@ -240,6 +240,15 @@ function migrate(db) {
   if (!orderCols.includes('pickup_opened_at')) db.exec("ALTER TABLE orders ADD COLUMN pickup_opened_at TEXT")
   // 开舱次数（P1-2）：重新开舱防「未取到餐」但必须限次数，防止无限次开舱把单舱完全暴露
   if (!orderCols.includes('pickup_open_count')) db.exec("ALTER TABLE orders ADD COLUMN pickup_open_count INTEGER DEFAULT 0")
+  // 取餐超时（未取餐处理）：进入「已送达(3)」的时刻 —— 15 分钟取餐窗口计时起点
+  if (!orderCols.includes('delivered_at')) db.exec("ALTER TABLE orders ADD COLUMN delivered_at TEXT")
+  // 「正在取餐」标记：用户打开舱门即置位（计时暂停，防止取货中途被误判超时）；关舱清位。
+  // 未取餐判定 = 从未打开过舱门（picking_up_at 从未置位 / picked_up_at 为空）。
+  if (!orderCols.includes('picking_up_at')) db.exec("ALTER TABLE orders ADD COLUMN picking_up_at TEXT")
+  // 取餐超时阶段：0 无 / 1 一段超时（先送其他单·稍后返回） / 2 已返回·二段等待中 / 3 已驳回
+  if (!orderCols.includes('pickup_timeout_stage')) db.exec("ALTER TABLE orders ADD COLUMN pickup_timeout_stage INTEGER DEFAULT 0")
+  // 返程再等起点：一段超时单在其他单送完后重建任务让机器人回来，从此刻起再等 PICKUP_RETRY_TIMEOUT_MS
+  if (!orderCols.includes('pickup_revisit_at')) db.exec("ALTER TABLE orders ADD COLUMN pickup_revisit_at TEXT")
   const refundCols = db.prepare('PRAGMA table_info(refunds)').all().map((c) => c.name)
   if (!refundCols.includes('wx_refund_no')) db.exec("ALTER TABLE refunds ADD COLUMN wx_refund_no TEXT DEFAULT ''")
 

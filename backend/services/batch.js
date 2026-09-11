@@ -164,8 +164,9 @@ function onTaskStatus(store, task, status) {
   const order = store.prepare('SELECT * FROM orders WHERE id=?').get(task.order_id)
   if (!order) return
   if (Number(status) === 80) {
-    // 平台任务完成 → 视同已取走（含设备端扫码/模拟完成场景）
-    markOrderPicked(store, order)
+    // 任务完成(80) ≠ 用户已取走：只有用户真正「关舱取走」（pickup-close 置了 picked_up_at）才算已取、
+    // 计入批次完成。平台 40s 自动关舱流转的 80 不在此列 —— 未取餐订单保持已送达(3)，由取餐超时扫描处理。
+    if (order.picked_up_at) markOrderPicked(store, order)
   } else if (Number(status) === 110 || Number(status) === 150) {
     // 任务取消/关闭：订单已由 applyStatus 置为已取消；批次计数校正
     if (Number(order.status) === 5) removeOrderFromBatch(store, order)
