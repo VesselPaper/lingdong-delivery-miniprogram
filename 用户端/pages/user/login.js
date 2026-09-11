@@ -21,7 +21,7 @@ Page({
         wx.login({ success: (r) => resolve(r.code), fail: reject })
       })
       // client 标明用户端：后端用它选「零栋GO」的 appid/secret 走真实 code2session
-      const res = await request.post(api.login, { code, client: 'user', nickname: '' })
+      const res = await request.post(api.login, { code, client: 'user', nickname: '' }, { needAuth: false }) // 登录接口免鉴权
       wx.setStorageSync('token', res.token)
       wx.setStorageSync('userInfo', res.user)
       wx.setStorageSync('runtimeFlags', res.runtime || {})

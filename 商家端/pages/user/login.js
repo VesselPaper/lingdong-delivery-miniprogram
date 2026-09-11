@@ -34,7 +34,7 @@ Page({
         nickname: '零栋铺子',
         // merchant_code: String(this.data.merchantCode || '').trim()
         merchant_code: ''
-      })
+      }, { needAuth: false }) // 登录接口本身免鉴权：未登录时必须发出，否则被 request 拦截永远登不进
       wx.setStorageSync('token', res.token)
       wx.setStorageSync('userInfo', res.user)
       // 运行模式标志：设备控制（开舱/关舱/派发）走真实还是模拟分支由后端决定，前端不再硬编码
