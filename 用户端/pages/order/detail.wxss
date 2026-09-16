@@ -1,11 +1,14 @@
+/* 与活动页/我的页统一：以白为主，蓝只在顶部起手，30% 处收到纯白 */
 .detail-page {
   min-height: 100vh;
-  background: #FAFAFA;
+  background: linear-gradient(180deg, #EAF4FF 0%, #FFFFFF 30%);
   padding-bottom: 48rpx;
 }
 
+/* 状态横幅：原来 #9CCDF2→#6FB2E7 的饱和蓝块是整页最重的颜色（「待接单」就压在上面）；
+   压成顶部极浅蓝 → 向下渐隐到透明（透出白底），与整页白主调统一 */
 .status-head {
-  background: linear-gradient(180deg, #9CCDF2 0%, #6FB2E7 40%, #EAF2FA 100%);
+  background: linear-gradient(180deg, #DCEBFA 0%, rgba(255, 255, 255, 0) 100%);
   color: #111111;
   padding: 48rpx 32rpx 44rpx;
   border-radius: 0 0 12rpx 12rpx;

@@ -12,6 +12,8 @@
 .map-box {
   position: relative;
   background: #F0F3F8;
+  /* 地图按 bbox 纵横比定尺寸，宽度不一定占满卡片；居中避免右侧留一条白边显得歪 */
+  margin: 0 auto;
 }
 
 .map-bg {
@@ -29,13 +31,44 @@
   top: 0;
 }
 
+/* 图例左、更新时间/刷新右；图例自动换行，不挤压右侧操作区 */
+.map-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  padding: 14rpx 20rpx;
+  border-top: 1rpx solid var(--line);
+}
+
 .map-legend {
   display: flex;
   align-items: center;
-  gap: 24rpx;
-  padding: 16rpx 24rpx;
-  border-top: 1rpx solid var(--line);
+  flex: 1;
+  min-width: 0;
   flex-wrap: wrap;
+  gap: 10rpx 18rpx;
+}
+
+.map-foot-right {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  flex-shrink: 0;
+}
+
+.map-updated {
+  font-size: 20rpx;
+}
+
+.map-refresh {
+  font-size: 22rpx;
+  line-height: 1;
+  color: var(--brand);
+  padding: 10rpx 18rpx;
+  border: 1rpx solid #CFE0F2;
+  border-radius: 999rpx;
+  background: #F4F9FF;
 }
 
 .legend-item {
@@ -96,6 +129,30 @@
   margin-top: 4rpx;
 }
 
+.robot-head {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  min-width: 0;
+}
+
+.robot-head-text {
+  min-width: 0;
+}
+
+/* 状态点：绿=在线 / 橙=充电 / 红=异常 / 灰=离线 */
+.robot-status-dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #C0C6CF;
+}
+.robot-status-dot.ok { background: #2BA471; }
+.robot-status-dot.charging { background: #F5A623; }
+.robot-status-dot.bad { background: #E64340; }
+.robot-status-dot.off { background: #C0C6CF; }
+
 .robot-meta {
   display: flex;
   margin-top: 28rpx;
@@ -105,6 +162,25 @@
   flex: 1;
   text-align: center;
 }
+
+/* 电量条：比纯数字更直观，颜色随电量分档 */
+.battery-wrap {
+  height: 10rpx;
+  margin: 10rpx 10rpx 0;
+  border-radius: 5rpx;
+  background: #EDF1F6;
+  overflow: hidden;
+}
+
+.battery-bar {
+  height: 100%;
+  border-radius: 5rpx;
+  background: #2BA471;
+  transition: width 0.4s ease;
+}
+.battery-bar.mid { background: #F5A623; }
+.battery-bar.low { background: #E64340; }
+.battery-bar.none { background: #D8D8D8; }
 
 .meta-num {
   font-size: 30rpx;

@@ -4,8 +4,8 @@
 
 const ENV = {
   dev: {
-    // 真机预览用电脑局域网 IP（手机热点模式下为热点网段，手机与电脑需同一网络）；模拟器用 localhost 亦可
-    baseUrl: 'http://192.168.70.50:3000/api'
+    // 真机预览用电脑局域网 IP（手机与电脑需同一 WiFi）；模拟器用 localhost 亦可
+    baseUrl: 'http://10.158.178.205:3000/api'
   },
   prod: {
     baseUrl: 'http://localhost:3000/api'

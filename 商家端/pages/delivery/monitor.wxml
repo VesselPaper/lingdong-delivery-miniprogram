@@ -6,17 +6,23 @@
       <image class="map-bg" src="{{map.map_url}}" mode="aspectFill" />
       <canvas type="2d" id="mapCanvas" class="map-canvas" style="width:{{mapWidth}}px;height:{{mapHeight}}px;"></canvas>
     </view>
-    <view class="map-legend">
-      <view class="legend-item"><view class="legend-dot green"></view><text>配送点</text></view>
-      <view class="legend-item"><view class="legend-dot orange"></view><text>上货点</text></view>
-      <view class="legend-item"><view class="legend-dot blue"></view><text>机器人</text></view>
-      <view class="legend-item"><view class="legend-line"></view><text>配送路线</text></view>
+    <view class="map-foot">
+      <view class="map-legend">
+        <view class="legend-item"><view class="legend-dot green"></view><text>配送点 {{mapCounts.deliver}}</text></view>
+        <view class="legend-item"><view class="legend-dot orange"></view><text>上货点 {{mapCounts.loading}}</text></view>
+        <view class="legend-item"><view class="legend-dot blue"></view><text>无人车 {{mapCounts.robots}}</text></view>
+        <view class="legend-item"><view class="legend-line"></view><text>配送路线</text></view>
+      </view>
+      <view class="map-foot-right">
+        <text class="map-updated text-weak">{{mapUpdatedAt || '—'}} 更新</text>
+        <view class="map-refresh" bindtap="refreshMap">刷新</view>
+      </view>
     </view>
   </view>
   <view wx:elif="{{mapError}}" class="card map-error">
     <view class="map-error-text">{{mapError}}</view>
     <view class="map-error-tip text-weak text-sm">地图来自开放物流平台 building/mapInfo，请确认平台可用后刷新</view>
-    <view class="btn btn-sm robot-retry" bindtap="loadMap">重试</view>
+    <view class="btn btn-sm robot-retry" bindtap="refreshMap">重试</view>
   </view>
   <view wx:elif="{{mapLoading}}" class="card map-error">
     <view class="map-error-text">地图加载中…</view>
@@ -26,12 +32,15 @@
   <block wx:if="{{robots.length}}">
     <view class="robot-overview card" wx:for="{{robots}}" wx:key="device_sn">
       <view class="flex-between">
-        <view>
-          <view class="robot-name">{{item.name}}</view>
-          <view class="robot-id text-weak text-sm">{{item.device_sn}}</view>
+        <view class="robot-head">
+          <view class="robot-status-dot {{item.statusClass}}"></view>
+          <view class="robot-head-text">
+            <view class="robot-name">{{item.name}}</view>
+            <view class="robot-id text-weak text-sm">{{item.device_sn}}</view>
+          </view>
         </view>
         <view class="robot-actions">
-          <view class="tag {{item.online ? 'tag-green' : ''}}">{{item.online_text}}</view>
+          <view class="tag {{item.online ? 'tag-green' : 'tag-gray'}}">{{item.online_text}}</view>
           <view class="btn btn-sm qr-btn" catchtap="goRobotQr" data-sn="{{item.device_sn}}">本车二维码</view>
         </view>
       </view>
@@ -41,7 +50,10 @@
           <view class="meta-label text-weak text-sm">运行状态</view>
         </view>
         <view class="meta-item">
-          <view class="meta-num">{{item.battery === null ? '—' : item.battery + '%'}}</view>
+          <view class="meta-num">{{item.batteryText}}</view>
+          <view class="battery-wrap">
+            <view class="battery-bar {{item.batteryClass}}" style="width:{{item.batteryPct}}%"></view>
+          </view>
           <view class="meta-label text-weak text-sm">电量</view>
         </view>
         <view class="meta-item">

@@ -1,15 +1,22 @@
+/* 以白为主、蓝只在顶部起手：28% 处就收到纯白，往下整页都是白底 */
 .profile-page {
   position: relative;
   min-height: 100vh;
   overflow: hidden;
+  background: linear-gradient(180deg, #EAF4FF 0%, #FFFFFF 28%);
 }
 
+/* 顶部浅蓝渐隐：原先 980rpx 的深蓝横幅（最深处 #6FB2E7）整页铺开会太蓝，
+   现压成很浅的一层（最深约 #DCEBFA）并快速渐隐到透明，露出白色底。
+   同时撑满整页高度，避免页面下方出现断层。 */
 .grad-banner {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 980rpx;
+  bottom: 0;
+  min-height: 100vh;
+  background: linear-gradient(180deg, #DCEBFA 0%, rgba(255, 255, 255, 0) 38%);
 }
 
 .profile-body {
