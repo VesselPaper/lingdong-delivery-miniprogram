@@ -319,6 +319,77 @@ async function getMapOverview(store) {
     return { ok: true, map_url: mapUrl, barrier_url: barrierUrl, bbox, landmarks, graph, robots, routes }
 }
 
+// ---------------- 地图底图字节（由后端代理下载） ----------------
+// 存在理由：building/mapInfo 返回的 map 是 OSS 签名直链，签名有效期极短 —— 实测取到手时已过期
+// 14 秒、直接下载 403。把这条 URL 交给浏览器（大屏）或小程序前端去下载，必然间歇性白图。
+// 因此改为后端下载字节并缓存，前端只访问后端自己的稳定地址（见 server.js /api/dashboard/map-image）。
+function httpGetBuffer(url, redirectLeft) {
+  return new Promise((resolve) => {
+    let u
+    try { u = new URL(url) } catch (e) { return resolve({ ok: false, msg: '图片地址非法' }) }
+    const mod = u.protocol === 'https:' ? https : http
+    const req = mod.get({
+      hostname: u.hostname,
+      port: u.port || (u.protocol === 'https:' ? 443 : 80),
+      path: u.pathname + u.search,
+      headers: { 'User-Agent': 'lingdong-backend/1.0' }
+    }, (res) => {
+      // OSS 可能 302 跳到真实节点
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume()
+        if (redirectLeft <= 0) return resolve({ ok: false, msg: '重定向过多' })
+        const loc = res.headers.location
+        const next = loc.indexOf('http') === 0 ? loc : (u.protocol + '//' + u.host + loc)
+        return resolve(httpGetBuffer(next, redirectLeft - 1))
+      }
+      if (res.statusCode !== 200) {
+        res.resume()
+        return resolve({ ok: false, msg: '底图下载失败 HTTP ' + res.statusCode, status: res.statusCode })
+      }
+      const chunks = []
+      res.on('data', (c) => chunks.push(c))
+      res.on('end', () => resolve({
+        ok: true,
+        buf: Buffer.concat(chunks),
+        contentType: res.headers['content-type'] || 'image/png'
+      }))
+    })
+    req.setTimeout(10000, () => { req.destroy(new Error('底图下载超时(10s)')) })
+    req.on('error', (e) => resolve({ ok: false, msg: e.message || '底图下载异常' }))
+  })
+}
+
+// 绕过 60s mapInfo 缓存强制取一份新签名（仅在缓存里的签名已过期时使用）
+async function fetchMapRawFresh(store) {
+  const lm = store.prepare("SELECT * FROM landmarks WHERE platform_building_id != '' ORDER BY sort LIMIT 1").get()
+  if (!lm || !lm.platform_map_id) return null
+  try {
+    const m = await requestPlatform('GET', '/open-api/v1/building/mapInfo/' + encodeURIComponent(lm.platform_map_id))
+    if (m.code === 'COMM_200' && m.data && m.data.map) {
+      mapInfoCache = { ts: Date.now(), data: m.data }
+      return m.data
+    }
+    return null
+  } catch (e) { return null }
+}
+
+async function getMapImageBytes(store) {
+  if (MOCK) return { ok: false, msg: '本地演示模式无平台底图' }
+  if (!platformReady()) return { ok: false, msg: '未配置平台凭据' }
+  const data = await getMapRaw(store)
+  if (data && data.map) {
+    const r = await httpGetBuffer(data.map, 2)
+    if (r.ok) return r
+  }
+  // 缓存里的签名已过期：强制刷新取新签名后再试一次
+  const fresh = await fetchMapRawFresh(store)
+  if (fresh && fresh.map) {
+    const r2 = await httpGetBuffer(fresh.map, 2)
+    return r2.ok ? r2 : { ok: false, msg: r2.msg || '底图下载失败' }
+  }
+  return { ok: false, msg: '未获取到地图图片地址' }
+}
+
 // ---------------- 创建配送任务 ----------------
 function createQueueTask(store, order) {
   const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
@@ -1024,4 +1095,4 @@ async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, createTasksForBatch, recreatePickupTask, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, isRobotBusy, summonToLoadingPoint }
+module.exports = { createQueueTask, createTasksForBatch, recreatePickupTask, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, getMapImageBytes, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, isRobotBusy, summonToLoadingPoint }

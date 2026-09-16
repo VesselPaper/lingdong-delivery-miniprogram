@@ -43,6 +43,8 @@ const store = init()
 const app = express()
 const PORT = process.env.PORT || 3000
 const UPLOAD_DIR = path.join(__dirname, 'uploads')
+// 数据可视化大屏（只读展示页）：主机浏览器访问 http://<IP>:3000/dashboard 即可全屏展示
+const DASHBOARD_DIR = path.join(__dirname, '..', '可视化大屏')
 
 const WX_APPID = process.env.WX_APPID || ''
 const WX_SECRET = process.env.WX_SECRET || ''
@@ -53,6 +55,12 @@ app.use(cors())
 // 仅对支付回调路径保存原始报文（供 P0-6 平台证书验签）；其它路径（如 8mb 图片上传）不缓存，避免内存翻倍
 app.use(express.json({ limit: '8mb', verify: (req, res, buf) => { if (req.originalUrl === '/api/pay/notify') req.rawBody = buf } }))
 app.use('/uploads', express.static(UPLOAD_DIR))
+// 大屏页面（静态）与只读聚合接口（/api/dashboard/overview，见下方）。
+// 走路径而非单独起服务：大屏主机只需访问后端同一个端口，不再多一个进程/端口要运维。
+// 这里只挂 express.static，不再自建 '/dashboard' 路由：Express 默认不区分结尾斜杠，
+// 自建路由会把 /dashboard 与 /dashboard/ 一起匹配，造成「重定向到自己」的死循环。
+// serve-static 对目录请求自带 301 → /dashboard/，index.html 里的相对路径（css/… js/…）因此能正确解析。
+app.use('/dashboard', express.static(DASHBOARD_DIR))
 
 // 简易鉴权：token = openid 的哈希，正式环境可换 JWT
 function auth(req, res, next) {
@@ -1122,9 +1130,10 @@ app.get('/api/shop/status', (req, res) => {
   ok(res, shopWithRuntime(store.prepare('SELECT * FROM shops WHERE id=1').get()))
 })
 
-app.get('/api/merchant/stats', merchantGuard, (req, res) => {
+// 订单统计口径（商家首页与大屏共用同一份，避免两处 SQL 各自漂移）
+function computeStats() {
   const today = new Date().toISOString().slice(0, 10)
-  const stats = {
+  return {
     today_orders: store.prepare("SELECT COUNT(*) c FROM orders WHERE date(created_at)=?").get(today).c,
     today_amount: store.prepare("SELECT IFNULL(SUM(total_amount),0) s FROM orders WHERE date(created_at)=? AND status NOT IN (0,5)").get(today).s,
     // 主面板四态：待接单 / 待上货 / 配送中 / 待取货
@@ -1139,7 +1148,10 @@ app.get('/api/merchant/stats', merchantGuard, (req, res) => {
     // 兼容旧字段
     finished: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=4').get().c
   }
-  ok(res, stats)
+}
+
+app.get('/api/merchant/stats', merchantGuard, (req, res) => {
+  ok(res, computeStats())
 })
 
 // 商家订单列表：status / scope(active|history) / stage(accept|load|deliver|pickup) 三种过滤
@@ -1634,6 +1646,98 @@ app.get('/api/merchant/delivery/monitor', merchantGuard, async (req, res) => {
 app.get('/api/merchant/map', merchantGuard, async (req, res) => {
   const r = await platform.getMapOverview(store)
   r.ok ? ok(res, r) : res.status(502).json({ code: 502, msg: r.msg || '获取地图失败' })
+})
+
+// ---------- 数据可视化大屏（只读聚合，免登录） ----------
+// 存在理由：大屏主机（kiosk 全屏浏览器）不方便维护商家登录态，且每 5 秒轮询一次。
+// 这里把「店铺状态 + 订单统计 + 地图/路网/机器人位置 + 车辆列表 + 进行中批次 + 取餐超时告警」
+// 聚合成一个只读接口；只吐展示所需字段（不含手机号、地址、金额明细等敏感信息）。
+// 平台调用结果缓存 5 秒（可用 DASHBOARD_CACHE_MS 调整）：防止大屏高频轮询把 runtimeStatusList
+// 变成串行同步请求拖死事件循环 —— 与地图 60s 缓存、位置 3s 缓存同一套思路。
+let dashCache = { ts: 0, data: null }
+const DASH_CACHE_MS = Number(process.env.DASHBOARD_CACHE_MS || 5000)
+
+// 地图底图（同源代理）：平台签名直链几十秒就过期，交给浏览器必然间歇性 403 白图，
+// 故由后端取字节 + 缓存，前端只认这个稳定地址（大屏 index.html 的 map_url 就是它）。
+let mapImgCache = { ts: 0, buf: null, type: 'image/png' }
+const MAP_IMG_CACHE_MS = Number(process.env.DASHBOARD_MAP_CACHE_MS || 10 * 60 * 1000)
+
+app.get('/api/dashboard/map-image', async (req, res) => {
+  if (mapImgCache.buf && Date.now() - mapImgCache.ts < MAP_IMG_CACHE_MS) {
+    res.set('Content-Type', mapImgCache.type)
+    res.set('Cache-Control', 'public, max-age=300')
+    return res.send(mapImgCache.buf)
+  }
+  try {
+    const r = await platform.getMapImageBytes(store)
+    if (!r.ok || !r.buf || !r.buf.length) {
+      return res.status(502).json({ code: 502, msg: r.msg || '底图获取失败' })
+    }
+    mapImgCache = { ts: Date.now(), buf: r.buf, type: r.contentType || 'image/png' }
+    res.set('Content-Type', mapImgCache.type)
+    res.set('Cache-Control', 'public, max-age=300')
+    res.send(mapImgCache.buf)
+  } catch (e) {
+    res.status(502).json({ code: 502, msg: e.message || '底图获取异常' })
+  }
+})
+
+app.get('/api/dashboard/overview', async (req, res) => {
+  if (dashCache.data && Date.now() - dashCache.ts < DASH_CACHE_MS) return ok(res, dashCache.data)
+
+  // 地图（底图 + 路网 + 点位 + 机器人实时位置 + 进行中路线）；平台异常时降级为 null，不影响统计展示
+  let map = null
+  let mapError = ''
+  try {
+    const m = await platform.getMapOverview(store)
+    if (m && m.ok) {
+      map = {
+        // 前端用 Leaflet + 高德瓦片实时渲染，不再读取 map_url；
+        // 这里仍下发平台位图代理地址，供 API 消费方（如小程序监控页）或未来回退使用。
+        map_url: '/api/dashboard/map-image',
+        barrier_url: m.barrier_url, bbox: m.bbox,
+        landmarks: m.landmarks, graph: m.graph, robots: m.robots, routes: m.routes
+      }
+    } else mapError = (m && m.msg) || '获取地图失败'
+  } catch (e) { mapError = e.message || '获取地图异常' }
+
+  // 车辆列表（在线 / 电量 / 机器状态）；失败时降级为空数组 + 错误文案
+  let robots = []
+  let robotsError = ''
+  try {
+    const r = await platform.getDeviceList()
+    if (r && r.ok) robots = r.robots || []
+    else robotsError = (r && r.msg) || '获取车辆列表失败'
+  } catch (e) { robotsError = e.message || '获取车辆列表异常' }
+
+  // 进行中批次（组单中/待上货/配送中）：展示「当前几车在跑、每车几单、其中几单待取」
+  const batches = store.prepare(`
+    SELECT b.id, b.batch_no, b.daily_seq, b.status, b.status_text, b.device_sn, b.total_items,
+      (SELECT COUNT(*) FROM orders o WHERE o.batch_id=b.id AND o.status IN (2,3)) AS active_orders,
+      (SELECT COUNT(*) FROM orders o WHERE o.batch_id=b.id AND o.status=3 AND o.picked_up_at IS NULL) AS waiting_pickup
+    FROM delivery_batches b WHERE b.status IN (0,1,2) ORDER BY b.id DESC LIMIT 12`).all()
+
+  // 需关注：已送达但超时未取的订单（一段/二段超时），大屏上红色提醒
+  const pickupAlerts = store.prepare(`
+    SELECT id, order_no, landmark_name, pickup_timeout_stage, delivered_at, picking_up_at
+    FROM orders WHERE status=3 AND picked_up_at IS NULL AND IFNULL(pickup_timeout_stage,0) > 0
+    ORDER BY pickup_timeout_stage DESC, id DESC LIMIT 10`).all()
+
+  const data = {
+    server_time: new Date().toLocaleString('zh-CN', { hour12: false }),
+    run_mode: runtime.mode,
+    real_platform: runtime.realPlatform,
+    shop: shopWithRuntime(store.prepare('SELECT * FROM shops WHERE id=1').get()),
+    stats: computeStats(),
+    map,
+    map_error: mapError,
+    robots,
+    robots_error: robotsError,
+    batches,
+    pickup_alerts: pickupAlerts
+  }
+  dashCache = { ts: Date.now(), data }
+  ok(res, data)
 })
 
 // ---------- 开放物流平台回调（真实业务逻辑） ----------

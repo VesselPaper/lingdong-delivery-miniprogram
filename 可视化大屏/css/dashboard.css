@@ -1,0 +1,682 @@
+/* ============================================================
+   零栋无人送餐 · 数据可视化大屏
+   ------------------------------------------------------------
+   设计方向：明亮零售 / 便利店感（Bright Retail）
+   依据：零栋铺子门店实拍（四川师大成龙校区店、狮子山校区店）
+     · 门店 = 大面积白色（墙/地/货架）+ 蓝色店招（实测 #2B50A1）+ 橙黄促销色
+     · 所以主色是"招牌蓝"，橙色只作为促销/待处理的功能色，不做大面积铺陈
+   —— 刻意避开的两类"AI 味"：
+     · 蓝紫渐变 + 霓虹发光的暗色科技大屏
+     · 暖炭黑 + 橙色（那是 AI 助手的品牌配色，不是零售店的气质）
+   长跑稳定性约束不变：固定 DOM 规模、全屏不滚动、列表溢出截断。
+   ============================================================ */
+
+:root {
+  /* ---- 零栋铺子门店取色 ---- */
+  --blue: #2b50a1;          /* 招牌蓝：主色（店招实测） */
+  --blue-bright: #2e7cf6;   /* 数据强调蓝（与两套小程序主色同族） */
+  --blue-soft: #eaf1fe;     /* 蓝色浅底 */
+  --orange: #e8890c;        /* 促销橙：只给"需要人介入"的状态 */
+  --orange-soft: #fdf3e2;
+  --green: #1fa971;         /* 在途 / 正常 */
+  --red: #d93a3a;           /* 异常 / 超时 */
+
+  /* ---- 底色：冷调浅灰蓝（门店的白，带一点店招蓝的倾向，避免死白） ---- */
+  --bg: #f4f6fa;
+  --surface: #ffffff;
+  --surface-2: #fafbfe;
+
+  --line: #e4e9f2;
+  --line-strong: #cdd7e8;
+
+  --ink: #16233a;           /* 主文字：深藏青墨 */
+  --ink-2: #5a6b85;
+  --ink-3: #8a99b0;
+
+  --radius: 10px;
+  --radius-sm: 4px;
+  --ease: cubic-bezier(.32, .72, 0, 1);
+  /* 浅色下投影有效，但要用带蓝调的浅影，别用纯黑 */
+  --shadow: 0 1px 2px rgba(22, 45, 90, .05), 0 10px 24px -14px rgba(22, 45, 90, .18);
+
+  /* Bahnschrift 是 Windows 自带 DIN 系无衬线（数字有技术感，且无需联网加载） */
+  --font-ui: Bahnschrift, "DIN Alternate", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  --font-num: "Cascadia Mono", Consolas, "SF Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;                /* 大屏不滚动 */
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 固定 1920×1080 画布 + 等比缩放（缩放值由 JS 按窗口算）：
+   大屏主机不论 1080p / 2K / 4K，版式与字号比例都完全一致，
+   也不会再出现"窗口窄一点、某一项被挤出卡片"的问题 */
+.screen {
+  width: 1920px;
+  height: 1080px;
+  transform-origin: 0 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+/* ---------------- 顶栏：白底 + 店招蓝牌子 ---------------- */
+.topbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 13px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+
+/* 店招：直接复刻门店"蓝牌白字"的形制（不依赖任何 logo 图形，logo 改版也不受影响） */
+.plate {
+  padding: 6px 13px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-indent: .14em;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+/* 报头只保留三件东西：店招牌 · 标题 · 校区名（原先的三层文字太杂） */
+.brand h1 {
+  margin: 0;
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.brand .place {
+  font-size: 12px;
+  letter-spacing: .06em;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.topRight { display: flex; align-items: center; gap: 18px; }
+
+.clock {
+  font-family: var(--font-num);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--ink);
+}
+
+.conn { display: flex; align-items: center; gap: 7px; font-size: 11px; letter-spacing: .08em; color: var(--ink-3); }
+.conn .dotConn { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); }
+.conn.ok { color: var(--green); }
+.conn.ok .dotConn { background: var(--green); }
+.conn.bad { color: var(--red); }
+.conn.bad .dotConn { background: var(--red); }
+
+/* 演示标识 */
+.demoBadge {
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  color: var(--orange);
+  background: var(--orange-soft);
+  border-radius: var(--radius-sm);
+}
+.demoBadge[hidden] { display: none; }
+
+/* ---------------- 三栏 ---------------- */
+.grid {
+  display: grid;
+  grid-template-columns: 22% minmax(0, 1fr) 28%;
+  gap: 12px;
+  padding: 12px 14px;
+  min-height: 0;
+}
+
+.colLeft, .colRight {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+/* ---------------- 面板：白卡（浅色下白卡是零售/后台的正确语汇） ---------------- */
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 13px 15px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.panel.grow { flex: 1 1 auto; }
+.panel[hidden] { display: none; }
+
+.panelHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+  min-height: 16px;
+}
+
+.panelHead h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  color: var(--ink);
+}
+.panelHead h2::before {                     /* 蓝色小方块：呼应店招 */
+  content: '';
+  display: inline-block;
+  width: 4px; height: 12px;
+  margin-right: 8px;
+  vertical-align: -1px;
+  background: var(--blue);
+  border-radius: 1px;
+}
+.panelHead h2.danger { color: var(--red); }
+.panelHead h2.danger::before { background: var(--red); }
+
+.badge {
+  margin-left: auto;
+  font-family: var(--font-num);
+  font-size: 11px;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 1px 7px;
+}
+.mapTip { margin-left: auto; font-family: var(--font-num); font-size: 11px; color: var(--ink-3); }
+
+/* ---------------- 运行状态：键值表 ---------------- */
+.kv { list-style: none; margin: 0; padding: 0; }
+.kv li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.kv li:last-child { border-bottom: 0; }
+.kv span { color: var(--ink-3); flex: 0 0 auto; }
+/* flex 子项默认 min-width:auto —— 容器一窄，两端对齐这行就会撑破卡片
+   （"运行档位 试点"那行溢出就是这个原因），显式允许收缩 + 超长省略 */
+.kv b {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+/* 同类兜底：其它两端对齐的行也不允许撑破卡片 */
+.robotName, .batchNo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kv b.on { color: var(--green); }
+.kv b.off { color: var(--orange); }
+
+/* ---------------- 经营指标 ---------------- */
+.metricGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.metric {
+  padding: 10px 12px 9px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.metric b {
+  display: block;
+  font-family: var(--font-num);
+  font-size: 27px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+  color: var(--blue);
+}
+.metric span { font-size: 11px; color: var(--ink-3); }
+.metric.warn b { color: var(--orange); }
+.metric.accent b { color: var(--blue-bright); }
+.metric.ok b { color: var(--green); }
+/* 0 值退成弱色：强调色只留给"真的有事"的数字 */
+.metric.warn b.is-zero,
+.metric.accent b.is-zero,
+.metric.ok b.is-zero,
+.metric b.is-zero { color: var(--ink-3); }
+
+.metricSub {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 9px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.metricSub b { font-family: var(--font-num); font-size: 12px; color: var(--ink-2); }
+
+/* ---------------- 订单状态分布：堆叠条 + 数值清单 ---------------- */
+.statusBar {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  margin: 2px 0 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.sb-part { display: block; height: 100%; width: 0; transition: width .6s var(--ease); }
+/* 颜色按"是否需要人介入"排布 */
+.p-pending { background: var(--orange); }
+.p-load { background: var(--blue-bright); }
+.p-deliver { background: var(--green); }
+.p-pickup { background: var(--blue); }
+.p-exception { background: var(--red); }
+
+.statusLegend { list-style: none; margin: 0; padding: 0; }
+.statusLegend li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.statusLegend li:last-child { border-bottom: 0; }
+.statusLegend .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.statusLegend span { color: var(--ink-2); }
+.statusLegend b {
+  margin-left: auto;
+  font-family: var(--font-num);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* 把剩余空间用一句口径说明收尾 */
+.note {
+  margin: auto 0 0;
+  padding-top: 12px;
+  font-size: 10px;
+  letter-spacing: .06em;
+  color: var(--ink-3);
+  border-top: 1px solid var(--line);
+}
+
+/* ---------------- 地图 ---------------- */
+.mapCard {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 13px 15px 15px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);        /* 只给地图卡一点抬升：它是主体 */
+}
+
+.legend { display: flex; gap: 14px; margin-left: auto; font-size: 11px; color: var(--ink-3); }
+.legend span { display: flex; align-items: center; gap: 6px; }
+.lg { width: 14px; height: 2px; border-radius: 1px; display: inline-block; }
+.lgRoad { background: rgba(43, 80, 161, .45); }
+.lgLm { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); }
+.lgCar { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--blue-bright); }
+.lgRoute { background: repeating-linear-gradient(90deg, var(--blue-bright) 0 3px, transparent 3px 6px); }
+
+.mapStage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* 底图内屏：浅蓝底 + 发丝框，像嵌在面板里的一块屏 */
+.mapWrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: #eef2f9;
+  overflow: hidden;
+}
+
+.mapWrap > img {
+  position: absolute; inset: 0; z-index: 0;
+  width: 100%; height: 100%;
+  display: block;
+  /* 底图现在是本地矢量平面图（map-vector.svg），颜色已是品牌色，不需要滤镜纠正 */
+  filter: none;
+}
+/* 极浅的蓝罩：把底图统一到店招蓝的色系里（是提亮，不是压暗） */
+.mapWrap::after {
+  content: '';
+  position: absolute; inset: 0; z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(234, 241, 254, .28), rgba(238, 242, 249, .10));
+}
+
+#mapSvg { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; }
+
+/* 路网：JS 写入的是 SVG stroke 属性（优先级低于 CSS 规则），这里统一加强到招牌蓝 */
+#mapSvg g { stroke: rgba(43, 80, 161, .5); }
+
+/* 浅色主题下侧栏卡片按内容高度排布：底部留白交给页面底色，
+   避免出现一大片"空白白卡"（暗色主题里靠发丝线分隔不会暴露这个问题） */
+.colLeft .panel.grow, .colRight .panel.grow { flex: 0 0 auto; }
+.layerLm, .layerCar { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+
+.mapMask {
+  position: absolute; inset: 0; z-index: 4;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 20px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--ink-3);
+  background: rgba(255, 255, 255, .86);
+}
+.mapMask[hidden] { display: none; }
+
+/* 点位：蓝色圆点 */
+.lm {
+  position: absolute;
+  width: 7px; height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: var(--blue);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .9);
+}
+.lm.loading { background: var(--orange); }
+
+.lmLabel {
+  position: absolute;
+  transform: translate(-50%, -185%);
+  padding: 1px 6px;
+  font-size: 10px;
+  white-space: nowrap;
+  color: var(--ink-2);
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.lmLabel.toLeft { transform: translate(-104%, -185%); }
+.lmLabel.below { transform: translate(-50%, 85%); }
+.lmLabel.toLeft.below { transform: translate(-104%, 85%); }
+
+/* 路线停靠序号 */
+.stop {
+  position: absolute;
+  width: 17px; height: 17px;
+  margin: -8.5px 0 0 -8.5px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-num);
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--blue-bright);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(22, 45, 90, .28);
+}
+
+/* 无人车：零尺寸锚点，位移走 transform（GPU 安全） */
+.car {
+  position: absolute;
+  left: 0; top: 0;
+  width: 0; height: 0;
+  transition: transform .9s var(--ease);
+  will-change: transform;
+}
+.carBody {
+  position: absolute;
+  left: 0; top: 0;
+  width: 18px; height: 18px;
+  margin: -9px 0 0 -9px;
+  transform: rotate(var(--rot, 0deg));
+  transition: transform .6s var(--ease);
+}
+.carBody::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 0; height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 15px solid var(--blue-bright);
+  filter: drop-shadow(0 1px 2px rgba(22, 45, 90, .35));
+}
+.carName {
+  position: absolute;
+  left: 0; top: 0;
+  transform: translate(-50%, -180%);
+  padding: 1px 6px;
+  font-family: var(--font-num);
+  font-size: 10px;
+  white-space: nowrap;
+  color: #fff;
+  background: var(--blue-bright);
+  border-radius: 3px;
+}
+
+/* ---------------- 列表 ---------------- */
+.robotList, .batchList, .alertList, .eventList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.robotItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.robotItem:last-child { border-bottom: 0; }
+.robotItem.offline { opacity: .55; }
+
+.robotName { font-size: 13px; font-weight: 700; color: var(--ink); }
+
+.robotStatus {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.robotStatus::before {
+  content: '';
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.robotStatus.s-charging { color: var(--orange); }
+.robotStatus.s-idle, .robotStatus.s-standby { color: var(--ink-3); }
+.robotStatus.s-busy { color: var(--green); }
+.robotStatus.s-bad { color: var(--red); }
+
+.battery { display: flex; align-items: center; gap: 7px; }
+.batteryBar {
+  width: 44px; height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.batteryBar i { display: block; height: 100%; background: var(--green); transition: width .5s var(--ease); }
+.batteryBar.mid i { background: var(--orange); }
+.batteryBar.low i { background: var(--red); }
+.batteryNum { font-family: var(--font-num); font-size: 10px; color: var(--ink-3); width: 30px; }
+
+.batchItem { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.batchItem:last-child { border-bottom: 0; }
+.batchTop { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700; color: var(--ink); }
+.batchStage {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.batchStage::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.batchStage.s0 { color: var(--orange); }
+.batchStage.s1 { color: var(--blue-bright); }
+.batchStage.s2 { color: var(--green); }
+.batchSub { margin-top: 5px; font-size: 11px; color: var(--ink-3); display: flex; gap: 14px; }
+.batchSub b { font-family: var(--font-num); font-size: 12px; color: var(--ink-2); }
+
+/* 超时提醒：浅红底 + 左侧红条 */
+.alertList li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 10px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #8c2a2a;
+  background: #fdeceb;
+  border-left: 3px solid var(--red);
+  border-radius: var(--radius-sm);
+}
+.alertList li:last-child { margin-bottom: 0; }
+.alertList .stage { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--red); white-space: nowrap; }
+
+.eventList li {
+  display: flex;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 11px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--line);
+}
+.eventList li:last-child { border-bottom: 0; }
+.eventList time { font-family: var(--font-num); color: var(--ink-3); flex: 0 0 auto; }
+
+.empty { font-size: 11px; color: var(--ink-3); padding: 2px 0; }
+.empty[hidden] { display: none; }
+
+/* ---------------- 底栏 ---------------- */
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 18px;
+  font-size: 10px;
+  letter-spacing: .1em;
+  color: var(--ink-3);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+.footMid { font-family: var(--font-num); letter-spacing: .04em; color: var(--ink-2); }
+
+/* ---------------- Leaflet 实时可拖拽地图（新增） ---------------- */
+.mapBox {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: #eef2f9;
+}
+.leaflet-container { font-family: var(--font-ui); background: #eef2f9; }
+.leaflet-control-attribution { font-size: 9px !important; background: rgba(255, 255, 255, .72) !important; color: var(--ink-3) !important; }
+.leaflet-control-zoom a { color: var(--ink-2) !important; }
+
+.mapReset {
+  margin-left: auto;
+  padding: 2px 9px;
+  font-size: 11px;
+  color: var(--blue);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.mapReset:hover { background: var(--blue-soft); }
+
+.carWrap .carArrow {
+  display: block;
+  width: 0; height: 0;
+  margin: 0 auto;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 15px solid var(--blue-bright);
+  filter: drop-shadow(0 1px 2px rgba(22, 45, 90, .4));
+  transform-origin: 50% 65%;
+}
+.carWrap .carName {
+  display: block;
+  margin-top: 11px;
+  font-family: var(--font-num);
+  font-size: 9px;
+  color: #fff;
+  background: var(--blue-bright);
+  border-radius: 3px;
+  padding: 0 3px;
+  text-align: center;
+  white-space: nowrap;
+}
+.stopWrap .stopNum {
+  display: flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--blue-bright);
+  color: #fff;
+  font: 600 10px/18px var(--font-num);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(22, 45, 90, .3);
+}
+.lmTip {
+  font-family: var(--font-ui) !important;
+  font-size: 11px !important;
+  color: var(--ink) !important;
+  background: var(--surface) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: 0 2px 8px rgba(22, 45, 90, .12) !important;
+  padding: 2px 6px !important;
+}

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>零栋铺子 · 无人送餐调度大屏</title>
+<meta name="description" content="校园无人送餐机器人实时调度大屏：实时可拖拽地图、车辆动向、订单与批次状态">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b50a1'/%3E%3Crect x='7' y='12' width='18' height='4' rx='2' fill='%23ffffff'/%3E%3Crect x='7' y='19' width='11' height='3.5' rx='1.75' fill='%23ffffff' opacity='.7'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/dashboard.css">
+<link rel="stylesheet" href="vendor/leaflet.css">
+</head>
+<body>
+
+<!-- 固定 1920×1080 画布：JS 按窗口等比缩放，任何分辨率都不会挤压/溢出 -->
+<div class="screen" id="screen">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="plate">零栋铺子</div>
+      <h1>无人送餐调度大屏</h1>
+      <span class="place">四川师范大学成龙校区</span>
+    </div>
+    <div class="topRight">
+      <div class="demoBadge" id="demoBadge" hidden>演示数据</div>
+      <div class="conn" id="conn"><i class="dotConn"></i><span id="connText">连接中…</span></div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+  </header>
+
+  <main class="grid">
+
+    <!-- ==================== 左栏 ==================== -->
+    <section class="colLeft">
+
+      <div class="panel">
+        <div class="panelHead"><h2>运行状态</h2></div>
+        <ul class="kv" id="runState">
+          <li><span>店铺</span><b id="kvShop">—</b></li>
+          <li><span>营业状态</span><b id="kvBusiness">—</b></li>
+          <li><span>自动接单</span><b id="kvAuto">—</b></li>
+          <li><span>运行档位</span><b id="kvMode">—</b></li>
+          <li><span>物流平台</span><b id="kvPlatform">—</b></li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <div class="panelHead"><h2>经营指标</h2></div>
+        <div class="metricGrid">
+          <div class="metric"><b id="mToday">0</b><span>今日订单</span></div>
+          <div class="metric"><b id="mAmount">0</b><span>今日营业额</span></div>
+          <div class="metric warn"><b id="mPending">0</b><span>待接单</span></div>
+          <div class="metric"><b id="mLoad">0</b><span>待上货</span></div>
+          <div class="metric accent"><b id="mDelivering">0</b><span>配送中</span></div>
+          <div class="metric ok"><b id="mPickup">0</b><span>待取货</span></div>
+        </div>
+        <div class="metricSub">
+          <span>异常 <b id="mException">0</b></span>
+          <span>售后 <b id="mAftersale">0</b></span>
+          <span>取消申请 <b id="mCancelReq">0</b></span>
+        </div>
+      </div>
+
+      <div class="panel grow">
+        <div class="panelHead"><h2>订单状态分布</h2></div>
+        <div class="statusBar" id="statusBar">
+          <span class="sb-part p-pending" id="sbPending"></span>
+          <span class="sb-part p-load" id="sbLoad"></span>
+          <span class="sb-part p-deliver" id="sbDeliver"></span>
+          <span class="sb-part p-pickup" id="sbPickup"></span>
+          <span class="sb-part p-exception" id="sbException"></span>
+        </div>
+        <ul class="statusLegend">
+          <li><i class="sw p-pending"></i><span>待接单</span><b id="lgPending">0</b></li>
+          <li><i class="sw p-load"></i><span>待上货</span><b id="lgLoad">0</b></li>
+          <li><i class="sw p-deliver"></i><span>配送中</span><b id="lgDeliver">0</b></li>
+          <li><i class="sw p-pickup"></i><span>待取货</span><b id="lgPickup">0</b></li>
+          <li><i class="sw p-exception"></i><span>异常</span><b id="lgException">0</b></li>
+        </ul>
+        <p class="note">口径与商家首页一致 · 仅统计当日进行中的订单</p>
+      </div>
+
+    </section>
+
+    <!-- ==================== 中栏：实时可拖拽地图 ==================== -->
+    <section class="panel mapCard">
+      <div class="panelHead">
+        <h2>校园配送地图</h2>
+        <div class="legend">
+          <span><i class="lg lgRoad"></i>路网</span>
+          <span><i class="lg lgLm"></i>点位</span>
+          <span><i class="lg lgCar"></i>无人车</span>
+          <span><i class="lg lgRoute"></i>配送路线</span>
+        </div>
+        <button class="mapReset" id="mapReset" hidden onclick="window.resetMap&&resetMap()">回到校园</button>
+        <span class="mapTip" id="mapTip"></span>
+      </div>
+      <div class="mapStage">
+        <div class="mapBox" id="mapBox"></div>
+        <div class="mapMask" id="mapMask">地图数据加载中…</div>
+      </div>
+    </section>
+
+    <!-- ==================== 右栏 ==================== -->
+    <section class="colRight">
+
+      <div class="panel">
+        <div class="panelHead">
+          <h2>无人车状态</h2>
+          <span class="badge" id="robotCount">0 台</span>
+        </div>
+        <ul class="robotList" id="robotList"></ul>
+        <div class="empty" id="robotEmpty">暂无车辆数据</div>
+      </div>
+
+      <div class="panel">
+        <div class="panelHead">
+          <h2>进行中批次</h2>
+          <span class="badge" id="batchCount">0 批</span>
+        </div>
+        <ul class="batchList" id="batchList"></ul>
+        <div class="empty" id="batchEmpty">当前没有进行中的批次</div>
+      </div>
+
+      <div class="panel" id="alertPanel" hidden>
+        <div class="panelHead"><h2 class="danger">取餐超时提醒</h2></div>
+        <ul class="alertList" id="alertList"></ul>
+      </div>
+
+      <div class="panel grow">
+        <div class="panelHead"><h2>实时动态</h2></div>
+        <ul class="eventList" id="eventList"></ul>
+        <p class="note">仅记录车辆状态变化、新批次与取餐超时</p>
+      </div>
+
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span id="footLeft">零栋铺子 · 无人送餐调度大屏</span>
+    <span class="footMid" id="footMid"></span>
+    <span id="footRight">每 5 秒刷新 · 每日 04:00 自动重载</span>
+  </footer>
+
+</div>
+
+<script src="vendor/leaflet.js"></script>
+<script src="js/dashboard.js"></script>
+</body>
+</html>
