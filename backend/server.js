@@ -1420,7 +1420,10 @@ app.post('/api/merchant/delivery/batch/dispatch', merchantGuard, async (req, res
   }
 })
 
-// 批次上货（多单一次性）：开舱（逐任务 loading/verify）
+// 批次上货（Route B 直接下发）：开舱 = 获取设备控制权 + 预创建任务（设备开舱等待放货）。
+// 控制权按批次暂存内存（batchCtrl），「开始配送」时释放；服务重启后控制权按平台超时自动失效，
+// 无 ctrlId 时开始配送直接放行（机器人等控制权超时自动执行）。
+const batchCtrl = new Map() // batchId -> { ctrlId, deviceSn }
 app.post('/api/merchant/device/batch/open-bin', merchantGuard, async (req, res) => {
   const { batch_id } = req.body || {}
   const b = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(batch_id))
@@ -1428,29 +1431,56 @@ app.post('/api/merchant/device/batch/open-bin', merchantGuard, async (req, res) 
   // 需求3门禁：无人车必须已到达上货点才能开舱上货（真实档校验；演示档恒通过）
   const gate = await platform.robotAtLoadingPoint(store, b.device_sn)
   if (!gate.ok) return res.status(400).json({ code: 400, msg: '开舱失败：' + gate.msg })
-  const results = await platform.verifyBatchLoading(store, b.id)
-  const failed = results.filter((r) => !r.ok)
-  if (failed.length) {
-    return res.status(502).json({ code: 502, msg: '开舱失败：' + failed[0].msg })
+  let opened = 0
+  if (runtime.deviceMock) {
+    const results = await platform.verifyBatchLoading(store, b.id)
+    const failed = results.filter((r) => !r.ok)
+    if (failed.length) {
+      return res.status(502).json({ code: 502, msg: '开舱失败：' + failed[0].msg })
+    }
+    opened = results.length
+  } else {
+    // Route B：先获取设备控制权（预创建/创建需持有控制权），再预创建任务开舱
+    const g = await platform.grantControl(b.device_sn, 600)
+    if (!g.ok) return res.status(502).json({ code: 502, msg: '开舱失败：' + g.msg })
+    const ctrlId = (g.data && (g.data.ctrlId || g.data.sessionId || g.data.id)) || ''
+    const pre = await platform.preCreateTask(b.device_sn, { batchNo: b.batch_no })
+    if (!pre.ok) return res.status(502).json({ code: 502, msg: '开舱失败：' + pre.msg })
+    batchCtrl.set(b.id, { ctrlId, deviceSn: b.device_sn })
+    opened = 1
   }
   store.prepare("UPDATE delivery_batches SET status=1, status_text='待上货', updated_at=datetime('now','localtime') WHERE id=?").run(b.id)
-  audit(req, 'device/batch-open', 'batch#' + b.id, 'opened=' + results.length)
-  ok(res, { batch_id: b.id, opened: results.length })
+  audit(req, 'device/batch-open', 'batch#' + b.id, 'opened=' + opened)
+  ok(res, { batch_id: b.id, opened })
 })
 
-// 批次关舱（原地等待，不派发）
+// 批次关舱：Route B = 逐单 create/direct（创建成功设备自动关舱）；演示档 = drawerCtrl 关舱
 app.post('/api/merchant/device/batch/close-bin', merchantGuard, async (req, res) => {
   const { batch_id } = req.body || {}
   const b = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(batch_id))
   if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
   if (!b.device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号，请先扫码' })
-  const r = await platform.drawerCtrl(b.device_sn, 0)
-  if (r.ok) {
-    audit(req, 'device/batch-close', 'batch#' + b.id, 'device_sn=' + b.device_sn)
-    ok(res)
+  if (runtime.deviceMock) {
+    const r = await platform.drawerCtrl(b.device_sn, 0)
+    if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg })
   } else {
-    res.status(502).json({ code: 502, msg: r.msg })
+    // Route B：商家已放货 → 逐单 create/direct（需已预创建+持控制权；创建成功设备自动关舱）
+    const orders = store.prepare('SELECT * FROM orders WHERE batch_id=? AND status IN (1,2)').all(b.id)
+    if (!orders.length) return res.status(400).json({ code: 400, msg: '批次内没有待配送订单' })
+    const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get() || null
+    for (const order of orders) {
+      const task = store.prepare('SELECT * FROM delivery_tasks WHERE order_id=? AND void_at IS NULL').get(order.id)
+      if (!task) continue
+      const unloading = store.prepare('SELECT * FROM landmarks WHERE id=?').get(order.landmark_id)
+      await platform.createDirectTask(store, task.id, order, loading, unloading, b, { stop: 1, priority: 10 })
+    }
+    const created = store.prepare("SELECT COUNT(*) c FROM delivery_tasks WHERE batch_id=? AND void_at IS NULL AND platform_task_id != ''").get(b.id)
+    if (Number(created.c) !== orders.length) {
+      return res.status(502).json({ code: 502, msg: '关舱失败：配送任务创建不完整' })
+    }
   }
+  audit(req, 'device/batch-close', 'batch#' + b.id, 'device_sn=' + b.device_sn)
+  ok(res)
 })
 
 // 批次开始配送（逐任务 loading/confirm；批次置配送中）
@@ -1466,15 +1496,29 @@ app.post('/api/merchant/device/batch/dispatch', merchantGuard, async (req, res) 
     store.prepare("UPDATE delivery_batches SET route=?, updated_at=datetime('now','localtime') WHERE id=?")
       .run(JSON.stringify(route), b.id)
   } catch (e) { console.warn('[batch] 路线规划失败（继续配送）', e.message) }
-  const results = await platform.confirmBatchLoading(store, b.id)
-  const failed = results.filter((r) => !r.ok)
-  if (failed.length) {
-    return res.status(502).json({ code: 502, msg: '开始配送失败：' + failed[0].msg })
+  let dispatched = 0
+  if (runtime.deviceMock) {
+    const results = await platform.confirmBatchLoading(store, b.id)
+    const failed = results.filter((r) => !r.ok)
+    if (failed.length) {
+      return res.status(502).json({ code: 502, msg: '开始配送失败：' + failed[0].msg })
+    }
+    dispatched = results.length
+  } else {
+    // Route B：释放控制权 → 机器人开始执行已下发的直接任务。
+    // 无 ctrlId（如服务重启）说明控制权已超时，机器人会自动开始执行，直接放行。
+    const ctrl = batchCtrl.get(b.id)
+    if (ctrl && ctrl.ctrlId) {
+      const rel = await platform.releaseControl(ctrl.ctrlId)
+      if (!rel.ok) return res.status(502).json({ code: 502, msg: '开始配送失败：' + rel.msg })
+    }
+    batchCtrl.delete(b.id)
+    dispatched = 1
   }
   store.prepare("UPDATE delivery_batches SET status=2, status_text='配送中', updated_at=datetime('now','localtime') WHERE id=?")
     .run(b.id)
-  audit(req, 'device/batch-dispatch', 'batch#' + b.id, 'device_sn=' + b.device_sn + ' dispatched=' + results.length)
-  ok(res, { batch_id: b.id, dispatched: results.length })
+  audit(req, 'device/batch-dispatch', 'batch#' + b.id, 'device_sn=' + b.device_sn + ' dispatched=' + dispatched)
+  ok(res, { batch_id: b.id, dispatched })
 })
 
 // 测试辅助：模拟完成上货并开始配送（无真机器人时用）
