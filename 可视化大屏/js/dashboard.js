@@ -328,26 +328,18 @@
 
   /* ---------------- 地图：Leaflet 实时可拖拽地图 ---------------- */
 
-  // 标定常量：平台坐标系 → 高德导航图（GCJ-02）的相似变换。
-  // 推导见 deploy\校准并生成底图.ps1（S=比例、Rot=0、Tx/Ty=平移）；瓦片为高德 z=18 免费瓦片。
-  var MAP_CALIB = {
-    bbMinX: -36.849, bbMaxX: 231.945, bbMinY: -107.831, bbMaxY: 139.007,
-    platW: 5776, platH: 5537,
-    S: 0.09, cx: 2888, cy: 2768.5, tx: 2138, ty: 2501,
-    z: 18, tx0: 206943, ty0: 107671
-  }
+  // 标定常量（用户 ?calib=1 拖拽标定得出，2026-09-22）：
+  // 平台局部坐标(米) -> WebMercator米（相似变换）-> WGS84 经纬度（匹配 OSM 底图）。
+  // qx = a*px - b*py + tx ; qy = b*px + a*py + ty
+  var CALIB_T = { a: 1.184949, b: 0.339779, tx: 11599629.22, ty: 3576279.423 }
 
-  // 平台坐标（米，自有原点）→ GCJ-02 经纬度
+  // 平台坐标（米，自有原点）→ WGS84 经纬度 [lat, lng]
   function platformToLngLat(x, y) {
-    var C = MAP_CALIB
-    var plx = (x - C.bbMinX) / (C.bbMaxX - C.bbMinX) * C.platW
-    var ply = (1 - (y - C.bbMinY) / (C.bbMaxY - C.bbMinY)) * C.platH
-    var navX = C.S * (plx - C.cx) + C.tx
-    var navY = C.S * (ply - C.cy) + C.ty
-    var n = Math.pow(2, C.z)
-    var lng = ((C.tx0 * 256 + navX) / 256) / n * 360 - 180
-    var wy = (C.ty0 * 256 + navY) / 256
-    var lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * wy / n))) * 180 / Math.PI
+    var R = 6378137
+    var qx = CALIB_T.a * x - CALIB_T.b * y + CALIB_T.tx
+    var qy = CALIB_T.b * x + CALIB_T.a * y + CALIB_T.ty
+    var lng = qx / R * 180 / Math.PI
+    var lat = Math.atan(Math.sinh(qy / R)) * 180 / Math.PI
     return [lat, lng]
   }
 
@@ -358,17 +350,31 @@
     if (mapObj || !window.L) return
     var el = $('mapBox')
     if (!el) return
+    // 底图源（矢量道路图，非卫星影像）。方便切换：改动 TILE_PROVIDER 一项即可。
+    //   'carto'        = CARTO Voyager（干净现代矢量路网，推荐）
+    //   'osm'          = OpenStreetMap 标准
+    //   'amap-vector'  = 高德矢量（自带中文楼名，POI 稍多）
+    //   'amap-sat'     = 高德卫星影像（真实影像，无道路标注）
+    var TILE_PROVIDER = 'osm'
+    var TILE = {
+      carto:      { url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', subs: ['a', 'b', 'c', 'd'], attr: '&copy; OpenStreetMap &copy; CARTO', max: 20 },
+      osm:        { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', subs: ['a', 'b', 'c'], attr: '&copy; OpenStreetMap', max: 20 },
+      'amap-vector': { url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', subs: ['1', '2', '3', '4'], attr: '&copy; 高德地图', max: 20 },
+      'amap-sat': { url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}', subs: ['1', '2', '3', '4'], attr: '&copy; 高德地图', max: 20 }
+    }
+    var t = TILE[TILE_PROVIDER] || TILE.carto
     mapObj = L.map(el, {
       zoomControl: true,
-      scrollWheelZoom: false,      // 大屏防误触：用拖拽与 +/- 按钮缩放
-      attributionControl: true
+      scrollWheelZoom: true,       // 允许鼠标滚轮缩放（网页端需求）
+      maxZoom: Math.min(20, t.max),// 允许放更大
+      attributionControl: false    // 隐藏底图版权水印（内部演示大屏；正式发布建议按版权保留）
     })
-    L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
-      subdomains: ['1', '2', '3', '4'],
-      maxZoom: 18,
-      attribution: '&copy; 高德地图'
+    L.tileLayer(t.url, {
+      subdomains: t.subs,
+      maxZoom: t.max,
+      attribution: t.attr
     }).addTo(mapObj)
-    mapObj.setView(platformToLngLat(0, 15), 18)   // 东苑宿舍区
+    mapObj.setView(platformToLngLat(0, 15), Math.min(18, t.max))   // 东苑宿舍区
     var mask = $('mapMask')
     if (mask) mask.hidden = true
     var reset = $('mapReset')
@@ -486,12 +492,137 @@
     }
     var map = d.map
     if (!map) return
+    if (CALIB) { renderCalib(map); return }
     updateLandmarks(map)
     updateGraph(map.graph)
     updateRoutes(map.routes)
     updateCars(map.robots)
     txt($('mapTip'), (map.landmarks || []).length + ' 个点位 · ' + (map.graph && map.graph.nodes ? map.graph.nodes.length : 0) + ' 个路网节点')
     mapResized()
+  }
+
+  /* ---------------- 地图标定（?calib=1） ---------------- */
+  // 一次性把「平台局部坐标」精确对齐到在线地图(OSM/WGS84)。
+  // 用法：地址栏 /dashboard/?calib=1 → 把每个圆点拖到真实位置 → 点「计算」→ 输出新变换参数。
+  var CALIB = /[?&]calib=1/.test(location.search)
+  var R_EARTH = 6378137
+  var calibPairs = []      // {src, px, py, mx, my}
+  var calibMarks = {}      // key -> Leaflet marker
+  var calibT = null        // 本次会话计算出的相似变换
+
+  // 经纬度 -> WebMercator 米（就近投影，校园尺度下可当线性）
+  function merc(lat, lng) {
+    return { x: R_EARTH * lng * Math.PI / 180, y: R_EARTH * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) }
+  }
+  function mercToLngLat(m) {
+    return [Math.atan(Math.sinh(m.y / R_EARTH)) * 180 / Math.PI, m.x / R_EARTH * 180 / Math.PI]
+  }
+
+  // 高斯消元解 4x4
+  function solveLinear(M, v) {
+    var n = 4, a = [], i, k, j
+    M.forEach(function (row) { a.push(row.slice()) })
+    var b = v.slice()
+    for (i = 0; i < n; i++) {
+      var p = i
+      for (k = i + 1; k < n; k++) if (Math.abs(a[k][i]) > Math.abs(a[p][i])) p = k
+      if (Math.abs(a[p][i]) < 1e-12) return [0, 0, 0, 0]
+      if (p !== i) { var t = a[p]; a[p] = a[i]; a[i] = t; t = b[p]; b[p] = b[i]; b[i] = t }
+      var piv = a[i][i]
+      for (k = i; k < n; k++) a[i][k] /= piv
+      b[i] /= piv
+      for (k = 0; k < n; k++) if (k !== i && a[k][i] !== 0) {
+        var f = a[k][i]
+        for (j = i; j < n; j++) a[k][j] -= f * a[i][j]
+        b[k] -= f * b[i]
+      }
+    }
+    return b
+  }
+  // 相似变换最小二乘： qx = a*px - b*py + tx ; qy = b*px + a*py + ty（旋转+等比缩放+平移）
+  function solveSimilarity(pts) {
+    var M = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], v = [0, 0, 0, 0]
+    pts.forEach(function (p) {
+      var r1 = [p.px, -p.py, 1, 0], r2 = [p.py, p.px, 0, 1]
+      var rhs = [p.mx, p.my]
+      for (var idx = 0; idx < 2; idx++) {
+        var row = r1, r = rhs[0]; if (idx === 1) { row = r2; r = rhs[1] }
+        for (var i = 0; i < 4; i++) { for (var j = 0; j < 4; j++) M[i][j] += row[i] * row[j]; v[i] += row[i] * r }
+      }
+    })
+    var x = solveLinear(M, v)
+    return { a: x[0], b: x[1], tx: x[2], ty: x[3] }
+  }
+
+  function calibPanel() {
+    var st = document.createElement('style')
+    st.textContent = '.cbmark{border-radius:50%;background:#e02020;color:#fff;text-align:center;line-height:22px;font-size:12px;width:24px;height:24px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)}.cbmark.done{background:#20a04a}'
+    document.head.appendChild(st)
+    var p = document.createElement('div')
+    p.id = 'calibPanel'
+    p.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1200;background:#fff;border:1px solid #99b3dd;padding:8px 12px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.18);font-size:13px;color:#222;width:680px;max-width:94%;'
+    p.innerHTML = '<b>标定模式</b>：把红色圆点(<b>点位</b>)一个一个拖到它在地图上的<b>真实位置</b>（该栋/铺子的实际门口）。' +
+      '<br>至少拖 <b>3</b> 个、建议 <b>4~6</b> 个分散点，然后点「计算新变换」，下方会输出参数（把它发给我写进代码）。' +
+      '<br><span style="color:#888">拖动后圆点会变绿并编上号。刷新页面可重新开始。</span>' +
+      '<div style="margin-top:4px"><button id="calibCalc" style="margin-right:8px;padding:4px 12px">计算新变换</button>' +
+      '<button id="calibReset" style="padding:4px 12px">重置本页拖动</button></div>' +
+      '<pre id="calibOut" style="margin:6px 0 0;white-space:pre-wrap;font-size:12px;max-height:170px;overflow:auto;background:#f7f9fc;padding:6px;border-radius:6px">（先把圆点拖到真实位置，再点计算）</pre>'
+    var box = $('mapBox')
+    if (box) box.insertAdjacentElement('afterend', p)
+    p.querySelector('#calibCalc').onclick = function () {
+      var o = p.querySelector('#calibOut')
+      if (calibPairs.length < 3) { o.textContent = '需要至少 3 个点，当前已拖 ' + calibPairs.length + ' 个。'; return }
+      calibT = solveSimilarity(calibPairs)
+      o.textContent =
+        '已用 ' + calibPairs.length + ' 个点。变换：qx=a*px-b*py+tx ; qy=b*px+a*py+ty （px,py=平台局部坐标米，q=WebMercator米）\n' +
+        'a=' + calibT.a.toFixed(6) + '  b=' + calibT.b.toFixed(6) + '  tx=' + calibT.tx.toFixed(3) + '  ty=' + calibT.ty.toFixed(3)
+      calibPairs.forEach(function (pr) {
+        var ll = mercToLngLat({ x: calibT.a * pr.px - calibT.b * pr.py + calibT.tx, y: calibT.b * pr.px + calibT.a * pr.py + calibT.ty })
+        var mk = calibMarks[pr.src]
+        if (mk) mk.setLatLng(L.latLng(ll[0], ll[1]))
+      })
+    }
+    p.querySelector('#calibReset').onclick = function () {
+      calibPairs = []
+      var i = 0
+      Object.keys(calibMarks).forEach(function (k) {
+        var mk = calibMarks[k]
+        mk.setIcon(L.divIcon({ className: 'cbmark', html: '<b>' + (++i) + '</b>', iconSize: [24, 24], iconAnchor: [12, 12] }))
+      })
+      p.querySelector('#calibOut').textContent = '已重置'
+    }
+  }
+
+  function renderCalib(map) {
+    initMap()
+    if (!mapObj) return
+    var lms = (map.landmarks || []).filter(function (m) {
+      return isFinite(num(m.x)) && isFinite(num(m.y)) && !/固定路径|商铺上货|充电点|排队点/.test(String(m.name || ''))
+    })
+    if (!calibPanel.x) { calibPanel(); calibPanel.x = true }
+    lms.forEach(function (m) {
+      var key = String(m.id != null ? m.id : m.name)
+      if (calibMarks[key]) return
+      var g = platformToLngLat(num(m.x), num(m.y))   // [lat, lng] WGS84
+      var mk = L.marker([g[0], g[1]], {
+        draggable: true,
+        icon: L.divIcon({ className: 'cbmark', html: '<b>' + (Object.keys(calibMarks).length + 1) + '</b>', iconSize: [24, 24], iconAnchor: [12, 12] })
+      })
+      mk.bindTooltip(String(m.name), { direction: 'top' })
+      mk.on('dragend', function () {
+        var g2 = mk.getLatLng(), q = merc(g2.lat, g2.lng)
+        calibPairs.push({ src: key, px: num(m.x), py: num(m.y), mx: q.x, my: q.y })
+        var n = calibPairs.length
+        mk.setIcon(L.divIcon({ className: 'cbmark done', html: '<b>' + n + '</b>', iconSize: [24, 24], iconAnchor: [12, 12] }))
+        mk.bindTooltip(String(m.name) + ' ✓', { direction: 'top' })
+        var o = document.getElementById('calibOut')
+        if (o) o.textContent = '已拖 ' + n + ' 个点（建议 4~6 个再计算）'
+      })
+      mk.addTo(mapObj)
+      calibMarks[key] = mk
+    })
+    var pts = lms.map(function (m) { return platformToLngLat(num(m.x), num(m.y)) })
+    if (pts.length) mapObj.fitBounds(L.latLngBounds(pts.map(function (g) { return [g[0], g[1]] })))
   }
 
   /* ---------------- 主循环 ---------------- */

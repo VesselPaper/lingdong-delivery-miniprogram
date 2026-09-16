@@ -3,7 +3,7 @@
 
 // 真机预览（手机与电脑同一 WiFi）时改为电脑局域网 IP，如 http://192.168.x.x:3000/api
 // 查看 IP：命令行 ipconfig（以太网 IPv4 地址）；模拟器用 localhost 亦可
-const LAN_BASE = 'http://10.6.64.116:3000/api'
+const LAN_BASE = 'http://192.168.70.50:3000/api'
 
 const ENV = {
   dev: {
