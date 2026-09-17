@@ -114,6 +114,50 @@
   justify-content: center;
 }
 
+.promo-banner {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  background: #FDEEEE;
+  border-radius: 10rpx;
+  padding: 18rpx 20rpx;
+  margin: 6rpx 0 8rpx;
+}
+
+.promo-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.promo-title {
+  color: #E64340;
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.promo-sub {
+  margin-top: 2rpx;
+}
+
+.total-right {
+  margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 10rpx;
+  margin-right: 8rpx;
+}
+
+.orig-total {
+  color: #BBBBBB;
+  font-size: 24rpx;
+  text-decoration: line-through;
+}
+
+.discount-val.oring {
+  color: #E64340;
+  font-weight: 600;
+}
+
 .shop-name {
   font-size: 30rpx;
   font-weight: 600;
@@ -360,4 +404,99 @@
 
 .tsheet-opt.on .tsheet-sub {
   color: #3078C0;
+}
+
+/* ===== 优惠选择 ===== */
+.cell-link {
+  color: #3078C0;
+  font-weight: 600;
+}
+
+.cell-reduce {
+  margin-left: 12rpx;
+  color: #E64340;
+  font-size: 26rpx;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.promo-switch {
+  margin-left: auto;
+  font-size: 24rpx;
+  color: #3078C0;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.coupon-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.coupon-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 26rpx 30rpx;
+  border-radius: 12rpx;
+  background: #F5F7FA;
+  border: 2rpx solid transparent;
+}
+
+.coupon-item.on {
+  background: #FDEEEE;
+  border-color: #E64340;
+}
+
+.coupon-left {
+  display: flex;
+  flex-direction: column;
+}
+
+.coupon-desc {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #E64340;
+}
+
+.coupon-name {
+  margin-top: 4rpx;
+}
+
+.coupon-right {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+.coupon-reduce {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #111111;
+}
+
+.coupon-check {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  background: #E64340;
+  border: 2rpx solid #E64340;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.coupon-rec {
+  font-size: 20rpx;
+  color: #E64340;
+  border: 1rpx solid #E64340;
+  border-radius: 6rpx;
+  padding: 2rpx 10rpx;
+  font-weight: 600;
+}
+
+.coupon-empty {
+  text-align: center;
+  padding: 40rpx 0;
 }

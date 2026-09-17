@@ -1,4 +1,18 @@
 <view class="edit-page">
+  <!-- 活动类型选择 -->
+  <view class="card form-card">
+    <view class="field-label big">活动类型</view>
+    <view class="type-row">
+      <view wx:for="{{typeList}}" wx:key="value"
+        class="type-item {{type === item.value ? 'type-on' : ''}}"
+        bindtap="chooseType" data-type="{{item.value}}">
+        <view class="type-name">{{item.label}}</view>
+        <view class="type-desc">{{item.desc}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 基础信息 -->
   <view class="card form-card">
     <view class="field">
       <view class="field-label">活动标题</view>
@@ -8,7 +22,7 @@
       <view class="field-label">副标题</view>
       <input class="field-input" placeholder="一句话描述（选填）" value="{{form.subtitle}}" bindinput="onField" data-field="subtitle" />
     </view>
-    <view class="field">
+    <view class="field" wx:if="{{type === 'custom'}}">
       <view class="field-label">跳转链接</view>
       <input class="field-input" placeholder="用户端点击活动后跳转的页面路径（选填）" value="{{form.link}}" bindinput="onField" data-field="link" />
     </view>
@@ -16,8 +30,70 @@
       <view class="field-label">排序</view>
       <input class="field-input" type="number" placeholder="数字越小越靠前" value="{{form.sort}}" bindinput="onField" data-field="sort" />
     </view>
+    <view class="field">
+      <view class="field-label">生效时间</view>
+      <picker mode="date" value="{{form.start_at}}" start="2020-01-01" bindchange="onField" data-field="start_at">
+        <view class="picker-value">{{form.start_at || '选择开始日期'}}</view>
+      </picker>
+    </view>
+    <view class="field">
+      <view class="field-label">失效时间</view>
+      <picker mode="date" value="{{form.end_at}}" bindchange="onField" data-field="end_at">
+        <view class="picker-value">{{form.end_at || '选择结束日期'}}</view>
+      </picker>
+    </view>
+  </view>
+
+  <!-- 适用范围：全场 / 指定商品 -->
+  <view class="card form-card" wx:if="{{type !== 'custom'}}">
+    <view class="field-label big">适用范围</view>
+    <view class="scope-row">
+      <view class="scope-item {{scope === 'all' ? 'scope-on' : ''}}" bindtap="setScope" data-scope="all">全场商品</view>
+      <view class="scope-item {{scope === 'goods' ? 'scope-on' : ''}}" bindtap="setScope" data-scope="goods">指定商品</view>
+    </view>
+
+    <view wx:if="{{scope === 'goods'}}" class="goods-pick">
+      <view class="field-label">选择商品（{{selectedGoods.length}} 件）</view>
+      <view class="goods-item" wx:for="{{goodsList}}" wx:key="id" bindtap="toggleGoods" data-id="{{item.id}}">
+        <view class="goods-check {{selectedMap[item.id] ? 'check-on' : ''}}">
+          <t-icon wx:if="{{selectedMap[item.id]}}" name="check" size="12" color="#ffffff" />
+        </view>
+        <text class="goods-name ellipsis">{{item.name}}</text>
+        <text class="goods-price">¥{{item.price}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 折扣配置 -->
+  <view class="card form-card" wx:if="{{type === 'discount'}}">
+    <view class="field">
+      <view class="field-label">折扣（请输入 0-10 之间，8.5 表示 85 折）</view>
+      <input class="field-input" type="digit" placeholder="例如：8.5" value="{{discount}}" bindinput="onDiscountInput" />
+    </view>
+    <view class="calc-hint" wx:if="{{discountCalcHint}}">
+      <text>{{discountCalcHint}}</text>
+    </view>
+  </view>
+
+  <!-- 满减配置 -->
+  <view class="card form-card" wx:if="{{type === 'full_reduce'}}">
+    <view class="field-block">
+      <view class="field-label big">满减档位（满 X 元减 Y 元）</view>
+      <view class="tier" wx:for="{{tiers}}" wx:key="index">
+        <view class="tier-flex">
+          <text class="tier-prefix">满</text>
+          <input class="tier-input" type="digit" placeholder="金额" value="{{item.threshold}}" bindinput="onTierField" data-idx="{{index}}" data-field="threshold" />
+          <text class="tier-prefix">元 减</text>
+          <input class="tier-input" type="digit" placeholder="金额" value="{{item.reduce}}" bindinput="onTierField" data-idx="{{index}}" data-field="reduce" />
+          <view class="tier-del" wx:if="{{tiers.length > 1}}" bindtap="removeTier" data-idx="{{index}}">删除</view>
+        </view>
+      </view>
+      <view class="tier-add" bindtap="addTier">+ 添加档位</view>
+    </view>
   </view>
 
   <view class="btn btn-block save-btn" bindtap="save">保存</view>
-  <view class="tip text-weak text-sm">保存后默认发布，用户端活动页即可看到；也可在活动列表页下线。</view>
+  <view class="tip text-weak text-sm">
+    {{type === 'custom' ? '自由活动为纯展示，保存后默认发布' : '保存后默认发布；折扣/满减将自动在用户端商品与下单价格中生效'}}
+  </view>
 </view>

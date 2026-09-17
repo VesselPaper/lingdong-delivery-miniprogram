@@ -36,6 +36,7 @@ const invite = require('./services/merchantInvite')
 const batch = require('./services/batch')
 const goodsStats = require('./services/goodsStats')
 const orderCancel = require('./services/orderCancel')
+const promotion = require('./services/promotion')
 
 // 派车告警以注入方式挂到平台适配层，避免 platform.js 反向依赖 runtime.js 形成环
 platform.setDispatchHook(runtime.warnIfUnsafeDispatch)
@@ -223,6 +224,27 @@ app.get('/api/goods/categories', (req, res) => {
   ok(res, rows.map((r) => r.category))
 })
 
+// 为商品行附加"折后价/是否参与折扣"，供用户端商品页/购物车展示划线价与折后价。
+// 仅做展示，不参与交易；真实金额在 order/create 由 promotion.resolve 权威计算。
+let _goodsPromosCache = null
+function goodsPricePayload(row, active) {
+  const acts = active || promotion.loadActive(store).filter((a) => a.type === 'discount')
+  let sale_price = null
+  let discount_info = null
+  for (const a of acts) {
+    const cfg = a._cfg || {}
+    if (promotion.goodsInScope(a, row.id)) {
+      const d = Number(cfg.discount)
+      if (d > 0 && d < 1) {
+        sale_price = Math.round(Number(row.price) * d * 100) / 100
+        discount_info = { activity_id: a.id, discount: d, title: a.title || '' }
+        break  // 同一商品只算第一个命中折扣（商家应避免多折扣并行）
+      }
+    }
+  }
+  return Object.assign({}, row, { sale_price, discount_info })
+}
+
 app.get('/api/goods/list', (req, res) => {
   const { category = '', keyword = '' } = req.query
   let sql = 'SELECT * FROM goods WHERE status=1'
@@ -230,12 +252,15 @@ app.get('/api/goods/list', (req, res) => {
   if (category) { sql += ' AND category=?'; args.push(category) }
   if (keyword) { sql += ' AND name LIKE ?'; args.push('%' + keyword + '%') }
   sql += ' ORDER BY sales DESC'
-  ok(res, store.prepare(sql).all(...args))
+  const rows = store.prepare(sql).all(...args)
+  const active = promotion.loadActive(store).filter((a) => a.type === 'discount')
+  ok(res, rows.map((r) => goodsPricePayload(r, active)))
 })
 
 app.get('/api/goods/detail', (req, res) => {
   const row = store.prepare('SELECT * FROM goods WHERE id=?').get(Number(req.query.id || 0))
-  row ? ok(res, row) : res.status(404).json({ code: 404, msg: '商品不存在' })
+  if (!row) return res.status(404).json({ code: 404, msg: '商品不存在' })
+  ok(res, goodsPricePayload(row))
 })
 
 // ---------- 点位 ----------
@@ -259,7 +284,11 @@ app.get('/api/cart/list', auth, (req, res) => {
     SELECT c.id, c.goods_id, c.quantity, c.selected, g.name, g.price, g.image, g.status AS goods_status, g.stock AS goods_stock
     FROM cart c LEFT JOIN goods g ON c.goods_id = g.id
     WHERE c.user_id=? ORDER BY c.id DESC`).all(req.user.id)
-  ok(res, rows)
+  const active = promotion.loadActive(store).filter((a) => a.type === 'discount')
+  ok(res, rows.map((r) => {
+    const priced = goodsPricePayload({ ...r, id: r.goods_id }, active)
+    return { ...r, price_now: priced.sale_price || r.price }
+  }))
 })
 
 app.post('/api/cart/add', auth, (req, res) => {
@@ -483,7 +512,7 @@ app.post('/api/order/create', auth, (req, res) => {
     if (shop.business_status === 'closed') {
       return res.status(400).json({ code: 400, msg: '店铺歇业中，暂无法下单' })
     }
-    const { landmark_id, landmark_name, remark = '', items = [], contact_name = '', contact_phone = '', address_id } = req.body || {}
+    const { landmark_id, landmark_name, remark = '', items = [], contact_name = '', contact_phone = '', address_id, activity_id } = req.body || {}
     if (!items.length) return res.status(400).json({ code: 400, msg: '订单不能为空' })
     // 收餐人落库（P0-3）：姓名 trim 非空 ≤20；手机号必须校验，真机下货验证依赖该字段
     const cname = String(contact_name || '').trim()
@@ -518,17 +547,24 @@ app.post('/api/order/create', auth, (req, res) => {
     let seq = Number(seqRowBase && seqRowBase.c || 0)
     const orderNoNew = () => 'LD' + Date.now().toString().slice(-8) + Math.random().toString(36).slice(2, 6).toUpperCase()
     const pickupCodeNew = () => String(Math.floor(1000 + Math.random() * 9000))
+    const ordersActivePromos = promotion.loadActive(store)
     const insOrder = store.prepare(`INSERT INTO orders
-      (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, status, remark, pickup_code, daily_seq)
-      VALUES (?,?,?,?,?,?,?,0,?,?,?)`)
+      (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, original_amount, discount_amount, activity_id, status, remark, pickup_code, daily_seq)
+      VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,?)`)
     const insItem = store.prepare('INSERT INTO order_items (order_id, goods_id, goods_name, goods_image, price, quantity) VALUES (?,?,?,?,?,?)')
     const decStock = store.prepare('UPDATE goods SET stock=stock-? WHERE id=? AND stock>=?')
     for (const chunk of chunks) {
-      const chunkTotal = chunk.reduce((s, it) => s + it.goods.price * it.quantity, 0)
+      const originalTotal = chunk.reduce((s, it) => s + it.goods.price * it.quantity, 0)
+      // 权威优惠计算：同单只能享一个活动，取用户选中的（activity_id），未选/失效则取最大优惠
+      const promo = activity_id
+        ? promotion.resolvePicked(chunk.map((it) => ({ goods: it.goods, quantity: it.quantity })), ordersActivePromos, activity_id)
+        : promotion.resolve(chunk.map((it) => ({ goods: it.goods, quantity: it.quantity })), ordersActivePromos)
+      const chunkTotal = promo.payable
+      const discountAmount = promo.discount
       const orderNo = orderNoNew()
       const pickupCode = pickupCodeNew()
       seq += 1
-      const info = insOrder.run(orderNo, req.user.id, String(landmark_id), lm.name, cname, cphone, chunkTotal.toFixed(2), remark, pickupCode, seq)
+      const info = insOrder.run(orderNo, req.user.id, String(landmark_id), lm.name, cname, cphone, Number(chunkTotal).toFixed(2), Number(originalTotal).toFixed(2), Number(discountAmount).toFixed(2), promo.activity ? promo.activity.id : null, remark, pickupCode, seq)
       const orderId = Number(info.lastInsertRowid)
       for (const { goods, quantity } of chunk) {
         insItem.run(orderId, goods.id, goods.name, goods.image, goods.price, quantity)
@@ -1119,7 +1155,22 @@ app.post('/api/delivery/pickup-close', auth, async (req, res) => {
 
 // ---------- 活动 ----------
 app.get('/api/activity/list', (req, res) => {
-  ok(res, store.prepare('SELECT * FROM activities WHERE status=1 ORDER BY sort, id DESC').all())
+  const rows = store.prepare('SELECT * FROM activities WHERE status=1 ORDER BY sort, id DESC').all()
+  // 给前端附上 type 与解析好的 config（前端据此展示折扣/满减样式与估算）
+  const now = Date.now()
+  ok(res, rows.map((a) => {
+    let cfg = {}
+    try { cfg = JSON.parse(a.config || '{}') || {} } catch (e) { cfg = {} }
+    let state = 'active'
+    const at = (t) => (t ? new Date(t.replace(' ', 'T')).getTime() : NaN)
+    const s = at(a.start_at), e = at(a.end_at)
+    if (!isNaN(s) && now < s) state = 'pending'
+    else if (!isNaN(e) && now > e) state = 'ended'
+    return {
+      id: a.id, title: a.title, subtitle: a.subtitle, image: a.image, link: a.link,
+      type: a.type, sort: a.sort, start_at: a.start_at, end_at: a.end_at, state, config: cfg
+    }
+  }))
 })
 
 // ---------- 商家端 ----------
@@ -1665,29 +1716,35 @@ app.get('/api/merchant/activities', merchantGuard, (req, res) => {
 })
 
 app.post('/api/merchant/activities', merchantGuard, (req, res) => {
-  const { title, subtitle = '', image = '', link = '', sort = 0 } = req.body || {}
+  const { title, subtitle = '', image = '', link = '', sort = 0, type = 'custom', config, start_at = '', end_at = '' } = req.body || {}
   if (!title) return res.status(400).json({ code: 400, msg: '活动标题不能为空' })
-  const info = store.prepare('INSERT INTO activities (title, subtitle, image, link, status, sort) VALUES (?,?,?,?,1,?)')
-    .run(title, subtitle, image, link, Number(sort || 0))
-  audit(req, 'activity/create', 'activity#' + info.lastInsertRowid, 'title=' + title)
+  const cfgJson = typeof config === 'string' ? config : JSON.stringify(config || {})
+  const info = store.prepare('INSERT INTO activities (title, subtitle, image, link, status, sort, type, config, start_at, end_at) VALUES (?,?,?,?,1,?,?,?,?,?)')
+    .run(title, subtitle, image, link, Number(sort || 0), String(type), String(cfgJson), start_at || null, end_at || null)
+  audit(req, 'activity/create', 'activity#' + info.lastInsertRowid, 'title=' + title + ' type=' + type)
   ok(res, { id: Number(info.lastInsertRowid) })
 })
 
 app.put('/api/merchant/activities', merchantGuard, (req, res) => {
-  const { id, title, subtitle, image, link, sort } = req.body || {}
+  const { id, title, subtitle, image, link, sort, type, config, start_at, end_at } = req.body || {}
   if (!id) return res.status(400).json({ code: 400, msg: '缺少活动ID' })
   const cur = store.prepare('SELECT * FROM activities WHERE id=?').get(Number(id))
   if (!cur) return res.status(404).json({ code: 404, msg: '活动不存在' })
-  store.prepare('UPDATE activities SET title=?, subtitle=?, image=?, link=?, sort=? WHERE id=?')
+  const cfgJson = config !== undefined ? (typeof config === 'string' ? config : JSON.stringify(config || {})) : cur.config
+  store.prepare('UPDATE activities SET title=?, subtitle=?, image=?, link=?, sort=?, type=?, config=?, start_at=?, end_at=? WHERE id=?')
     .run(
       title !== undefined ? title : cur.title,
       subtitle !== undefined ? subtitle : cur.subtitle,
       image !== undefined ? image : cur.image,
       link !== undefined ? link : cur.link,
       sort !== undefined ? Number(sort) : cur.sort,
+      type !== undefined ? String(type) : cur.type,
+      String(cfgJson),
+      start_at !== undefined ? (start_at || null) : cur.start_at,
+      end_at !== undefined ? (end_at || null) : cur.end_at,
       Number(id)
     )
-  audit(req, 'activity/update', 'activity#' + id, 'title=' + (title !== undefined ? title : cur.title))
+  audit(req, 'activity/update', 'activity#' + id, 'title=' + (title !== undefined ? title : cur.title) + ' type=' + ((type !== undefined ? type : cur.type)))
   ok(res)
 })
 

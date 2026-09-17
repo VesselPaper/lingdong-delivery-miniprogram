@@ -6,10 +6,21 @@
 
   <view class="act-body">
     <block wx:if="{{activities.length}}">
-      <view class="act-card" wx:for="{{activities}}" wx:key="id" bindtap="onActivity" data-link="{{item.link}}">
-        <view class="act-card-title">{{item.title}}</view>
-        <view class="act-card-sub text-weak text-sm">{{item.subtitle}}</view>
-        <view class="btn btn-sm act-btn" wx:if="{{item.link}}">查看详情</view>
+      <view class="act-card" wx:for="{{activities}}" wx:key="id" bindtap="onActivity" data-link="{{item.link}}" data-type="{{item.type}}">
+        <view class="act-card-top">
+          <view class="act-card-title">{{item.title}}</view>
+          <view class="act-type-tag" wx:if="{{item.type === 'discount'}}">折扣</view>
+          <view class="act-type-tag tag-reduce" wx:elif="{{item.type === 'full_reduce'}}">满减</view>
+        </view>
+        <view wx:if="{{item.highlight}}" class="act-highlight-row">
+          <view class="act-highlight">{{item.highlight}}</view>
+          <view class="act-highlight-txt" wx:if="{{item.highlightTxt}}">{{item.highlightTxt}}</view>
+        </view>
+        <view wx:if="{{item.highlightSub}}" class="act-highlight-sub text-sub text-sm">{{item.highlightSub}}</view>
+        <view class="act-card-sub text-weak text-sm" wx:if="{{item.subtitle}}">{{item.subtitle}}</view>
+        <view class="act-time text-weak text-sm" wx:if="{{item.timeTxt}}"><t-icon name="time" size="13" color="#999999" />{{item.timeTxt}}</view>
+        <view wx:if="{{item.type !== 'custom'}}" class="act-go">去逛逛 ›</view>
+        <view class="btn btn-sm act-btn" wx:else-if="{{item.link}}">查看详情</view>
       </view>
     </block>
     <view wx:else class="empty">

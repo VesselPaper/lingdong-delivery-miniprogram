@@ -73,6 +73,9 @@ function init() {
       contact_name TEXT,
       contact_phone TEXT,
       total_amount REAL,
+      original_amount REAL,        -- 优惠前原价总额（商品价×数量合计）
+      discount_amount REAL DEFAULT 0,  -- 活动优惠金额
+      activity_id INTEGER,         -- 命中的活动
       status INTEGER DEFAULT 0,
       remark TEXT,
       pickup_code TEXT,
@@ -132,6 +135,10 @@ function init() {
       link TEXT,
       status INTEGER DEFAULT 1,
       sort INTEGER DEFAULT 0,
+      type TEXT DEFAULT 'custom',      -- custom 自由/展示 · discount 商品打折 · full_reduce 满减
+      config TEXT DEFAULT '{}',        -- 类型专属配置（JSON，见 backend/services/promotion.js）
+      start_at TEXT,                   -- 生效时间（空=不设限）
+      end_at TEXT,                     -- 失效时间（空=不设限）
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS refunds (
@@ -251,6 +258,16 @@ function migrate(db) {
   if (!orderCols.includes('pickup_revisit_at')) db.exec("ALTER TABLE orders ADD COLUMN pickup_revisit_at TEXT")
   const refundCols = db.prepare('PRAGMA table_info(refunds)').all().map((c) => c.name)
   if (!refundCols.includes('wx_refund_no')) db.exec("ALTER TABLE refunds ADD COLUMN wx_refund_no TEXT DEFAULT ''")
+  // 活动类型化：为旧 activities 表补充 type/config/起止时间列（缺省按自由活动兼容）
+  const actCols = db.prepare('PRAGMA table_info(activities)').all().map((c) => c.name)
+  if (!actCols.includes('type')) db.exec("ALTER TABLE activities ADD COLUMN type TEXT DEFAULT 'custom'")
+  if (!actCols.includes('config')) db.exec("ALTER TABLE activities ADD COLUMN config TEXT DEFAULT '{}'")
+  if (!actCols.includes('start_at')) db.exec("ALTER TABLE activities ADD COLUMN start_at TEXT")
+  if (!actCols.includes('end_at')) db.exec("ALTER TABLE activities ADD COLUMN end_at TEXT")
+  // 订单：记录优惠前原价 / 优惠金额 / 命中活动，供对账、退款与结算展示
+  if (!orderCols.includes('original_amount')) db.exec("ALTER TABLE orders ADD COLUMN original_amount REAL")
+  if (!orderCols.includes('discount_amount')) db.exec("ALTER TABLE orders ADD COLUMN discount_amount REAL DEFAULT 0")
+  if (!orderCols.includes('activity_id')) db.exec("ALTER TABLE orders ADD COLUMN activity_id INTEGER")
 
   // 支付回调幂等表：微信对同一事件会重推，event_id 唯一约束即幂等键
   db.exec(`

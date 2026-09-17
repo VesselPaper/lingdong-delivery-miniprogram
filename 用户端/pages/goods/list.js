@@ -96,7 +96,7 @@ Page({
         .filter((g) => g.items.length > 0)
 
       const count = cart.reduce((s, it) => s + it.quantity, 0)
-      const total = cart.reduce((s, it) => s + it.price * it.quantity, 0)
+      const total = cart.reduce((s, it) => s + (it.price_now !== undefined ? it.price_now : it.price) * it.quantity, 0)
       this.setData({ groups, cartCount: count, cartTotal: total.toFixed(2) }, () => {
         if (!this.data.activeCategory && groups.length) {
           this.setData({ activeCategory: groups[0].name })

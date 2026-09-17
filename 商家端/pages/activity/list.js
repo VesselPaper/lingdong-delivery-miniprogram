@@ -13,7 +13,22 @@ Page({
   async load() {
     try {
       const activities = await request.get(api.activities)
-      this.setData({ activities })
+      const now = Date.now()
+      const TYPE = { custom: '自由', discount: '打折', full_reduce: '满减' }
+      const decorated = activities.map((a) => {
+        const at = (t) => (t ? new Date(t.replace(' ', 'T')).getTime() : NaN)
+        const s = at(a.start_at), e = at(a.end_at)
+        let state = 'active', state_txt = '进行中'
+        if (!isNaN(s) && now < s) { state = 'pending'; state_txt = '未开始' }
+        else if (!isNaN(e) && now > e) { state = 'ended'; state_txt = '已结束' }
+        // 已下线覆盖时间状态
+        if (a.status !== 1) { state = 'offline'; state_txt = '已下线' }
+        return Object.assign({}, a, {
+          type_txt: TYPE[a.type] || '展示',
+          state, state_txt
+        })
+      })
+      this.setData({ activities: decorated })
     } catch (e) { /* handled */ }
   },
 

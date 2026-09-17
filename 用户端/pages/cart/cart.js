@@ -21,14 +21,21 @@ Page({
         .map((it) => Object.assign({}, it, { sold_out: Number(it.goods_stock) <= 0 }))
       const total = valid
         .filter((it) => it.selected)
+        .reduce((s, it) => s + it.price_now * it.quantity, 0)
+      const origTotal = valid
+        .filter((it) => it.selected)
         .reduce((s, it) => s + it.price * it.quantity, 0)
       const selectCount = valid.filter((it) => it.selected).length
       this.setData({
         items: valid,
         total: total.toFixed(2),
+        origTotal: origTotal.toFixed(2),
         selectCount,
         allSelected: valid.length > 0 && valid.every((it) => it.selected)
       })
+      // 结算时也要用折后价/数量，下单价格以后端权威为准，这里仅展示估算
+      const raw = valid.filter((it) => it.selected).map((it) => ({ goods_id: it.goods_id, quantity: it.quantity, price_now: it.price_now }))
+      this.checkoutRaw = raw
     } catch (e) { /* handled */ }
   },
 

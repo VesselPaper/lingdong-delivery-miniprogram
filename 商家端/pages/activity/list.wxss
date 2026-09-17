@@ -57,3 +57,43 @@
   color: #FA5151;
   border-color: #FA5151;
 }
+
+.act-badges {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+
+.badge {
+  font-size: 20rpx;
+  padding: 4rpx 14rpx;
+  border-radius: 8rpx;
+  background: #F5F7FA;
+  color: #666666;
+}
+
+.badge-type {
+  background: #EBF3FB;
+  color: #3078C0;
+  font-weight: 600;
+}
+
+.badge-go {
+  background: #E8F7EC;
+  color: #2AA34F;
+}
+
+.badge-soon {
+  background: #FFF6E0;
+  color: #D69A00;
+}
+
+.badge-gray {
+  background: #F0F0F0;
+  color: #999999;
+}
+
+.badge-red {
+  background: #FDEEEE;
+  color: #E64340;
+}
