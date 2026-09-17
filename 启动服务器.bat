@@ -4,7 +4,10 @@ cd /d "%~dp0backend"
 echo ================================================
 echo   零栋无人送餐后端
 echo   ^(小程序 API 与大屏共用这一个服务, 端口 3000^)
+echo   启动后请用浏览器打开大屏:
+echo     http://127.0.0.1:3000/dashboard/
 echo ================================================
+echo.
 
 rem 端口已被占用说明后端已在运行, 别重复启动
 netstat -ano | findstr /C:":3000" | findstr "LISTENING" >nul

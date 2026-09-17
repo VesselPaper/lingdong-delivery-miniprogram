@@ -32,6 +32,7 @@ const runtime = require('./services/runtime')
 runtime.assertBootable()
 const platform = require('./services/platform')
 const wxpay = require('./services/wxpay')
+const invite = require('./services/merchantInvite')
 const batch = require('./services/batch')
 const goodsStats = require('./services/goodsStats')
 const orderCancel = require('./services/orderCancel')
@@ -72,6 +73,20 @@ function auth(req, res, next) {
   next()
 }
 
+// 登录限流（按来源 IP/端口）：防止对邀请码做暴力试错
+// 内存级、单进程足够；多副本需换 Redis。
+const LOGIN_LIMIT = 20
+const LOGIN_WIN = 10 * 60 * 1000
+const loginFail = {
+  _m: new Map(),
+  count(ip) { const t = Date.now(), r = this._m.get(ip); return (r && t - r.t < LOGIN_WIN) ? r.c : 0 },
+  add(ip) { const t = Date.now(), r = this._m.get(ip); if (!r || t - r.t >= LOGIN_WIN) this._m.set(ip, { t, c: 1 }); else r.c++ },
+  ok(ip) { const t = Date.now(), r = this._m.get(ip); if (r && t - r.t < LOGIN_WIN) r.c = Math.max(0, r.c - 2) }
+}
+function clientIp(req) {
+  return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || 'local'
+}
+
 function ok(res, data = null, msg = 'success') {
   res.json({ code: 0, msg, data })
 }
@@ -101,22 +116,21 @@ function toStock(v, fallback = 999) {
 
 // ---------- 登录 ----------
 // 角色不再由客户端自报：此前 body 里传 role:'merchant' 就能成为商家，任何人都能自助拿到
-// 改价、上下架、退款、派车（真实调度机器人）等权限。改为校验 .env 的 MERCHANT_INVITE_CODE。
-// 【临时放开】测试阶段暂不校验邀请码：商家端(client=merchant)登录即授予商家角色，方便联调；
-// 恢复邀请码校验时取消下方 102-106 行注释并把 wantsMerchant 改回原定义即可。
+// 改价、上下架、退款、派车（真实调度机器人）等权限。
+// 方案A（收紧加固）：商家权限只能凭有效邀请码授予——
+//   - merchant_invites 表按商家一条（只存哈希，首次绑定 openid，可逐个吊销）；
+//   - MERCHANT_INVITE_CODE 作为旧单一码兜底；
+//   - 登录接口按 IP 限流，防暴力试码。
 app.post('/api/auth/login', async (req, res) => {
   const { code, nickname = '', merchant_code = '', client = 'user' } = req.body || {}
   if (!code) return res.status(400).json({ code: 400, msg: '缺少登录凭证' })
   const clientKey = client === 'merchant' ? 'merchant' : 'user'
+  const ip = clientIp(req)
 
-  // 填了邀请码就必须正确；未配置邀请码时 verifyMerchantCode 恒为 false（安全侧：一律拒绝）
-  // 【临时放开】暂不校验邀请码，以下校验注释掉：
-  // const wantsMerchant = String(merchant_code).trim() !== ''
-  // if (wantsMerchant && !runtime.verifyMerchantCode(String(merchant_code).trim())) {
-  //   return res.status(403).json({ code: 403, msg: '商家邀请码不正确' })
-  // }
-  // 临时定义：商家端登录即商家（无需邀请码）；用户端填了码也按商家处理（升级逻辑保留）
-  const wantsMerchant = client === 'merchant' || String(merchant_code).trim() !== ''
+  // 限流：失败累计过多则暂时拒绝
+  if (loginFail.count(ip) >= LOGIN_LIMIT) {
+    return res.status(429).json({ code: 429, msg: '登录尝试过于频繁，请稍后再试' })
+  }
 
   let openid = ''
   const creds = runtime.loginCreds(clientKey)
@@ -130,19 +144,42 @@ app.post('/api/auth/login', async (req, res) => {
         + '&grant_type=authorization_code'
       const resp = await fetch(u)
       const data = await resp.json()
-      if (!data.openid) return res.status(401).json({ code: 401, msg: '微信登录失败：' + (data.errmsg || '未知错误') })
+      if (!data.openid) { loginFail.add(ip); return res.status(401).json({ code: 401, msg: '微信登录失败：' + (data.errmsg || '未知错误') }) }
       openid = data.openid
     } catch (e) {
+      loginFail.add(ip)
       return res.status(500).json({ code: 500, msg: '登录服务异常' })
     }
   } else {
     // ==================== 演示模式 ====================
-    // 以 code 的稳定哈希作为 openid，同一设备账号稳定，便于预览页面。
-    // token 即 openid：可预测、不可吊销，因此 RUN_MODE=production 下启动守卫会拒绝这种配置。
+    // 以 code 的稳定哈希作为 openid。token 即 openid：可预测、不可吊销，
+    // 因此 RUN_MODE=production 下启动守卫会拒绝这种配置。
     openid = 'demo_' + crypto.createHash('sha1').update(String(code)).digest('hex').slice(0, 24)
   }
 
-  let user = store.prepare('SELECT * FROM users WHERE openid=?').get(openid)
+  // ---------- 邀请码校验 / 商家授权 ----------
+  const givenCode = String(merchant_code || '').trim()
+  let wantsMerchant = false
+  const existingUser = store.prepare('SELECT * FROM users WHERE openid=?').get(openid)
+
+  if (client === 'merchant') {
+    if (existingUser && existingUser.role === 'merchant') {
+      // 已是商家的老用户不必每次输码（身份=该微信账号，复用既有授权）
+      wantsMerchant = true
+    } else {
+      if (!givenCode) { loginFail.add(ip); return res.status(403).json({ code: 403, msg: '请填写商家邀请码' }) }
+      const v = invite.verify(store, givenCode, openid, !!creds)
+      if (!v.ok) { loginFail.add(ip); return res.status(403).json({ code: 403, msg: invite.message(v.reason) }) }
+      wantsMerchant = true
+    }
+  } else {
+    // 用户端：填了正确邀请码则可凭码升级为商家（不允许越权声明）
+    if (givenCode && invite.verify(store, givenCode, openid, !!creds).ok) {
+      wantsMerchant = true
+    }
+  }
+
+  let user = existingUser
   if (!user) {
     // 新注册：只有持正确邀请码才成为商家
     const info = store.prepare('INSERT INTO users (openid, nickname, role) VALUES (?,?,?)')
@@ -157,6 +194,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
     user = store.prepare('SELECT * FROM users WHERE id=?').get(user.id)
   }
+  loginFail.ok(ip)
   // runtime 标志随登录下发：商家端据此决定设备控制走真实还是模拟分支（不再前端硬编码）
   ok(res, {
     token: user.openid,
@@ -1128,6 +1166,11 @@ app.put('/api/merchant/shop', merchantGuard, (req, res) => {
 // 店铺状态（公开，用户端判断是否可下单 / 展示歇业标签）
 app.get('/api/shop/status', (req, res) => {
   ok(res, shopWithRuntime(store.prepare('SELECT * FROM shops WHERE id=1').get()))
+})
+
+// 前端底图用配置（天地图浏览器端 tk，存于 .env，随页面注入，不进仓库）
+app.get('/api/config/tianditu', (req, res) => {
+  ok(res, { tk: process.env.TIANDITU_TK || '', ts: new Date().toISOString() })
 })
 
 // 订单统计口径（商家首页与大屏共用同一份，避免两处 SQL 各自漂移）
@@ -2273,5 +2316,7 @@ app.listen(PORT, () => {
     console.log('[lingdong-backend]   配送：本地 Mock 状态机（PLATFORM_MOCK=true）')
   }
   console.log(`[lingdong-backend]   设备控制：${d.device_mock ? '本地模拟（开舱/关舱/派发均为假成功）' : '真实分支（调用平台设备控制接口）'}`)
-  console.log(`[lingdong-backend]   商家邀请码：${d.merchant_invite_configured ? '已配置' : '未配置 → 商家端登录将被拒绝'}`)
+  // 邀请码状态：以 merchant_invites 表的有效条数 + 旧单一码 env 为准（方案A：按商家一条、首绑、可吊销）
+  const invCount = invite.configuredCount(store)
+  console.log('[lingdong-backend]   商家邀请码已启用：' + invCount + ' 个有效' + (invCount ? '' : ' → 尚未配置，商家端登录将被拒绝'))
 })

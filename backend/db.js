@@ -284,16 +284,30 @@ function migrate(db) {
     )
   `)
 
+  // 商家邀请码（按商家一条，只存哈希；首次使用绑定 openid，可逐个吊销）
+  // code_hash = sha256(邀请码.toUpperCase())。明文只在「生成邀请码」那一刻由维护脚本打印。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS merchant_invites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code_hash TEXT UNIQUE,
+      name TEXT,
+      note TEXT,
+      bound_openid TEXT DEFAULT '',
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now','localtime'))
+    )
+  `)
+
   // 一次性安全修正：存量 merchant 角色全部降回 student。
   // 这些角色是旧登录接口按客户端自报的 body.role 写入的，任何人都能自助成为商家，
-  // 因此没有一个是可信的。修复后角色只能由 MERCHANT_INVITE_CODE 授予，
+  // 因此没有一个是可信的。修复后角色只能凭有效邀请码（merchant_invites 或 MERCHANT_INVITE_CODE）授予，
   // 真实商家在商家端登录页输入邀请码即可恢复。
   const resetDone = db.prepare("SELECT value FROM meta WHERE key='merchant_role_reset_at'").get()
   if (!resetDone) {
     const n = db.prepare("UPDATE users SET role='student' WHERE role='merchant'").run()
     db.prepare("INSERT INTO meta (key, value) VALUES ('merchant_role_reset_at', datetime('now','localtime'))").run()
     if (n.changes > 0) {
-      console.log(`[db] 安全修正：${n.changes} 个自报的商家账号已降为学生，请用 MERCHANT_INVITE_CODE 重新登录商家端`)
+      console.log(`[db] 安全修正：${n.changes} 个自报的商家账号已降为学生，请凭邀请码重新登录商家端`)
     }
   }
 }

@@ -346,17 +346,43 @@
   var mapObj = null
   var mapLayers = { lms: {}, cars: {}, stops: {}, route: null, graph: null }
 
+  // 天地图浏览器端 tk：由后端 /api/config/tianditu 注入（存于 .env，不进仓库）
+  var TIANDITU_TK = null
+  var TIANDITU_FETCHING = false
+  function getTiandituTk() {
+    if (TIANDITU_TK !== null) return Promise.resolve(TIANDITU_TK)
+    if (TIANDITU_FETCHING) {
+      return new Promise(function (resolve) {
+        var iv = setInterval(function () {
+          if (TIANDITU_TK !== null) { clearInterval(iv); resolve(TIANDITU_TK) }
+        }, 100)
+      })
+    }
+    TIANDITU_FETCHING = true
+    return fetch((location.protocol === 'file:' ? 'http://127.0.0.1:3000' : '') + '/api/config/tianditu').then(function (r) { return r.json() }).then(function (j) {
+      TIANDITU_TK = (j && j.data && j.data.tk) || ''
+      return TIANDITU_TK
+    }).catch(function () { TIANDITU_TK = ''; return '' })
+  }
+  function tiandituUrl(layer, tk) {
+    return 'https://t{s}.tianditu.gov.cn/' + layer + '_w/wmts?tk=' + tk +
+      '&TILEMATRIXSET=w&Service=WMTS&Request=GetTile&Version=1.0.0&FORMAT=tiles' +
+      '&Layer=' + layer + '&Style=default&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'
+  }
+
   function initMap() {
     if (mapObj || !window.L) return
     var el = $('mapBox')
     if (!el) return
     // 底图源（矢量道路图，非卫星影像）。方便切换：改动 TILE_PROVIDER 一项即可。
-    //   'carto'        = CARTO Voyager（干净现代矢量路网，推荐）
-    //   'osm'          = OpenStreetMap 标准
-    //   'amap-vector'  = 高德矢量（自带中文楼名，POI 稍多）
-    //   'amap-sat'     = 高德卫星影像（真实影像，无道路标注）
-    var TILE_PROVIDER = 'osm'
+    //   'tianditu'    = 天地图（矢量底图+中文注记，国内稳定、无水印、数据较新，默认）
+    //   'carto'       = CARTO Voyager（干净现代矢量路网）
+    //   'osm'         = OpenStreetMap 标准（部分环境会 403）
+    //   'amap-vector' = 高德矢量（自带中文楼名，但带回源水印）
+    //   'amap-sat'    = 高德卫星影像（真实影像，无道路标注；用水印，需留意版权）
+    var TILE_PROVIDER = 'tianditu'
     var TILE = {
+      tianditu:   { name: '天地图', max: 18 },
       carto:      { url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', subs: ['a', 'b', 'c', 'd'], attr: '&copy; OpenStreetMap &copy; CARTO', max: 20 },
       osm:        { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', subs: ['a', 'b', 'c'], attr: '&copy; OpenStreetMap', max: 20 },
       'amap-vector': { url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', subs: ['1', '2', '3', '4'], attr: '&copy; 高德地图', max: 20 },
@@ -365,16 +391,27 @@
     var t = TILE[TILE_PROVIDER] || TILE.carto
     mapObj = L.map(el, {
       zoomControl: true,
-      scrollWheelZoom: true,       // 允许鼠标滚轮缩放（网页端需求）
-      maxZoom: Math.min(20, t.max),// 允许放更大
-      attributionControl: false    // 隐藏底图版权水印（内部演示大屏；正式发布建议按版权保留）
+      scrollWheelZoom: true,        // 允许鼠标滚轮缩放（网页端需求）
+      maxZoom: 20,                  // 最高 20 级（天地图原生到 18，19~20 由 maxNativeZoom 放大）
+      attributionControl: false     // 隐藏底图版权水印（内部演示大屏；正式发布建议按版权保留）
     })
-    L.tileLayer(t.url, {
-      subdomains: t.subs,
-      maxZoom: t.max,
-      attribution: t.attr
-    }).addTo(mapObj)
+    if (TILE_PROVIDER === 'tianditu') {
+      getTiandituTk().then(function (tk) {
+        if (!tk || !mapObj) { txt($('mapTip'), '天地图密钥未配置（backend/.env 的 TIANDITU_TK）'); return }
+        // 天地图原生最高 18 级；maxNativeZoom=18 让 19~20 级自动放大原图，避免空白
+        L.tileLayer(tiandituUrl('vec', tk), { subdomains: '01234567', maxNativeZoom: 18, maxZoom: 20 }).addTo(mapObj)  // 矢量底图
+        L.tileLayer(tiandituUrl('cva', tk), { subdomains: '01234567', maxNativeZoom: 18, maxZoom: 20 }).addTo(mapObj)  // 中文注记
+      })
+    } else {
+      L.tileLayer(t.url, {
+        subdomains: t.subs,
+        maxZoom: t.max,
+        attribution: t.attr
+      }).addTo(mapObj)
+    }
     mapObj.setView(platformToLngLat(0, 15), Math.min(18, t.max))   // 东苑宿舍区
+    // 普通模式套「数字孪生暗色地图」皮肤（仅地图面板）；标定模式保持原样便于拖拽
+    if (!CALIB) el.classList.add('map-digital')
     var mask = $('mapMask')
     if (mask) mask.hidden = true
     var reset = $('mapReset')
@@ -406,7 +443,7 @@
         var isLoad = m.type === 'loadingPoint'
         mk = L.circleMarker(ll, {
           radius: isLoad ? 8 : 5, weight: 2, color: '#ffffff',
-          fillColor: isLoad ? '#e8890c' : '#2b50a1', fillOpacity: 1
+          fillColor: isLoad ? '#ffb020' : '#5aff86', fillOpacity: 1   // 站点=橙 / 途经点=荧光绿
         })
         mk.bindTooltip(m.name || '', { direction: 'top', offset: [0, -8], className: 'lmTip' })
         mk.addTo(mapObj)
@@ -425,7 +462,7 @@
     var pts = llList(graph && graph.nodes)
     if (mapLayers.graph) { mapLayers.graph.setLatLngs(pts); return }
     if (!pts.length) return
-    mapLayers.graph = L.polyline(pts, { color: '#8fb1e6', weight: 2, opacity: .6 }).addTo(mapObj)
+    mapLayers.graph = L.polyline(pts, { color: '#45d0ff', weight: 2.5, opacity: .85 }).addTo(mapObj)   // 发光路网（青色，光晕由 CSS drop-shadow 提供）
   }
 
   // 路线（虚线）+ 停靠序号
@@ -433,7 +470,7 @@
     var r = (routes || []).filter(function (x) { return x && x.stops && x.stops.length > 1 })[0]
     var pts = r ? llList(r.stops) : []
     if (mapLayers.route) mapLayers.route.setLatLngs(pts)
-    else if (pts.length) mapLayers.route = L.polyline(pts, { color: '#2e7cf6', weight: 3, dashArray: '8 6' }).addTo(mapObj)
+    else if (pts.length) mapLayers.route = L.polyline(pts, { color: '#66f0ff', weight: 3, dashArray: '8 6' }).addTo(mapObj)   // 配送路线（青色流动感）
     var seenN = {}
     ;((r && r.stops) || []).forEach(function (s) {
       var key = 's' + r.batch_id + '_' + num(s.stop)
@@ -484,15 +521,23 @@
   }
 
   function renderMap(d) {
+    var map = d.map
+    if (!map) return
+    if (CALIB) { initMap(); renderCalib(map); return }
+    // 普通模式：雷达底图 + 发光图层（RadarMap，canvas bbox 直投；不依赖在线瓦片/天地图）
+    if (window.RadarMap) {
+      RadarMap.ensure()
+      RadarMap.update(map)
+      var mask2 = $('mapMask'); if (mask2) mask2.hidden = true
+      txt($('mapTip'), '雷达地图 · ' + (map.landmarks || []).length + ' 个点位 · ' + (map.graph && map.graph.nodes ? map.graph.nodes.length : 0) + ' 个路网节点')
+      return
+    }
     initMap()
     var mask = $('mapMask')
     if (!mapObj) {
       if (mask) { txt(mask, '地图组件加载失败（vendor/leaflet.js 缺失）'); mask.hidden = false }
       return
     }
-    var map = d.map
-    if (!map) return
-    if (CALIB) { renderCalib(map); return }
     updateLandmarks(map)
     updateGraph(map.graph)
     updateRoutes(map.routes)

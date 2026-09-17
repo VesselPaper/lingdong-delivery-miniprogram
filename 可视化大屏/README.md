@@ -206,6 +206,30 @@ GET /api/dashboard/overview
 > ⚠️ 已知限制：页面整体做了「固定 1920×1080 等比缩放」，在缩放 ≠ 1 的窗口里**拖拽手感会偏差**
 > （1920×1080 原生窗口下是准确的）。Leaflet 不支持放在 CSS transform 缩放的容器里，属已知取舍。
 
+### 天地图底图与 TIANDITU_TK（协作者必读）
+
+大屏**默认底图是天地图**（矢量底图 + 中文注记双层，无水印、国内稳定、数据较新），
+可滚轮缩放，`maxZoom=18`。底图分为三层来源：
+
+| 层 | 来源 | 说明 |
+|---|---|---|
+| 在线底图 | 天地图 WMTS | **默认**；需 tk，见下 |
+| 平台底图 | `GET /api/dashboard/map-image` | 后端代理缓存的机器人建图，与点位坐标同源 |
+| 点位/路网/车辆 | `GET /api/dashboard/overview` | 平台局部坐标 → 经纬度（`CALIB_T` 相似变换） |
+
+**天地图 tk（浏览器端密钥）怎么配**
+
+1. 免费注册 `tianditu.gov.cn` → 控制台「应用管理」→ 创建**浏览器端**应用，记下 **Key（tk）**；
+2. 在 `backend/.env` 里填：`TIANDITU_TK=<你的key>`；
+3. 前端经 `GET /api/config/tianditu` 读取并注入瓦片请求。
+
+> ⚠️ **协作者拉取代码后，必须各自在本地 `backend/.env` 填自己的 `TIANDITU_TK` 才能显示地图。**
+> 真实 key 在 `backend/.env`（已被 `.gitignore` 排除），**不会随仓库分发**，因此不会泄露到公开仓库。
+> `.env.example` 里有占位注释；请勿把真实 key 提交。上线对外发布时建议在天地图后台配置**域名白名单**防止 tk 被盗用。
+
+**可调项**：想要更高缩放可在 `js/dashboard.js` 的 `initMap()` 里调 `maxZoom`；介意注记层太挤可去掉 `cva` 这层；
+想看卫星影像可把 `TILE_PROVIDER` 切到 `'amap-sat'` 或自接天地图 `img`/`cia`。
+
 ### 平台下发的一处数据噪音
 
 `building/mapInfo` 除了真点位，还会把路网本身作为一个名叫**「固定路径」**的点位下发 ——

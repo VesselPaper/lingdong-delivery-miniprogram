@@ -680,3 +680,52 @@ body {
   box-shadow: 0 2px 8px rgba(22, 45, 90, .12) !important;
   padding: 2px 6px !important;
 }
+
+/* ---------------- 数字孪生 · 暗色地图皮肤（只作用于地图面板） ----------------
+   说明：在线底图(天地图)自带真实建筑+道路轮廓，套一层深色滤镜变暗成「数字孪生」风格，
+   再叠加发光的青色路网 / 橙绿发光点位 / 白黑小车。四周信息模块不受影响。 */
+#mapBox.map-digital,
+#mapBox.map-digital .leaflet-container { background: #040914; }
+
+/* 底图转暗：invert + 色相偏移把亮色地图压成藏青暗色，建筑/道路轮廓仍清晰可见 */
+#mapBox.map-digital .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(185deg) saturate(.72) brightness(.86) contrast(.95) grayscale(.18);
+}
+
+/* 矢量图层（路网/路线/点位）统一冷蓝辉光 */
+#mapBox.map-digital .leaflet-overlay-pane path {
+  filter: drop-shadow(0 0 3px rgba(80, 220, 255, .55));
+}
+
+#mapBox.map-digital .leaflet-control-attribution {
+  background: transparent !important; color: rgba(130, 190, 255, .35) !important;
+}
+#mapBox.map-digital .leaflet-control-zoom a {
+  color: rgba(200, 230, 255, .9) !important;
+  background: rgba(8, 16, 30, .82) !important;
+  border-color: rgba(90, 150, 220, .35) !important;
+}
+
+/* 小车：白/黑低多边形 + 冷蓝发光 */
+#mapBox.map-digital .carWrap .carArrow {
+  border-bottom-color: #f3f8ff;
+  filter: drop-shadow(0 0 4px rgba(120, 210, 255, .85));
+}
+#mapBox.map-digital .carWrap .carName {
+  background: #0b0e16; color: #dbeaff;
+  border: 1px solid rgba(120, 190, 255, .4);
+  box-shadow: 0 0 6px rgba(80, 180, 255, .5);
+}
+
+/* 路径停靠序号：暗底发光 */
+#mapBox.map-digital .stopWrap .stopNum {
+  background: #12243f; color: #bff0ff; border-color: #4aa6ff;
+  box-shadow: 0 0 8px rgba(90, 190, 255, .6);
+}
+
+/* 点位 tooltip：暗底 */
+#mapBox.map-digital .lmTip {
+  background: #0b1626 !important; color: #cfe4ff !important;
+  border-color: rgba(90, 150, 220, .4) !important;
+  box-shadow: 0 0 8px rgba(60, 150, 255, .35) !important;
+}
