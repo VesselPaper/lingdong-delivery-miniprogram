@@ -680,3 +680,75 @@ body {
   box-shadow: 0 2px 8px rgba(22, 45, 90, .12) !important;
   padding: 2px 6px !important;
 }
+
+/* ---------------- 地图对齐：全局地图 + 局部雷达图 手动对齐 ---------------- */
+.radarOverlay {
+  position: absolute;
+  z-index: 350;                  /* 瓦片之上、点位/路网之下 */
+  display: block;
+  border: 2px dashed var(--orange);
+  border-radius: 6px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  box-sizing: border-box;
+}
+.radarOverlay.dragging { cursor: grabbing; }
+.radarOverlay .radarImg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: fill;
+  opacity: .62;
+  pointer-events: none;
+  border-radius: 4px;
+}
+.radarOverlay .radarTag {
+  position: absolute;
+  left: 50%; top: -26px;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: #fff;
+  background: var(--orange);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.alignPanel {
+  position: absolute;
+  top: 8px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 1200;
+  width: 82%;
+  max-width: 920px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  color: var(--ink);
+}
+.alignPanel[hidden] { display: none; }
+.alignTip { margin-bottom: 6px; color: var(--ink-2); line-height: 1.5; }
+.alignRow { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.alignRow .alignK {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--ink-2); white-space: nowrap;
+}
+.alignRow input[type=range] { width: 110px; }
+.alignRow .alignCk { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ink-2); }
+.alignBtn {
+  padding: 3px 14px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--blue);
+  cursor: pointer;
+}
+.alignBtn:hover { background: var(--blue-soft); }
+.alignBtn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.alignBtn.primary:hover { background: #24508f; }
+.alignStatus { font-size: 11px; color: var(--ink-2); }

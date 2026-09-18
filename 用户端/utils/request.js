@@ -46,9 +46,13 @@ function request(options) {
           wx.navigateTo({ url: '/pages/user/login' })
           reject(new Error('登录已失效'))
         } else {
-          const msg = (res.data && res.data.msg) || '请求失败'
-          wx.showToast({ title: msg, icon: 'none' })
-          reject(new Error(msg))
+          const body = res.data || {}
+          const msg = body.msg || '请求失败'
+          wx.showToast({ title: msg, icon: 'none', duration: 3000 })
+          const err = new Error(msg)
+          err.code = body.code
+          err.reason = body.reason
+          reject(err)
         }
       },
       fail(err) {

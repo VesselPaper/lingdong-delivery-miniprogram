@@ -69,8 +69,30 @@ Page({
   async load() {
     try {
       const b = await request.get(api.batchDetail, { batch_id: this.data.id }, { silent: true })
-      this.setData({ batch: this.decorate(b) })
+      // 重进页面按后端批次/任务状态恢复操作阶段（问题2修复）：
+      // 之前 phase 是纯前端本地状态，退出重进后回到 scanned → 按钮错乱（显示「打开舱门」且再开舱报错）。
+      this.setData({ batch: this.decorate(b), phase: this.inferPhase(b) })
     } catch (e) { /* handled */ }
+  },
+
+  // 由后端状态推断初始 phase：scanned 可开舱 / open 已开舱 / loaded 可开始配送 / dispatched 已派发
+  // 2026-09-17 适配 syncLoading=0 流程：定型后任务状态 0/10/20/30（待到达/已到达未开舱）→ 显示「打开舱门」；
+  // 40 上货中（舱已开）→ 显示「关舱」；50 已上货 → 显示「开始配送」。
+  inferPhase(b) {
+    const st = Number(b.status)
+    if (st === 2 || st === 3 || st === 4) return 'dispatched' // 配送中/已完成/已取消：不再可操作
+    if (st === 1) {
+      const statuses = (b.orders || [])
+        .map((o) => o.task && o.task.task_status)
+        .filter((v) => v !== undefined && v !== null)
+        .map(Number)
+      if (!statuses.length) return 'scanned'
+      const max = Math.max.apply(null, statuses)
+      if (max >= 50) return 'loaded'   // 已上货（货装好）→ 开始配送
+      if (max >= 40) return 'open'     // 上货中（舱已开）→ 关舱
+      return 'scanned'                 // 待到达/已到达未开舱 → 打开舱门
+    }
+    return 'scanned' // 组单中（正常不在此页）或其它：可开舱
   },
 
   decorate(b) {
@@ -96,15 +118,32 @@ Page({
       setTimeout(() => {
         wx.hideLoading()
         this.setData({ phase: 'open' })
-        wx.showToast({ title: '模拟开舱成功', icon: 'success' })
+        wx.showToast({ title: '模拟开舱成功，请放货', icon: 'success', duration: 3000 })
       }, 600)
       return
     }
     // ---- 真实模式（保留，正式接入后启用）----
     wx.showLoading({ title: '开舱中' })
-    request.post(api.batchOpenBin, { batch_id: this.data.batch.id })
-      .then(() => { wx.hideLoading(); this.setData({ phase: 'open' }) })
-      .catch((e) => { wx.hideLoading(); wx.showToast({ title: (e && e.message) || '开舱失败', icon: 'none' }) })
+    request.post(api.batchOpenBin, { batch_id: this.data.batch.id }, { silent: true })
+      .then(() => {
+        wx.hideLoading()
+        this.setData({ phase: 'open' })
+        wx.showToast({ title: '舱门已打开，请放货', icon: 'success', duration: 3000 })
+      })
+      .catch((e) => {
+        wx.hideLoading()
+        // 未到上货点是「等待提示」不是「报错」：单独友好展示（停留更久，看完再关）
+        if (e && e.reason === 'not_at_loading_point') {
+          wx.showModal({
+            title: '还未到达上货点',
+            content: (e.message || '无人车还没有到达上货点') + '，请稍候再试',
+            showCancel: false,
+            confirmText: '知道了'
+          })
+          return
+        }
+        wx.showToast({ title: (e && e.message) || '开舱失败', icon: 'none', duration: 3000 })
+      })
   },
 
   // 关舱（原地等待）。测试阶段：模拟成功；真实代码保留在下方分支。
@@ -131,7 +170,7 @@ Page({
     }
     // ---- 真实模式（保留，正式接入后启用）----
     wx.showLoading({ title: '关舱中' })
-    request.post(api.batchCloseBin, { batch_id: this.data.batch.id })
+    request.post(api.batchCloseBin, { batch_id: this.data.batch.id }, { silent: true })
       .then(() => {
         wx.hideLoading()
         wx.showModal({
@@ -151,7 +190,7 @@ Page({
           }
         })
       })
-      .catch((e) => { wx.hideLoading(); wx.showToast({ title: (e && e.message) || '关舱失败', icon: 'none' }) })
+      .catch((e) => { wx.hideLoading(); wx.showToast({ title: (e && e.message) || '关舱失败', icon: 'none', duration: 3000 }) })
   },
 
   // 开始配送（整批确认上货）。测试阶段：模拟成功并推进本地状态；真实代码保留在下方分支。
@@ -160,7 +199,7 @@ Page({
     if (!this.data.batch) return
     if (this.data.phase === 'dispatched') return
     if (this.data.phase !== 'loaded') {
-      wx.showToast({ title: '请先关闭舱门后再开始配送', icon: 'none' })
+      wx.showToast({ title: '请先关闭舱门后再开始配送', icon: 'none', duration: 3000 })
       return
     }
     if (DEVICE_MOCK) {
@@ -177,22 +216,23 @@ Page({
         })
         .catch((e) => {
           wx.hideLoading()
-          wx.showToast({ title: (e && e.message) || '开始配送失败', icon: 'none' })
+          wx.showToast({ title: (e && e.message) || '开始配送失败', icon: 'none', duration: 3000 })
         })
       return
     }
     // ---- 真实模式（保留，正式接入后启用）----
     wx.showLoading({ title: '开始配送' })
-    request.post(api.batchDispatchAll, { batch_id: this.data.batch.id })
+    request.post(api.batchDispatchAll, { batch_id: this.data.batch.id }, { silent: true })
       .then(() => {
         wx.hideLoading()
         this.clearTimer()
         this.setData({ phase: 'dispatched', sliderX: 0 })
-        setTimeout(() => wx.navigateBack(), 1400)
+        wx.showToast({ title: '配送已开始', icon: 'success', duration: 3000 })
+        setTimeout(() => wx.navigateBack(), 2200)
       })
       .catch((e) => {
         wx.hideLoading()
-        wx.showToast({ title: (e && e.message) || '开始配送失败', icon: 'none' })
+        wx.showToast({ title: (e && e.message) || '开始配送失败', icon: 'none', duration: 3000 })
       })
   },
 

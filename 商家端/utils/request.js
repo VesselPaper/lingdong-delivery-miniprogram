@@ -47,9 +47,14 @@ function request(options) {
           wx.reLaunch({ url: '/pages/user/login' })
           reject(new Error('登录已失效'))
         } else {
-          const msg = (res.data && res.data.msg) || '请求失败'
-          if (!silent) wx.showToast({ title: msg, icon: 'none' })
-          reject(new Error(msg))
+          const body = res.data || {}
+          const msg = body.msg || '请求失败'
+          // 提示停留久一点（默认 1.5s 用户看不完），统一 3s
+          if (!silent) wx.showToast({ title: msg, icon: 'none', duration: 3000 })
+          const err = new Error(msg)
+          err.code = body.code
+          err.reason = body.reason
+          reject(err)
         }
       },
       fail(err) {

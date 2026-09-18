@@ -3,7 +3,7 @@
   <view wx:if="{{phase === 'scan'}}">
     <view class="pickup-head">
       <view class="pickup-title">扫码取餐</view>
-      <view class="pickup-status">扫无人车上的二维码，输入取餐码取走您的餐品</view>
+      <view class="pickup-status">扫无人车上的二维码，自动校验您的订单；代取请输取餐码</view>
     </view>
 
     <view class="card">
@@ -39,7 +39,7 @@
     <view class="pickup-head">
       <view class="pickup-title">取餐</view>
       <view class="pickup-status">
-        <block wx:if="{{phase === 'ready'}}">校验通过，点击「打开舱门」取餐</block>
+        <block wx:if="{{phase === 'ready'}}">{{autoMatched ? '已自动校验您的订单，点击「打开舱门」取餐' : '校验通过，点击「打开舱门」取餐'}}</block>
         <block wx:elif="{{phase === 'open'}}">舱门已打开，请取走您的餐品</block>
         <block wx:elif="{{phase === 'autoClosed'}}">舱门已自动关闭</block>
         <block wx:elif="{{phase === 'done'}}">取餐完成</block>

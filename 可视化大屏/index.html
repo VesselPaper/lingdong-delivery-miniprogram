@@ -92,11 +92,27 @@
           <span><i class="lg lgRoute"></i>配送路线</span>
         </div>
         <button class="mapReset" id="mapReset" hidden onclick="window.resetMap&&resetMap()">回到校园</button>
+        <button class="mapReset" id="alignBtn" hidden onclick="window.enterAlign&&enterAlign()">对齐校准</button>
+        <button class="mapReset" id="alignClear" hidden onclick="window.clearAlign&&clearAlign()">清除对齐</button>
         <span class="mapTip" id="mapTip"></span>
       </div>
       <div class="mapStage">
         <div class="mapBox" id="mapBox"></div>
         <div class="mapMask" id="mapMask">地图数据加载中…</div>
+        <div class="alignPanel" id="alignPanel" hidden>
+          <div class="alignTip" id="alignTip"></div>
+          <div class="alignRow">
+            <label class="alignK">旋转 <input type="range" id="alignRot" min="-60" max="60" step="0.5" value="0"></label>
+            <label class="alignK">宽度 <input type="range" id="alignW" min="60" max="1400" step="2" value="560"></label>
+            <label class="alignK">高度 <input type="range" id="alignH" min="60" max="1400" step="2" value="520"></label>
+            <label class="alignCk"><input type="checkbox" id="alignLock" checked> 锁定纵横比</label>
+          </div>
+          <div class="alignRow">
+            <button class="alignBtn primary" id="alignSave">保存对齐</button>
+            <button class="alignBtn" id="alignCancel">取消</button>
+            <span class="alignStatus" id="alignStatus"></span>
+          </div>
+        </div>
       </div>
     </section>
 

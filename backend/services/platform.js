@@ -454,9 +454,10 @@ async function createTasksForBatch(store, batch, orders, route = []) {
       mockTasks.set(taskId, t)
       t.timer = setTimeout(() => mockAdvance(store, taskId), 6000)
     } else {
-      // 直接下发（Route B，2026-09-16 切换）：真实档定型时只建本地任务行，不再创建排队任务。
-      // 实测钉死：本机器人/本平台配置不拉排队任务（充电/召唤/排队干净与否都不拉）。
-      // 平台任务改为：开舱=预创建(create/pre)，关舱=逐单 create/direct，开始配送=释放控制权。
+      // 直接下发（Route B，syncLoading=0，2026-09-17）：定型即创建直接任务，
+      // 车自行导航到上货点（任务状态 20→30=到达上货点）。开舱门禁以状态 30 为准（平台权威信号），
+      // 到达后 loadingVerify 开舱。不再用召唤/预创建（避免 lightTask 挡配送、错误位置开舱）。
+      await createDirectTask(store, taskId, order, loading, unloading, batch, stopInfo)
     }
     results.push({ task_id: taskId, order_id: order.id, stop: stopInfo.stop })
   }
@@ -549,6 +550,20 @@ async function preCreateTask(deviceSn, extInfo) {
   }
 }
 
+// 删除预创建任务（设备预创建后若不再继续创建，调用后立即关舱释放）
+async function deletePreCreateTask(deviceSn) {
+  if (MOCK) return { ok: true }
+  if (!deviceSn) return { ok: false, msg: '缺少设备编号' }
+  try {
+    const r = await requestPlatform('DELETE', '/open-api/v1/deviceCtrl/del/pre', { deviceSn, principalId: PRINCIPAL_ID })
+    return r && r.code === 'COMM_200'
+      ? { ok: true }
+      : { ok: false, msg: (r && r.msg) || '删除预创建任务失败' }
+  } catch (e) {
+    return { ok: false, msg: '删除预创建任务异常：' + e.message }
+  }
+}
+
 // 直接下发（Route B）：创建配送任务（POST /deviceCtrl/create/direct）。
 // 语义：需先【预创建】(create/pre) + 持有设备控制权；创建成功设备自动关舱；
 // 等待控制权超时或主动释放后开始执行配送。货已在舱（syncLoading=1）。
@@ -578,7 +593,9 @@ async function createDirectTask(store, taskId, order, loading, unloading, batch,
     buildingId: u.platform_building_id || l.platform_building_id || '',
     deviceSn: batch.device_sn || '',
     stockPos: 'pos_1',   // 货舱位置（Apifox 示例用小写 pos_1）
-    syncLoading: 1,      // 同步上货：必须先预创建（create/pre）
+    syncLoading: 0,      // 异步上货（2026-09-17 改）：车先自己导航到上货点（任务状态 30=到达上货点），
+                         // 到达后 loadingVerify 开舱。不用 preCreate（避免在错误位置开舱），
+                         // 开舱门禁以任务状态 30 为准（平台权威「到达」信号），不再用带标定误差的距离判断。
     loadingMapId: l.platform_map_id,
     loadingLandmarkId: l.platform_landmark_id,
     unloadingMapId: u.platform_map_id,
@@ -601,7 +618,8 @@ async function createDirectTask(store, taskId, order, loading, unloading, batch,
     if (ok) {
       const pid = (r.data && (r.data.id || r.data.taskId || r.data.deliveryTaskId)) || ''
       if (pid) {
-        store.prepare("UPDATE delivery_tasks SET platform_task_id=?, task_status=50, status_text='已上货', updated_at=datetime('now','localtime') WHERE id=?")
+        // syncLoading=0：货未装，任务状态由平台驱动（10/20→30 到达上货点）；开舱门禁等 30
+        store.prepare("UPDATE delivery_tasks SET platform_task_id=?, task_status=0, status_text='待到达上货点', updated_at=datetime('now','localtime') WHERE id=?")
           .run(String(pid), taskId)
       }
       console.log('[platform] 直接下发任务创建成功 taskId=' + taskId + ' platformTaskId=' + pid + ' batch=' + batch.batch_no)
@@ -612,6 +630,28 @@ async function createDirectTask(store, taskId, order, loading, unloading, batch,
   } catch (e) {
     updateTask(store, taskId, '创建任务异常：' + e.message)
     console.warn('[platform] 创建直接任务异常', e.message)
+  }
+}
+
+// 管理员工具：分页拉取主体全部任务（basicPageList），供 /admin 查看/排查
+async function listPlatformTasks(store) {
+  const lm = store.prepare("SELECT platform_building_id FROM landmarks WHERE platform_building_id != '' LIMIT 1").get()
+  const buildingId = lm && lm.platform_building_id
+  if (!buildingId) return { ok: false, msg: '无场地' }
+  const out = []
+  try {
+    for (let page = 1; page <= 5; page++) {
+      const r = await requestPlatform('GET', '/open-api/v1/deliveryTask/basicPageList?curPage=' + page + '&size=100&buildingId=' + encodeURIComponent(buildingId) + '&principalId=' + encodeURIComponent(PRINCIPAL_ID))
+      if (!r || r.code !== 'COMM_200') break
+      const pd = r.data && r.data.data
+      const list = Array.isArray(pd) ? pd : ((pd && pd.list) || [])
+      if (!list.length) break
+      out.push(...list)
+      if (page >= (r.data && r.data.pages)) break
+    }
+    return { ok: true, tasks: out }
+  } catch (e) {
+    return { ok: false, msg: e.message }
   }
 }
 
@@ -626,7 +666,8 @@ function formatLocalDt(ts) {
     + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds())
 }
 
-async function summonToLoadingPoint(store) {
+// preferredSn：待上货(1)批次已定型指派的车，优先召唤该车（扫描对 status IN (0,1) 批次都召唤时传入）
+async function summonToLoadingPoint(store, preferredSn) {
   if (MOCK) return { ok: true, msg: '模拟召唤成功' }
   if (!platformReady()) return { ok: false, msg: '未配置平台凭据' }
   const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
@@ -635,9 +676,11 @@ async function summonToLoadingPoint(store) {
   }
   const r = await getDeviceList()
   if (!r.ok || !r.robots || !r.robots.length) return { ok: false, msg: '无机器人可召唤' }
-  // 空闲/充电/待机/返程中的车优先
-  const free = r.robots.find((x) => x.online && ['idle', 'standby', 'charging', 'returnChargingPile', 'returnStandby'].includes(x.machine_status))
-  const robot = free || r.robots.find((x) => x.online) || null
+  // 优先指定设备（已定型批次指派的车），其次空闲/充电/待机/返程/召唤中的车，最后任意在线车
+  let robot = null
+  if (preferredSn) robot = r.robots.find((x) => x.online && x.device_sn === preferredSn)
+  if (!robot) robot = r.robots.find((x) => x.online && ['idle', 'standby', 'charging', 'returnChargingPile', 'returnStandby', 'lightTask'].includes(x.machine_status))
+  robot = robot || r.robots.find((x) => x.online) || null
   if (!robot) return { ok: false, msg: '无在线机器人可召唤' }
   try {
     const body = {
@@ -647,11 +690,13 @@ async function summonToLoadingPoint(store) {
       mapId: loading.platform_map_id,
       buildingId: loading.platform_building_id,
       // expireTime 必须是 "yyyy-MM-dd HH:mm:ss" 日期时间字符串（Apifox 规格；传毫秒时间戳字符串会被平台拒绝
-      // 「expireTime字段类型错误」——2026-09-16 真机实测确认，此前召唤一直因此失败）
-      expireTime: formatLocalDt(Date.now() + 10 * 60 * 1000), // 10 分钟失效，之后自动返程
+      // 「expireTime字段类型错误」——2026-09-16 真机实测确认，此前召唤一直因此失败）。
+      // 窗口设为 5 分钟：召唤的 lightTask 没有取消接口，创建后只能等它到期；
+      // 若窗口太长（10 分钟），「开始配送」后车会被 lightTask 挡住最多 10 分钟才启动配送任务（2026-09-17 实测）。
+      expireTime: formatLocalDt(Date.now() + 5 * 60 * 1000), // 5 分钟失效，之后自动返程
       remark: '组单中批次待上货，召唤至商铺上货点',
       // action 必须带 type:"wait"（Apifox 示例）；缺 type 平台报「请求发生异常」
-      action: { type: 'wait', waitTime: 600 },
+      action: { type: 'wait', waitTime: 300 },
       // extInfo 必须显式给出（空对象即可）：缺它同样报「请求发生异常」——2026-09-16 受控对比实测确认
       extInfo: {}
     }
@@ -987,6 +1032,43 @@ async function getDevicePosition(store, taskId) {
   return hit ? hit.pos : null
 }
 
+// ---------------- 机器人实时雷达数据（eviz 激光点云 + 代价地图） ----------------
+// 同一 EvizServer 代理接口除 robotpose 外还返回 laserscan（激光点云）与 costmap（代价地图 base64）。
+// 数据 3s 缓存（与 getDevicePosition 同节奏）；机器人离线/网关无响应时返回 { ok:false, msg }。
+const radarCache = new Map() // device_sn -> { ts, data }
+async function getRobotRadar(store, deviceSn) {
+  if (!deviceSn) return { ok: false, msg: '缺少设备编号' }
+  if (MOCK) return { ok: false, msg: '本地演示模式，无雷达数据' }
+  if (!platformReady()) return { ok: false, msg: '未配置开放物流平台凭据' }
+  const hit = radarCache.get(deviceSn)
+  if (hit && Date.now() - hit.ts < 3000) return hit.data
+  try {
+    const r = await requestPlatform('GET', '/open-api/v1/iotGatewayProxy/' + encodeURIComponent(deviceSn) + '/buildingManager/om-api/EvizServer')
+    let inner = r && r.data
+    if (typeof inner === 'string') { try { inner = JSON.parse(inner) } catch (e) { inner = null } }
+    if (!inner || (r && r.code && r.code !== 'COMM_200')) {
+      const out = { ok: false, msg: (r && r.msg) || '无雷达数据（机器人离线？）' }
+      radarCache.set(deviceSn, { ts: Date.now(), data: out })
+      return out
+    }
+    const out = {
+      ok: true,
+      timestamp: inner.timestamp || null,
+      locQuality: inner.locQuality || null,
+      robotPose: Array.isArray(inner.robotpose) ? inner.robotpose.map(Number) : null,
+      // laserscan 可能为「极坐标 ranges 数组」或「直角坐标点数组」，原样透传由前端自适应解析
+      laserscan: inner.laserscan !== undefined && inner.laserscan !== null ? inner.laserscan : null,
+      costmap: inner.costmap !== undefined && inner.costmap !== null ? inner.costmap : null
+    }
+    radarCache.set(deviceSn, { ts: Date.now(), data: out })
+    return out
+  } catch (e) {
+    const out = { ok: false, msg: '雷达数据获取失败：' + e.message }
+    radarCache.set(deviceSn, { ts: Date.now(), data: out })
+    return out
+  }
+}
+
 // 机器状态码 -> 中文（与开放物流平台标准对照表一致，见 doc/06 常量字典）
 const MACHINE_TEXT = {
   idle: '空状态', init: '初始化', setting: '设置', charging: '正在充电', returnChargingPile: '返回充电桩',
@@ -1022,7 +1104,10 @@ async function getDeviceList() {
         machine_text: MACHINE_TEXT[d.machineStatus] || d.machineStatus || '未知',
         floor: d.currFloor || '',
         building: d.currBuildingName || '',
-        version: d.softwareVersion || ''
+        version: d.softwareVersion || '',
+        busy_stocks: d.busyStocks || '',
+        curr_map_id: d.currMapId || '',
+        status_update_time: d.statusUpdateTime || ''
       }))
     }
   } catch (e) {
@@ -1054,14 +1139,23 @@ async function grantControl(deviceSn, durationSec = 180) {
   }
 }
 
-// 上货验证（验证通过自动开舱，任务流转 40 上货中）
+// 上货验证（验证通过自动开舱，任务流转 40 上货中）。
+// ⚠️ 2026-09-17 实测两步缺一不可：
+//   1) 先调 /deviceCtrl/verify/match —— 进入验证阶段 + 校验（只调 loading/verify 会报 DLV_CTRL_0011「机器人当前不在取货阶段」）
+//   2) 再调 /deviceCtrl/loading/verify —— 真正开舱动作（只调 verify/match 会「显示成功但舱门不开」，autoOpen 在 loading/verify 上生效）
 async function loadingVerify(deviceSn, platformTaskId, strategies) {
   if (MOCK) return { ok: true }
   try {
+    const m = await requestPlatform('POST', '/open-api/v1/deviceCtrl/verify/match', {
+      deviceSn, strategies: strategies || {}, autoOpen: false
+    })
+    if (!m || m.code !== 'COMM_200') {
+      return { ok: false, msg: (m && m.msg) || '上货验证失败（verify/match）' }
+    }
     const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/loading/verify', {
       deviceSn, id: Number(platformTaskId), strategies: strategies || {}, autoOpen: true
     })
-    return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '上货验证失败' }
+    return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '上货验证失败（loading/verify）' }
   } catch (e) {
     return { ok: false, msg: '上货验证异常：' + e.message }
   }
@@ -1094,42 +1188,34 @@ async function loadingConfirm(deviceSn, platformTaskId, strategies) {
 }
 
 // ---------------- 无人车位置门禁（需求3：配单/上货必须先确认车在上货点） ----------------
-// 判据：设备实时位置（eviz robotpose）与 loadingPoint 点位坐标距离 ≤ 阈值；
-// 兜底：该设备最近任务状态 ∈ {30,40}（30=到达上货点 / 40=上货中）视为已就位。
-// MOCK 档恒 ok（demo 冒烟不受影响）；位置/设备拿不到 → 保守拒绝，宁可挡住不可假装。
-const LOADING_RADIUS_M = Number(process.env.LOADING_POINT_RADIUS_M || 5)
+// 判据（2026-09-17 改）：以**平台权威的「到达上货点」信号**为准——该设备最近配送任务状态 ∈ {30,40}
+// （30=到达上货点 / 40=上货中），这是平台自己判定的到达，不做带标定误差的距离判断。
+// 辅以机器状态预检（充电/返程/回待机 → 明确提示等车到位）。
+// MOCK 档恒 ok（demo 冒烟不受影响）；拿不到任务状态 → 保守拒绝，宁可挡住不可假装。
+const LOADING_RADIUS_M = Number(process.env.LOADING_POINT_RADIUS_M || 1.5)
 
 async function robotAtLoadingPoint(store, deviceSn) {
   if (MOCK) return { ok: true, at_loading_point: true, distance_m: 0 }
   if (!deviceSn) return { ok: false, msg: '缺少设备编号', at_loading_point: false, distance_m: null }
-  const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
-  if (!loading) return { ok: false, msg: '未配置上货点（loadingPoint）点位', at_loading_point: false, distance_m: null }
-  // 任务状态兜底：该设备最近任务已到达上货点/上货中
+  // 机器状态预检：充电/返程/回待机 = 不在上货点，直接拒绝（避免充电桩旁误判就位）
+  const dev = await getDeviceList()
+  if (dev.ok && dev.robots && dev.robots.length) {
+    const me = dev.robots.find((x) => x.device_sn === deviceSn)
+    if (me && ['charging', 'returnChargingPile', 'returnStandby'].includes(me.machine_status)) {
+      return { ok: false, msg: '无人车还在' + (me.machine_text || me.machine_status) + '，请等待其到达上货点后再开舱', at_loading_point: false, distance_m: null }
+    }
+  }
+  // 平台权威「到达上货点」：该设备最近配送任务状态 30/40
   const t = store.prepare("SELECT * FROM delivery_tasks WHERE device_sn=? AND void_at IS NULL ORDER BY id DESC LIMIT 1").get(deviceSn)
+  if (!t) return { ok: false, msg: '未找到该设备的配送任务，请先「上货定型」', at_loading_point: false, distance_m: null }
   if (t && [30, 40].includes(Number(t.task_status))) {
     return { ok: true, at_loading_point: true, distance_m: 0, by_task_status: true }
   }
-  // 上货点坐标缺失时无法算距离，只能依赖任务状态（上面已判）
-  const lx = Number(loading.pos_x)
-  const ly = Number(loading.pos_y)
-  if (!Number.isFinite(lx) || !Number.isFinite(ly) || (lx === 0 && ly === 0)) {
-    return { ok: false, msg: '上货点未同步平台坐标，无法判断无人车是否就位', at_loading_point: false, distance_m: null }
-  }
-  const pos = t ? await getDevicePosition(store, t.id) : null
-  if (!pos || isNaN(pos.x) || isNaN(pos.y)) {
-    return { ok: false, msg: '无法获取无人车位置，请确认无人车在线并到达上货点', at_loading_point: false, distance_m: null }
-  }
-  const dx = Number(pos.x) - lx
-  const dy = Number(pos.y) - ly
-  const dist = Math.sqrt(dx * dx + dy * dy)
-  if (dist <= LOADING_RADIUS_M) {
-    return { ok: true, at_loading_point: true, distance_m: Math.round(dist * 100) / 100 }
-  }
   return {
     ok: false,
-    msg: `无人车未在上货点（距上货点约 ${Math.round(dist)} 米），请等待其返回后再上货`,
+    msg: '无人车正在前往上货点（' + (t.status_text || '状态 ' + t.task_status) + '），请等待其到达后再开舱',
     at_loading_point: false,
-    distance_m: Math.round(dist * 100) / 100
+    distance_m: null
   }
 }
 
@@ -1191,12 +1277,13 @@ async function closeTask(deviceSn, platformTaskId, reason) {
   }
 }
 
-// 释放设备控制权（配套 authority/grant；路径/语义需与越凡确认）
-async function releaseControl(ctrlId) {
+// 释放设备控制权：ctrl-id 放在 header，body 为 {deviceSn, principalId}
+// （Apifox 规格核对：header 参数 ctrl-id；requestBody = AuthorityGainReqVo）
+async function releaseControl(deviceSn, ctrlId) {
   if (MOCK) return { ok: true }
   if (!ctrlId) return { ok: false, msg: '缺少控制权ID' }
   try {
-    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/authority/release', { ctrlId })
+    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/authority/release', { deviceSn, principalId: PRINCIPAL_ID }, { 'ctrl-id': ctrlId })
     return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '释放控制权失败' }
   } catch (e) {
     return { ok: false, msg: '释放控制权异常：' + e.message }
@@ -1204,12 +1291,14 @@ async function releaseControl(ctrlId) {
 }
 
 // ---------------- 用户取餐（下货验证开舱 / 确认关舱） ----------------
-// 开舱取餐：unloading/verify 验证通过自动开舱（开舱即完成，任务流转 80）
+// 开舱取餐：必须先调 /deviceCtrl/verify/match（进入验证阶段 + 校验 + autoOpen 自动开舱）。
+// 2026-09-17 真机实测：直接调 unloading/verify 报「机器人当前不在取货阶段」（DLV_CTRL_0011），
+// 因为缺了 verify/match 这一步（Apifox 规格：机器人到达送货点发起验证前必须先调 verify/match）。
 async function unloadingVerify(deviceSn, platformTaskId, strategies) {
   if (MOCK) return { ok: true }
   try {
-    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/unloading/verify', {
-      taskIdList: [Number(platformTaskId)], deviceSn, strategies: strategies || {}, autoOpen: true
+    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/verify/match', {
+      deviceSn, strategies: strategies || {}, autoOpen: true
     })
     return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '开舱失败' }
   } catch (e) {
@@ -1230,4 +1319,4 @@ async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, createTasksForBatch, createDirectTask, preCreateTask, recreatePickupTask, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, getMapImageBytes, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, isRobotBusy, summonToLoadingPoint }
+module.exports = { createQueueTask, createTasksForBatch, createDirectTask, preCreateTask, deletePreCreateTask, listPlatformTasks, recreatePickupTask, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, getRobotRadar, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, getMapImageBytes, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, isRobotBusy, summonToLoadingPoint }

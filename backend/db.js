@@ -195,6 +195,8 @@ function migrate(db) {
   // delivery_batches：模拟送达时刻（P1-4）——mock-dispatch 只落时间戳，由定时扫描到期置已送达，
   // 不再依赖进程内存 setTimeout（重启即丢，且卡在配送中的订单没有出口）
   if (!batchCols.includes('mock_arrive_at')) db.exec("ALTER TABLE delivery_batches ADD COLUMN mock_arrive_at TEXT")
+  // delivery_batches：Route B 直接下发的设备控制权 ID（持久化，重启不丢，开始配送时释放）
+  if (!batchCols.includes('ctrl_id')) db.exec("ALTER TABLE delivery_batches ADD COLUMN ctrl_id TEXT DEFAULT ''")
   // 历史数据回填：按创建日期逐日累计编号（id 即当日创建顺序）
   db.exec(`UPDATE delivery_batches SET daily_seq=(
     SELECT COUNT(*) FROM delivery_batches b2

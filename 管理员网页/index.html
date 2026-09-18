@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>零栋送餐 · 调度台</title>
+<style>
+  /* —— Swiss 瑞士国际主义排版 ——
+     近白底 / hairline 规则线 / 瑞士红只作功能色（异常、危险、终态）
+     黑灰承担层级，数字用 tabular-nums，网格线即结构，无阴影无渐变 */
+  :root {
+    --paper: #f7f7f8;
+    --surface: #ffffff;
+    --ink: #1a1a1a;
+    --ink-2: #55555a;
+    --ink-3: #8a8a90;
+    --line: #e2e2e6;
+    --line-strong: #c9c9cf;
+    --red: #e4002b;
+    --red-soft: #fdeef1;
+    --ok: #0f7a4d;
+    --ok-soft: #eaf6f0;
+    --amber: #9a6b00;
+    --amber-soft: #fdf6e3;
+    --nav-w: 168px;
+    --mono: "SF Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: -apple-system, "Helvetica Neue", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    min-height: 100dvh;
+  }
+  /* —— 布局：左侧导航 + 右侧内容 —— */
+  .layout { display: flex; min-height: 100dvh; }
+  .sidenav {
+    width: var(--nav-w); flex: none;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    padding: 22px 0 24px;
+    position: sticky; top: 0; height: 100dvh;
+    display: flex; flex-direction: column;
+  }
+  .brand { padding: 0 20px 16px; border-bottom: 3px solid var(--ink); margin-bottom: 14px; }
+  .brand h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+  .brand .sub { color: var(--ink-3); font-size: 11px; margin-top: 3px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 20px; font-size: 13.5px; font-weight: 600;
+    color: var(--ink-2); cursor: pointer; border: none; background: none;
+    border-left: 3px solid transparent; text-align: left; width: 100%;
+  }
+  .nav-item:hover { color: var(--ink); background: var(--paper); }
+  .nav-item.active { color: var(--ink); border-left-color: var(--red); background: var(--paper); }
+  .nav-item .n { font: 700 10px var(--mono); color: var(--ink-3); }
+  .nav-item.active .n { color: var(--red); }
+  .nav-count { margin-left: auto; font: 700 10px var(--mono); color: var(--ink-3); background: var(--paper); border: 1px solid var(--line); padding: 0 5px; }
+  .nav-count.red { color: var(--red); border-color: var(--red); background: var(--red-soft); }
+  .sidenav .foot { margin-top: auto; padding: 12px 20px; font-size: 11px; color: var(--ink-3); border-top: 1px solid var(--line); }
+  .sidenav .foot b { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+  .main { flex: 1; min-width: 0; padding: 24px 28px 56px; }
+  /* —— 报头 —— */
+  .masthead { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; border-bottom: 3px solid var(--ink); padding-bottom: 14px; margin-bottom: 8px; }
+  .masthead h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+  .masthead .sub { color: var(--ink-3); font-size: 12px; margin-top: 4px; letter-spacing: 0.02em; }
+  .masthead .right { text-align: right; font-size: 12px; color: var(--ink-3); }
+  .masthead .right b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  /* —— 工具栏 —— */
+  .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 0; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
+  .toolbar input {
+    padding: 7px 12px; border: 1px solid var(--line-strong); border-radius: 0;
+    background: var(--surface); color: var(--ink); font-size: 13px; width: 240px; font-family: inherit;
+  }
+  .toolbar input:focus { outline: none; border-color: var(--ink); }
+  button {
+    padding: 7px 16px; border: 1px solid var(--ink); border-radius: 0;
+    background: var(--ink); color: #fff; font-size: 13px; font-weight: 600;
+    font-family: inherit; cursor: pointer; letter-spacing: 0.02em;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+  }
+  button:hover { background: #000; }
+  button:active { transform: translateY(1px); }
+  button:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--ink); border-color: var(--line-strong); }
+  button.ghost:hover { border-color: var(--ink); background: var(--surface); }
+  button.danger { background: var(--red); border-color: var(--red); }
+  button.danger:hover { background: #c20024; }
+  button.danger.ghost { background: transparent; color: var(--red); border-color: var(--red); }
+  button.danger.ghost:hover { background: var(--red-soft); }
+  .spacer { flex: 1; }
+  .conn { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  /* —— 页面切换 —— */
+  .page { display: none; }
+  .page.active { display: block; }
+  /* —— 网格 —— */
+  .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 18px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    padding: 18px 20px 20px; position: relative;
+  }
+  .card h2 {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-2); border-bottom: 2px solid var(--ink);
+    padding-bottom: 8px; margin-bottom: 14px;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  }
+  .card h2 .tag { font: 700 11px var(--mono); letter-spacing: 0; text-transform: none; padding: 1px 7px; border: 1px solid var(--line-strong); color: var(--ink-2); }
+  .card h2 .tag.green { color: var(--ok); border-color: var(--ok); background: var(--ok-soft); }
+  .card h2 .tag.red { color: var(--red); border-color: var(--red); background: var(--red-soft); }
+  .card h2 .tag.orange { color: var(--amber); border-color: var(--amber); background: var(--amber-soft); }
+  .col-4 { grid-column: span 4; }
+  .col-5 { grid-column: span 5; }
+  .col-6 { grid-column: span 6; }
+  .col-7 { grid-column: span 7; }
+  .col-8 { grid-column: span 8; }
+  .col-12 { grid-column: 1 / -1; }
+  /* —— 告警 —— */
+  .alerts { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--line); }
+  .auth-banner { border: 2px solid var(--red); background: var(--red-soft); color: var(--red); padding: 14px 18px; font-size: 14px; font-weight: 700; margin-bottom: 18px; display: flex; align-items: center; gap: 10px; }
+  .auth-banner .hint { font-weight: 400; font-size: 12.5px; color: var(--ink-2); margin-left: 4px; }
+  .alert { padding: 10px 14px; font-size: 13px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 10px; }
+  .alert:last-child { border-bottom: none; }
+  .alert::before { content: ""; display: inline-block; width: 8px; height: 8px; flex: none; align-self: center; }
+  .alert.warn::before { background: var(--amber); }
+  .alert.bad::before { background: var(--red); }
+  .alert.ok::before { background: var(--ok); }
+  .alert.bad { color: var(--red); font-weight: 600; }
+  .alert.warn { color: var(--amber); font-weight: 600; }
+  .alert.ok { color: var(--ink-2); }
+  /* —— 键值 —— */
+  .kv { display: grid; grid-template-columns: 108px 1fr; gap: 7px 14px; font-size: 13px; }
+  .kv > span { color: var(--ink-3); font-size: 12px; letter-spacing: 0.02em; }
+  .kv > b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; word-break: break-all; }
+  .kv .mono { font-family: var(--mono); font-size: 12px; }
+  .kv .stale { color: var(--red); font-weight: 700; }
+  .kv .stale-soft { color: var(--amber); }
+  /* —— 操作行 —— */
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  .row input { padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 0; background: var(--paper); color: var(--ink); width: 220px; font-size: 12px; font-family: var(--mono); }
+  .row input:focus { outline: none; border-color: var(--ink); background: var(--surface); }
+  .rowlabel { font-size: 11px; color: var(--ink-3); letter-spacing: 0.06em; }
+  /* —— 表格 —— */
+  .tblwrap { overflow-x: auto; margin: 0 -20px; padding: 0 20px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 640px; }
+  th { text-align: left; font-size: 11px; font-weight: 600; color: var(--ink-3); letter-spacing: 0.05em; padding: 5px 8px; border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; font-variant-numeric: tabular-nums; }
+  tbody tr:hover { background: #fafafa; }
+  td b { font-weight: 600; }
+  .num { font-family: var(--mono); font-size: 12px; }
+  .tag { display: inline-block; padding: 0 6px; font-size: 11px; border: 1px solid var(--line-strong); color: var(--ink-2); background: var(--paper); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .tag.green { color: var(--ok); border-color: var(--ok); background: var(--ok-soft); }
+  .tag.red { color: var(--red); border-color: var(--red); background: var(--red-soft); }
+  .tag.orange { color: var(--amber); border-color: var(--amber); background: var(--amber-soft); }
+  .mini { font-size: 11px; color: var(--ink-3); }
+  .stale { color: var(--red); font-weight: 700; }
+  .stale-soft { color: var(--amber); }
+  td .stale, td .stale-soft { font-family: var(--mono); }
+  /* —— 日志 —— */
+  .log { margin-top: 4px; max-height: 260px; overflow: auto; background: var(--surface); border: 1px solid var(--line); padding: 12px 14px; font: 12px/1.7 var(--mono); color: var(--ink-2); white-space: pre-wrap; }
+  .log .warn { color: var(--amber); }
+  .log .bad { color: var(--red); }
+  .log .green { color: var(--ok); }
+  .card .foot { margin-top: 12px; font-size: 11.5px; color: var(--ink-3); line-height: 1.6; }
+  /* —— 实时雷达 —— */
+  .radar-wrap { position: relative; width: 100%; max-width: 480px; margin: 0 auto; }
+  .radar-wrap canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); background: #101418; }
+  .radar-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #8a8a90; font-size: 13px; pointer-events: none; text-align: center; padding: 0 20px; }
+  /* —— 字典 —— */
+  .dict { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 3px 16px; font-size: 12px; margin-top: 10px; }
+  .dict span { color: var(--ink-3); }
+  .dict b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .divider { grid-column: 1 / -1; border-top: 1px solid var(--line); margin: 6px 0; padding-top: 6px; }
+  /* —— 任务分类区块（配送任务页）—— */
+  .hist-title { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--ink-2); margin: 18px 0 8px; }
+  .hist-title:first-child { margin-top: 0; }
+  .cat { border: 1px solid var(--line); margin-bottom: 16px; }
+  .cat-head { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 2px solid var(--ink); }
+  .cat-head .dot { width: 8px; height: 8px; }
+  .cat-head h3 { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+  .cat-head .cnt { font: 700 11px var(--mono); color: var(--ink-2); margin-left: auto; }
+  .cat-head .empty { font-size: 11.5px; color: var(--ink-3); margin-left: auto; }
+  .cat .rowitem { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; flex-wrap: wrap; }
+  .cat .rowitem:last-child { border-bottom: none; }
+  .cat .rowitem:hover { background: #fafafa; }
+  .cat .rowitem .k { font: 600 11px var(--mono); color: var(--ink-3); min-width: 92px; }
+  .cat .rowitem .v { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .cat .rowitem .ops { margin-left: auto; display: flex; gap: 6px; }
+  .cat .rowitem .ops button { padding: 3px 10px; font-size: 11.5px; }
+  @media (max-width: 1100px) {
+    .sidenav { width: 56px; }
+    .brand h1, .brand .sub, .nav-item .lbl, .sidenav .foot { display: none; }
+    .nav-item { justify-content: center; padding: 12px 0; }
+    .col-4, .col-5, .col-6, .col-7, .col-8 { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <!-- 左侧导航 -->
+  <nav class="sidenav">
+    <div class="brand"><h1>零栋送餐</h1><div class="sub">调度台 · 管理员</div></div>
+    <div class="nav-item active" data-page="overview" onclick="navTo('overview')"><span class="n">01</span><span class="lbl">总览</span></div>
+    <div class="nav-item" data-page="tasks" onclick="navTo('tasks')"><span class="n">02</span><span class="lbl">配送任务</span><span class="nav-count" id="navTaskCount">0</span></div>
+    <div class="nav-item" data-page="history" onclick="navTo('history')"><span class="n">03</span><span class="lbl">历史记录</span></div>
+    <div class="nav-item" data-page="settings" onclick="navTo('settings')"><span class="n">04</span><span class="lbl">设置</span></div>
+    <div class="foot">服务 <b>3000</b><br>更新 <b id="conn">—</b></div>
+  </nav>
+
+  <!-- 右侧内容 -->
+  <main class="main">
+    <header class="masthead">
+      <div>
+        <h1 id="pageTitle">总览</h1>
+        <div class="sub" id="pageSub">机器人状态、异常与死锁监控</div>
+      </div>
+      <div class="right">
+        <button id="refresh">刷新</button>
+      </div>
+    </header>
+
+    <!-- 认证状态提示条 -->
+    <div id="authBanner" class="auth-banner" style="display:none"></div>
+
+    <!-- ========== 页面 01：总览 ========== -->
+    <section class="page active" id="page-overview">
+      <div class="grid">
+        <section class="card col-12">
+          <h2>异常 / 死锁告警 <span class="tag" id="alertCount">0</span></h2>
+          <div class="alerts" id="alertsBox"><span class="mini">加载中…</span></div>
+        </section>
+
+        <section class="card col-6">
+          <h2>机器人 <span class="tag" id="robotTag">—</span></h2>
+          <div class="kv">
+            <span>设备编号</span><b class="mono" id="rSn">—</b>
+            <span>机器状态</span><b id="rMachine">—</b>
+            <span>状态停留</span><b id="rMachineAge">—</b>
+            <span>电量</span><b id="rBattery">—</b>
+            <span>在线</span><b id="rOnline">—</b>
+            <span>舱位占用</span><b id="rStocks">—</b>
+            <span>地图</span><b class="mono" id="rMap">—</b>
+            <span>楼层 / 楼栋</span><b id="rFloor">—</b>
+            <span>状态更新时间</span><b class="mono" id="rStatusTime">—</b>
+          </div>
+          <div class="row">
+            <button class="ghost" onclick="actSummon()">召唤到上货点</button>
+            <button class="ghost" onclick="actDrawer(1)">开舱</button>
+            <button class="ghost" onclick="actDrawer(0)">关舱</button>
+            <button class="ghost" onclick="actDelPre()">删除预创建</button>
+            <button class="ghost" onclick="actGrant()">获取控制权</button>
+          </div>
+        </section>
+
+        <section class="card col-6">
+          <h2>实时雷达 <span class="tag" id="radarTag">—</span></h2>
+          <div class="radar-wrap">
+            <canvas id="radarCanvas" width="480" height="480"></canvas>
+            <div class="radar-overlay" id="radarOverlay">—</div>
+          </div>
+          <div class="foot" id="radarFoot">以机器人为中心的 360° 激光扫描。需机器人在线；离线时显示占位。</div>
+        </section>
+
+        <section class="card col-5">
+          <h2>状态字典</h2>
+          <div class="dict" id="dictBox"></div>
+        </section>
+
+        <section class="card col-7">
+          <h2>操作日志</h2>
+          <div class="log" id="log">就绪。</div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ========== 页面 02：配送任务 ========== -->
+    <section class="page" id="page-tasks">
+      <div class="grid">
+        <section class="card col-12">
+          <h2>进行中任务 <span class="tag" id="activeCount">0</span></h2>
+          <div id="catBox"><span class="mini">加载中…</span></div>
+        </section>
+
+        <section class="card col-12">
+          <h2>平台任务（全量） <span class="tag" id="taskCount">0</span></h2>
+          <div class="tblwrap"><table>
+            <thead><tr><th>任务 ID</th><th>状态</th><th>状态停留</th><th>设备</th><th>订单</th><th>创建时间</th><th>操作</th></tr></thead>
+            <tbody id="taskBody"><tr><td colspan="7" class="mini">加载中…</td></tr></tbody>
+          </table></div>
+          <div class="foot">终态（1/80/110/150）不可操作；排队中（&lt;10）可取消；其余活跃/异常态（含 90/100/120）可关闭（舱内有货自动开舱）。</div>
+        </section>
+
+        <section class="card col-6">
+          <h2>本地批次</h2>
+          <div class="tblwrap"><table>
+            <thead><tr><th>ID</th><th>批次号</th><th>状态</th><th>设备</th><th>单数</th><th>控制权</th><th>操作</th></tr></thead>
+            <tbody id="batchBody"></tbody>
+          </table></div>
+        </section>
+
+        <section class="card col-6">
+          <h2>本地订单</h2>
+          <div class="tblwrap"><table>
+            <thead><tr><th>ID</th><th>订单号</th><th>状态</th><th>批次</th><th>点位</th><th>金额</th><th>操作</th></tr></thead>
+            <tbody id="orderBody"></tbody>
+          </table></div>
+        </section>
+
+        <section class="card col-12">
+          <h2>本地配送任务</h2>
+          <div class="tblwrap"><table>
+            <thead><tr><th>ID</th><th>订单</th><th>批次</th><th>平台任务 ID</th><th>状态</th><th>停留</th><th>设备</th><th>操作</th></tr></thead>
+            <tbody id="localTaskBody"></tbody>
+          </table></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ========== 页面 03：历史记录 ========== -->
+    <section class="page" id="page-history">
+      <div class="grid">
+        <section class="card col-12">
+          <h2>历史批次 / 订单 / 任务 <span class="tag" id="histCount">0</span></h2>
+          <div id="histBox"><span class="mini">加载中…</span></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ========== 页面 04：设置 ========== -->
+    <section class="page" id="page-settings">
+      <div class="grid">
+        <section class="card col-6">
+          <h2>管理员令牌</h2>
+          <div class="kv">
+            <span>当前令牌</span><b class="mono" id="setTokenShow">—</b>
+          </div>
+          <div class="row">
+            <span class="rowlabel">新令牌</span>
+            <input id="token" type="password" placeholder="输入令牌并保存">
+            <button id="saveToken">保存</button>
+          </div>
+          <div class="foot">令牌保存在浏览器本地；服务器端令牌由环境变量 ADMIN_TOKEN 或代码默认值决定。</div>
+        </section>
+
+        <section class="card col-6">
+          <h2>控制权 / 点位</h2>
+          <div class="row">
+            <span class="rowlabel">控制权 ID</span>
+            <input id="ctrlId" placeholder="控制权ID">
+            <button class="ghost" onclick="actRelease()">释放控制权</button>
+          </div>
+          <div class="row">
+            <button class="ghost" onclick="actSyncLm()">同步点位</button>
+            <button class="ghost" onclick="actGrant()">获取控制权</button>
+          </div>
+        </section>
+
+        <section class="card col-12">
+          <h2>危险操作</h2>
+          <div class="row">
+            <button id="reset" class="danger">一键初始化状态</button>
+            <span class="mini">关闭全部平台任务 + 释放全部控制权 + 删除全部活跃订单 + 批次置取消。不可撤销，谨慎使用。</span>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+</div>
+<script src="/admin/admin.js"></script>
+</body>
+</html>

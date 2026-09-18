@@ -30,17 +30,40 @@ Page({
     if (this.timer) { clearInterval(this.timer); this.timer = null }
   },
 
-  // 扫无人车二维码（真实摄像头 wx.scanCode）
+  // 扫无人车二维码（真实摄像头 wx.scanCode）→ 自动校验账号（本人在该车有待取餐订单则免输码）
   scanRobot() {
     wx.scanCode({
       success: (r) => {
         const sn = scan.parseDeviceSn(r.result)
         if (!sn) { wx.showToast({ title: '二维码无效，请扫无人车上的二维码', icon: 'none' }); return }
         this.setData({ deviceSn: sn })
-        if (this.data.pickupCode.trim()) this.verify()
+        // 先按登录账号自动匹配：匹配到直接可取餐；匹配不到保留取餐码输入（代取场景）
+        this.matchByScan()
       },
       fail: () => {}
     })
+  },
+
+  // 自动校验：当前登录账号在该无人车上是否有待取餐订单
+  async matchByScan() {
+    const sn = String(this.data.deviceSn).trim()
+    if (!sn) return
+    wx.showLoading({ title: '自动校验中' })
+    try {
+      const data = await request.post(api.pickupByScan, { device_sn: sn })
+      wx.hideLoading()
+      if (data && data.auto_matched && data.order_id) {
+        this.setData({ order: data, phase: 'ready', autoMatched: true })
+        wx.showToast({ title: '已自动匹配您的订单，点击开舱取餐', icon: 'none', duration: 2000 })
+      } else {
+        // 未匹配到本人订单：回退到输入取餐码（代取）
+        wx.showToast({ title: '未匹配到您的订单，请输入取餐码取餐', icon: 'none', duration: 2500 })
+      }
+    } catch (e) {
+      wx.hideLoading()
+      // 后端异常时不阻断：保留取餐码输入流程
+      wx.showToast({ title: '自动校验失败，请手动输入取餐码', icon: 'none', duration: 2500 })
+    }
   },
 
   // 演示档测试入口：直接填入测试设备号（按钮已标注「演示」）
@@ -77,12 +100,12 @@ Page({
     try {
       await request.post(api.pickupOpen, { order_id: orderId })
       wx.hideLoading()
-      wx.showToast({ title: '舱门已打开，请取餐', icon: 'success' })
+      wx.showToast({ title: '舱门已打开，请取餐', icon: 'success', duration: 3000 })
       this.setData({ phase: 'open', countdown: 40 })
       this.startCountdown(40)
     } catch (e) {
       wx.hideLoading()
-      wx.showToast({ title: (e && e.message) || '开舱失败', icon: 'none' })
+      wx.showToast({ title: (e && e.message) || '开舱失败', icon: 'none', duration: 3000 })
     }
   },
 
@@ -94,10 +117,10 @@ Page({
       wx.hideLoading()
       this.clearTimer()
       this.setData({ phase: 'done', countdown: 0 })
-      wx.showToast({ title: '已关舱，取餐完成', icon: 'success' })
+      wx.showToast({ title: '已关舱，取餐完成', icon: 'success', duration: 3000 })
     } catch (e) {
       wx.hideLoading()
-      wx.showToast({ title: (e && e.message) || '关舱失败', icon: 'none' })
+      wx.showToast({ title: (e && e.message) || '关舱失败', icon: 'none', duration: 3000 })
     }
   },
 
