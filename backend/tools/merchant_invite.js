@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 商家邀请码维护脚本（方案A）
+// 商家邀请码维护脚本
 //
 // 在 backend 目录下运行（会读取与 server 相同的数据库 data/lingdong.db，可用 LINGDONG_DB 覆盖）：
 //

@@ -12,7 +12,7 @@ module.exports = (store, deps) => {
   const router = express.Router()
 
   // ---------- 登录 ----------
-  // 邀请码方案A（按商家一条、首绑 openid、可吊销）+ 登录限流（防暴力试码）都在 service.login 内。
+  // 邀请码（按商家一条、首绑 openid、可吊销）+ 登录限流（防暴力试码）都在 service.login 内。
   router.post('/auth/login', async (req, res) => {
     const r = await service.login(store, deps, req.body, service.clientIp(req))
     if (r.error) return res.status(r.error.status).json({ code: r.error.status, msg: r.error.msg })

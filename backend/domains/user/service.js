@@ -1,4 +1,4 @@
-// user 域业务逻辑：登录（注册/升级商家，含邀请码方案A + 登录限流）、资料更新、购物车折后价
+// user 域业务逻辑：登录（注册/升级商家，含邀请码校验 + 登录限流）、资料更新、购物车折后价
 // 依赖注入：service 函数显式接收 (store, deps)；deps.runtime 提供登录凭据与运行模式。
 // 邀请码服务（merchantInvite.js）为共享服务，纯函数 + store 注入，本域直接 require（与 goods 域
 // require goodsStats 同款模式，不产生 require 环）。
@@ -31,7 +31,7 @@ function demoOpenid(code) {
 
 // 登录：真实微信 code2session（凭据就绪时）或演示模式。
 // 返回 { error: {status, msg} } 或 { data }；HTTP 状态码由 routes 层翻译。
-// 商家授权规则（方案A，收紧加固）：
+// 商家授权规则（收紧加固）：
 //   - 商家端(client=merchant)：老商家 openid 免码续登；否则必填且校验邀请码 → 403；
 //   - 用户端：填了正确邀请码则可凭码升级为商家（填错不报错、保持学生）；
 //   - bind=真实登录态（!!creds）：首次使用绑定 openid（一码一微信）；demo 档跳过绑定便于联调。

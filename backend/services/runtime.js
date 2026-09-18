@@ -160,7 +160,7 @@ function check() {
     warnings.push('无法派生 PLATFORM_CALLBACK_TOKEN（PLATFORM_SECRET 为空）：平台回调将不做防伪校验')
   }
   if (!merchantInviteCode) {
-    // 方案A：邀请码优先来自 merchant_invites 表（按商家、首绑、可吊销）。此处 env 旧码未配仅告警，
+    // 邀请码优先来自 merchant_invites 表（按商家、首绑、可吊销）。此处 env 旧码未配仅告警，
     // 不硬阻塞 production——商家权限是否可用以库存量（configuredCount）为准，见 server 启动日志。
     warnings.push('未配置 MERCHANT_INVITE_CODE（可选）：若 merchant_invites 未部署有效邀请码，商家端登录将被拒绝')
   }

@@ -34,7 +34,7 @@ const platform = require('./services/platform')
 const wxpay = require('./services/wxpay')
 const batch = require('./services/batch')
 const orderCancel = require('./services/orderCancel')
-// 商家邀请码（方案A）：登录校验在 user 域 service 内；此处用于启动日志统计有效码数
+// 商家邀请码：登录校验在 user 域 service 内；此处用于启动日志统计有效码数
 const invite = require('./services/merchantInvite')
 
 // 分层域（domains/）：按数据项拆分的路由工厂 (store, deps) => router；URL 与原先内联路由完全一致
@@ -131,7 +131,7 @@ app.listen(PORT, () => {
     console.log('[lingdong-backend]   配送：本地 Mock 状态机（PLATFORM_MOCK=true）')
   }
   console.log(`[lingdong-backend]   设备控制：${d.device_mock ? '本地模拟（开舱/关舱/派发均为假成功）' : '真实分支（调用平台设备控制接口）'}`)
-  // 邀请码状态：以 merchant_invites 表的有效条数 + 旧单一码 env 为准（方案A：按商家一条、首绑、可吊销）
+  // 邀请码状态：以 merchant_invites 表的有效条数 + 旧单一码 env 为准（按商家一条、首绑、可吊销）
   const invCount = invite.configuredCount(store)
   console.log('[lingdong-backend]   商家邀请码已启用：' + invCount + ' 个有效' + (invCount ? '' : ' → 尚未配置，商家端登录将被拒绝'))
 })
