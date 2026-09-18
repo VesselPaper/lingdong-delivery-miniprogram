@@ -11,6 +11,10 @@
           <view class="act-title">{{item.title}}</view>
           <view class="tag {{item.status === 1 ? 'tag-green' : ''}}">{{item.status === 1 ? '已发布' : '已下线'}}</view>
         </view>
+        <view class="act-badges">
+          <view class="badge badge-type">{{item.type_txt}}</view>
+          <view class="badge {{item.state === 'active' ? 'badge-go' : (item.state === 'offline' ? 'badge-gray' : 'badge-soon')}}">{{item.state_txt}}</view>
+        </view>
         <view class="act-sub text-sub text-sm" wx:if="{{item.subtitle}}">{{item.subtitle}}</view>
         <view class="act-meta text-weak text-sm">
           <text wx:if="{{item.link}}">链接：{{item.link}}</text>

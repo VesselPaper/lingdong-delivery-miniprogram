@@ -276,6 +276,17 @@ page {
   text-decoration: line-through;
 }
 
+.p-tag {
+  color: #E64340;
+  font-size: 18rpx;
+  font-weight: 600;
+  border: 1rpx solid #E64340;
+  border-radius: 4rpx;
+  padding: 0 6rpx;
+  margin-left: 6rpx;
+  vertical-align: middle;
+}
+
 /* 紧凑步进器（比全局小一号，- 白底蓝描边 / + 蓝底白字） */
 .stepper-btn {
   width: 44rpx;

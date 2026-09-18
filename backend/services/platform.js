@@ -376,18 +376,28 @@ async function fetchMapRawFresh(store) {
 async function getMapImageBytes(store) {
   if (MOCK) return { ok: false, msg: '本地演示模式无平台底图' }
   if (!platformReady()) return { ok: false, msg: '未配置平台凭据' }
-  const data = await getMapRaw(store)
-  if (data && data.map) {
-    const r = await httpGetBuffer(data.map, 2)
-    if (r.ok) return r
+
+  // 平台签名的地图直链约 14 秒即过期（见 README）。共享的 60s mapInfo 缓存对「点位 pose」够用、
+  // 但缓存里的签名 URL 转手就失效，因此**下载底图一律取一份新鲜签名**再下载，
+  // 失败则重新签名重试，避免偶发 502。
+  let url = ''
+  const fresh = await fetchMapRawFresh(store)               // 新鲜签名（不一定每次都能拿到）
+  if (fresh && fresh.map) url = fresh.map
+  if (!url) {                                               // 新鲜失败时退回缓存里的 URL 兜底
+    const cached = await getMapRaw(store)
+    if (cached && cached.map) url = cached.map
   }
-  // 缓存里的签名已过期：强制刷新取新签名后再试一次
-  const fresh = await fetchMapRawFresh(store)
-  if (fresh && fresh.map) {
-    const r2 = await httpGetBuffer(fresh.map, 2)
-    return r2.ok ? r2 : { ok: false, msg: r2.msg || '底图下载失败' }
+  if (!url) return { ok: false, msg: '未获取到地图图片地址' }
+
+  for (let i = 0; i < 3; i++) {
+    const r = await httpGetBuffer(url, 3)
+    if (r.ok && r.buf && r.buf.length) return r
+    if (i >= 2) return { ok: false, msg: (r && r.msg) || '底图下载多次失败' }
+    // 重试前强制重新签名：上一条 URL 很可能刚过期
+    const again = await fetchMapRawFresh(store)
+    if (again && again.map) url = again.map
   }
-  return { ok: false, msg: '未获取到地图图片地址' }
+  return { ok: false, msg: '底图下载多次失败' }
 }
 
 // ---------------- 创建配送任务 ----------------

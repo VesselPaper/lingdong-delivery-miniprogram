@@ -87,8 +87,9 @@
                   </view>
                   <view class="p-bottom">
                     <view class="p-price">
-                      <text class="p-price-now">¥{{item.price}}</text>
-                      <text class="p-old" wx:if="{{item.original_price}}">¥{{item.original_price}}</text>
+                      <text class="p-price-now">¥{{item.sale_price || item.price}}</text>
+                      <text class="p-old" wx:if="{{item.sale_price}}">¥{{item.price}}</text>
+                      <text class="p-tag" wx:if="{{item.sale_price}}">折</text>
                     </view>
                     <block wx:if="{{item.sold_out}}">
                       <view wx:if="{{item.qty > 0}}" class="stepper">

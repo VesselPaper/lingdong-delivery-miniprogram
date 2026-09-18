@@ -127,6 +127,19 @@
   margin-top: 8rpx;
 }
 
+.item-price .price-now {
+  color: #E64340;
+  font-weight: 700;
+}
+
+.item-price .price-orig {
+  color: #AAAAAA;
+  font-size: 24rpx;
+  font-weight: 400;
+  text-decoration: line-through;
+  margin-left: 10rpx;
+}
+
 /* 底部结算栏：描边顶线 + 矩形「去结算」（对齐商家端按钮风格） */
 .bottom-bar {
   position: fixed;

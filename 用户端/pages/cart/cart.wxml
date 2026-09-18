@@ -23,7 +23,10 @@
               <view class="item-name ellipsis">{{item.name}}</view>
               <text class="item-soldout" wx:if="{{item.sold_out}}">售罄</text>
             </view>
-            <view class="item-price">¥{{item.price}}</view>
+            <view class="item-price">
+              <text class="price-now">¥{{item.price_now}}</text>
+              <text wx:if="{{item.price_now < item.price}}" class="price-orig">¥{{item.price}}</text>
+            </view>
           </view>
           <view class="stepper">
             <view class="stepper-btn" bindtap="onQuantity" data-id="{{item.id}}" data-delta="-1">-</view>

@@ -36,15 +36,26 @@
 
   <!-- 下部分：优惠券 + 商品信息 -->
   <view class="card goods-card">
-    <view class="cell">
-      <view class="cell-label">优惠券</view>
-      <view class="cell-value">暂无可用</view>
+    <view class="cell" bindtap="showCoupons">
+      <view class="cell-label">优惠</view>
+      <view class="cell-value {{promoCandidates.length ? 'cell-link' : ''}}">
+        {{promoCandidates.length ? (promoBanner ? promoBanner.title : '选择优惠') : '暂无可用'}}
+      </view>
+      <view class="cell-reduce" wx:if="{{promoReduce && promoReduce !== '0.00'}}">- ¥{{promoReduce}}</view>
       <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
     <view class="shop-row">
       <view class="shop-badge"><t-icon name="shop" size="14" color="#3078C0" /></view>
       <text class="shop-name">零栋铺子</text>
       <view class="tag tag-orange" wx:if="{{shopClosed}}">歇业</view>
+    </view>
+    <view wx:if="{{promoBanner}}" class="promo-banner" bindtap="showCoupons">
+      <t-icon name="{{promoBanner.icon || 'discount'}}" size="16" color="#E64340" />
+      <view class="promo-info">
+        <view class="promo-title">{{promoBanner.title}}</view>
+        <view class="promo-sub text-weak text-sm">已优惠 ¥{{promoBanner.reduce}}{{promoCandidates.length > 1 ? '，点按可切换' : ''}}</view>
+      </view>
+      <view class="promo-switch" wx:if="{{promoCandidates.length > 1}}">切换›</view>
     </view>
     <view class="o-item" wx:for="{{items}}" wx:key="goods_id">
       <view class="o-img">
@@ -57,7 +68,7 @@
       </view>
       <view class="o-price">
         <view class="o-price-now">实付 ¥{{item.total}}</view>
-        <view class="o-price-old" wx:if="{{item.price}}">¥{{item.price}}</view>
+        <view class="o-price-old" wx:if="{{item.price_now < item.price}}">¥{{item.orig}}</view>
       </view>
     </view>
     <view class="fee-row">
@@ -70,13 +81,16 @@
       <t-icon name="info-circle" size="12" color="#C0C0C0" />
       <text class="fee-val">¥0</text>
     </view>
-    <view class="discount-row">
+    <view class="discount-row" wx:if="{{promoBanner}}">
       <text class="discount-label">总优惠</text>
-      <text class="discount-val">¥0.00</text>
+      <text class="discount-val oring" wx:if="{{promoBanner.reduce}}">¥{{promoBanner.reduce}}</text>
     </view>
     <view class="discount-row total-row">
       <text class="discount-label">合计：</text>
-      <text class="discount-total">¥{{total}}</text>
+      <view class="total-right">
+        <text class="orig-total" wx:if="{{promoBanner}}">¥{{promoBanner.origin}}</text>
+        <text class="discount-total">¥{{promoBanner ? promoPayable : total}}</text>
+      </view>
     </view>
     <view class="remark-row">
       <text class="remark-label">备注信息</text>
@@ -96,7 +110,7 @@
     </view>
     <view class="pay-total">
       <text class="text-sub">共计</text>
-      <text class="pay-price">¥{{total}}</text>
+      <text class="pay-price">¥{{promoBanner ? promoPayable : total}}</text>
     </view>
     <view class="btn {{submitting || shopClosed ? 'btn-disabled' : ''}}" bindtap="submit" style="flex-shrink:0; margin-left:24rpx; padding:0 64rpx;">
       {{shopClosed ? '店铺歇业' : (submitting ? '提交中...' : (payMock ? '模拟支付' : '支付'))}}
@@ -145,6 +159,36 @@
         >
           <text>{{item.value}}</text>
         </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 选择优惠活动（结算时自动推荐优惠最大的，用户可切换） -->
+  <view wx:if="{{couponShow}}" class="popup-mask" bindtap="hideCoupons">
+    <view class="popup-sheet" catchtap="noop">
+      <view class="popup-close" bindtap="hideCoupons">
+        <t-icon name="close" size="20" color="#C0C0C0" />
+      </view>
+      <view class="coupon-panel">
+        <view class="picker-title">选择优惠（同一笔订单不可叠加）</view>
+        <view
+          class="coupon-item {{item.selected ? 'on' : ''}}"
+          wx:for="{{promoCandidates}}" wx:key="id"
+          bindtap="chooseCoupon" data-id="{{item.id}}"
+        >
+          <view class="coupon-left">
+            <view class="coupon-desc">{{item.desc}}</view>
+            <view class="coupon-name text-weak text-sm">{{item.title}}</view>
+          </view>
+          <view class="coupon-right">
+            <view class="coupon-reduce">- ¥{{item.reduceTxt}}</view>
+            <view class="coupon-check" wx:if="{{item.selected}}">
+              <t-icon name="check" size="12" color="#ffffff" />
+            </view>
+            <view class="coupon-rec" wx:if="{{item.selected}}">推荐</view>
+          </view>
+        </view>
+        <view wx:if="{{!promoCandidates.length}}" class="coupon-empty text-weak text-sm">暂无可用优惠</view>
       </view>
     </view>
   </view>

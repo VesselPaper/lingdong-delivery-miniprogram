@@ -26,14 +26,12 @@ Page({
         wx.login({ success: (r) => resolve(r.code), fail: reject })
       })
       // client 标明商家端：后端用它选「零栋商家」的 appid/secret 走真实 code2session；
-      // 不再传 role：服务端不接受客户端自报身份，商家权限只能凭 merchant_code 授予
-      // 【临时放开】测试阶段免邀请码：merchant_code 传空（后端商家端登录即授予商家角色）；恢复时取消注释
+      // 不再传 role：服务端不接受客户端自报身份，商家权限只能凭 merchant_code 授予。
       const res = await request.post(api.login, {
         code,
         client: 'merchant',
         nickname: '零栋铺子',
-        // merchant_code: String(this.data.merchantCode || '').trim()
-        merchant_code: ''
+        merchant_code: String(this.data.merchantCode || '').trim()
       }, { needAuth: false }) // 登录接口本身免鉴权：未登录时必须发出，否则被 request 拦截永远登不进
       wx.setStorageSync('token', res.token)
       wx.setStorageSync('userInfo', res.user)

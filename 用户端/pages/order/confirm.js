@@ -8,6 +8,13 @@ Page({
   data: {
     items: [],
     total: '0.00',
+    subtotal: '0.00',
+    promoBanner: null,
+    promoReduce: '0.00',
+    promoPayable: '0.00',
+    promoCandidates: [],     // 可选优惠活动候选 [{id,type,title,desc,reduce,payable,selected}]
+    selectedActivityId: null, // 用户选中的活动 id（null=未选/回退最优）
+    couponShow: false,       // 优惠选择面板
     points: [],
     selectedPoint: null,
     showPicker: false,
@@ -31,32 +38,142 @@ Page({
     const flags = wx.getStorageSync('runtimeFlags') || {}
     this.setData({ payMock: flags.pay_mock === true })
     const cached = wx.getStorageSync('checkout_items')
+    this.checkoutItems = []
     if (options.goods_id) {
       try {
         const g = await request.get(api.goodsDetail + '?id=' + options.goods_id)
         const quantity = Number(options.quantity || 1)
+        const priceNow = g.sale_price || g.price
         this.setData({
-          items: [{ goods_id: g.id, name: g.name, price: g.price, quantity, total: (g.price * quantity).toFixed(2) }],
-          total: (g.price * quantity).toFixed(2)
+          items: [{ goods_id: g.id, name: g.name, price: g.price, price_now: priceNow, quantity, total: (priceNow * quantity).toFixed(2), orig: (g.price * quantity).toFixed(2) }],
+          total: (priceNow * quantity).toFixed(2),
+          subtotal: (g.price * quantity).toFixed(2)
         })
+        this.checkoutItems = [{ goods_id: g.id, quantity }]
       } catch (e) { /* handled */ }
     } else if (cached && cached.length) {
       const items = []
+      this.checkoutItems = cached
       try {
         for (const it of cached) {
           const g = await request.get(api.goodsDetail + '?id=' + it.goods_id)
-          items.push({ goods_id: g.id, name: g.name, price: g.price, quantity: it.quantity, total: (g.price * it.quantity).toFixed(2) })
+          const priceNow = g.sale_price || g.price
+          items.push({ goods_id: g.id, name: g.name, price: g.price, price_now: priceNow, quantity: it.quantity, total: (priceNow * it.quantity).toFixed(2), orig: (g.price * it.quantity).toFixed(2) })
         }
         const total = items.reduce((s, it) => s + Number(it.total), 0)
-        this.setData({ items, total: total.toFixed(2) })
+        const subtotal = items.reduce((s, it) => s + Number(it.orig), 0)
+        this.setData({ items, total: total.toFixed(2), subtotal: subtotal.toFixed(2) })
       } catch (e) { /* handled */ }
     }
+    // 加载活动并估算优惠金额（仅展示；下单价格以后端权威计算为准）
+    await this.loadPromo()
     // 先加载点位与已存收货地址，再回填收餐信息
     await Promise.all([this.loadPoints(), this.loadAddresses()])
     this.loadUser()
     this.loadShopStatus()
     this.buildTimeOptions()
     this.ready = true
+  },
+
+  // 估算优惠：生成可选优惠候选列表 + 自动推荐优惠最大的一个
+  async loadPromo() {
+    if (!this.data.items || !this.data.items.length) return
+    try {
+      const list = await request.get(api.activityList)
+      const acts = (list || []).filter((a) => a.state === 'active' || !a.state)
+      const subtotal = Number(this.data.subtotal || this.data.items.reduce((s, it) => s + Number(it.price) * Number(it.quantity), 0))
+      // 逐活动计算优惠：满减按档位、折扣按折后差（金额统一取两位小数）
+      const round2 = (n) => Math.round((Number(n) + 1e-9) * 100) / 100
+      const candidates = []
+      for (const a of acts) {
+        if (a.type === 'discount' && Number(a.config && a.config.discount) > 0 && Number(a.config.discount) < 1) {
+          let est = 0
+          const gids = (a.config.goods_ids || []).map(Number)
+          for (const it of this.data.items) {
+            if (a.config.scope === 'goods' && !gids.includes(Number(it.goods_id))) continue
+            est += (Number(it.price) - Number(it.price_now)) * Number(it.quantity)
+          }
+          const zhe = (Number(a.config.discount) * 10).toFixed(1).replace(/\.0$/, '')
+          const r = round2(est)
+          if (r > 0) candidates.push({ id: a.id, type: 'discount', title: a.title || '', desc: `商品${zhe}折`, reduce: r })
+        } else if (a.type === 'full_reduce') {
+          const tiers = (a.config && a.config.tiers || []).filter((t) => Number(t.threshold) > 0)
+          let scopeSubtotal = subtotal
+          if (a.config && a.config.scope === 'goods') {
+            scopeSubtotal = 0
+            const gids = (a.config.goods_ids || []).map(Number)
+            for (const it of this.data.items) if (gids.includes(Number(it.goods_id))) scopeSubtotal += Number(it.price) * Number(it.quantity)
+          }
+          let reduce = 0
+          for (const t of tiers) if (scopeSubtotal >= Number(t.threshold)) reduce = Math.max(reduce, Number(t.reduce))
+          const r = round2(reduce)
+          if (r > 0) candidates.push({ id: a.id, type: 'full_reduce', title: a.title || '', desc: tiers.map((t) => '满' + t.threshold + '减' + t.reduce).join(' / '), reduce: r })
+        }
+      }
+      // 无任何可用的优惠时：仅标记折扣差异展示
+      if (!candidates.length) { this.derivePromo(); return }
+      // 按优惠额降序，自动推荐第一个（最大）
+      candidates.sort((x, y) => y.reduce - x.reduce)
+      const best = candidates[0]
+      this.setData({
+        promoCandidates: candidates.map((c) => Object.assign({}, c, { reduceTxt: c.reduce.toFixed(2), payable: (subtotal - c.reduce).toFixed(2), selected: c.id === best.id })),
+        selectedActivityId: best.id
+      })
+      this.pickPromo(best.id, subtotal)
+    } catch (e) { /* handled */ }
+  },
+
+  // 用户切换所选优惠活动
+  chooseCoupon(e) {
+    const id = Number(e.currentTarget.dataset.id)
+    const subtotal = Number(this.data.subtotal || 0)
+    this.setData({
+      promoCandidates: this.data.promoCandidates.map((c) => Object.assign({}, c, { selected: c.id === id })),
+      selectedActivityId: id,
+      couponShow: false
+    })
+    this.pickPromo(id, subtotal)
+  },
+
+  showCoupons() { this.setData({ couponShow: true }) },
+  hideCoupons() { this.setData({ couponShow: false }) },
+
+  // 根据选中的候选活动算出横幅 / 应付
+  pickPromo(id, subtotal) {
+    const cand = this.data.promoCandidates.find((c) => c.id === id)
+    if (!cand) { this.clearPromo(subtotal); return }
+    const banner = {
+      icon: cand.type === 'discount' ? 'discount' : 'decrease',
+      title: cand.desc,
+      sub: cand.type === 'discount' ? `已选：${cand.title || '商品折扣'}` : '满减已生效',
+      reduce: cand.reduce.toFixed(2),
+      payable: (subtotal - cand.reduce).toFixed(2),
+      origin: subtotal.toFixed(2),
+      type: cand.type
+    }
+    this.setData({
+      promoBanner: banner,
+      promoReduce: banner.reduce,
+      promoPayable: banner.payable
+    })
+  },
+
+  clearPromo(subtotal) {
+    this.setData({ promoBanner: null, promoReduce: '0.00', promoPayable: this.data.total })
+  },
+
+  // 兼容：仅折扣（活动接口无满减命中）时直出折扣横幅
+  derivePromo() {
+    const subtotal = Number(this.data.subtotal || 0)
+    const discountEst = this.data.items.reduce((s, it) => s + (Number(it.price) - Number(it.price_now)) * Number(it.quantity), 0)
+    const banner = discountEst > 0
+      ? { icon: 'discount', title: '商品折扣优惠', sub: '已按活动价结算', reduce: discountEst.toFixed(2), payable: (subtotal - discountEst).toFixed(2), origin: subtotal.toFixed(2), type: 'discount' }
+      : null
+    this.setData({
+      promoBanner: banner,
+      promoReduce: banner ? banner.reduce : '0.00',
+      promoPayable: banner ? banner.payable : this.data.total
+    })
   },
 
   // 读取店铺营业状态：歇业时禁止下单、结算按钮置灰
@@ -221,6 +338,7 @@ Page({
         contact_name: contactName,
         contact_phone: contactPhone,
         address_id: selectedAddress ? selectedAddress.id : undefined,
+        activity_id: this.data.selectedActivityId || undefined,
         items: items.map((it) => ({ goods_id: it.goods_id, quantity: it.quantity }))
       })
       wx.removeStorageSync('checkout_items')

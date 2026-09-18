@@ -1,0 +1,4 @@
+# 批处理/脚本固定 CRLF：中文 Windows 的 cmd.exe 若读到 LF 会把它与中文合并错位，命令被拆成乱码报错
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

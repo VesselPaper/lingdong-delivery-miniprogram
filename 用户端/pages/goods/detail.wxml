@@ -13,8 +13,9 @@
           <view class="soldout-badge" wx:if="{{!inStock}}">售罄</view>
         </view>
         <view class="price-row">
-          <text class="price-now">¥{{goods.price}}</text>
-          <text class="price-old" wx:if="{{goods.original_price}}">¥{{goods.original_price}}</text>
+          <text class="price-now">¥{{goods.sale_price || goods.price}}</text>
+          <text class="price-old" wx:if="{{goods.sale_price}}">¥{{goods.price}}</text>
+          <view class="price-tag" wx:if="{{goods.sale_price}}">活动价</view>
         </view>
         <view class="stock-line text-weak text-sm" wx:if="{{!inStock}}">库存为 0，暂不可下单</view>
       </view>
@@ -43,8 +44,8 @@
 
   <view class="bottom-bar safe-bottom">
     <view class="bar-price">
-      <view class="bar-price-main">¥{{goods.price}}</view>
-      <text class="bar-price-old" wx:if="{{goods.original_price}}">¥{{goods.original_price}}</text>
+      <view class="bar-price-main">¥{{goods.sale_price || goods.price}}</view>
+      <text class="bar-price-old" wx:if="{{goods.sale_price}}">¥{{goods.price}}</text>
     </view>
     <view class="bar-fee text-weak">配送费 ¥0 · 明细</view>
     <view class="go-cart {{!inStock ? 'disabled' : ''}}" bindtap="goCart">{{inStock ? '去结算' : '已售罄'}}</view>
