@@ -407,22 +407,32 @@ function importStoreGoods(db) {
   const hash = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
   if (meta && meta.value === hash) return
 
-  const ins = db.prepare('INSERT INTO goods (name, price, original_price, category, stock, status, description, barcode, unit) VALUES (?,?,?,?,?,?,?,?,?)')
+  // 记录本次重导前已存在的商品图（按条码），重建后回填，避免清空已填的图片。
+  let imgByBc = {}
+  try {
+    const prev = db.prepare('SELECT barcode, image FROM goods WHERE image <> \'\'').all()
+    for (const p of prev) if (p.barcode) imgByBc[String(p.barcode).trim()] = p.image || ''
+  } catch (e) { imgByBc = {} }
+
+  const ins = db.prepare('INSERT INTO goods (name, price, original_price, image, category, stock, status, description, barcode, unit) VALUES (?,?,?,?,?,?,?,?,?,?)')
   db.exec('BEGIN')
   try {
     db.exec('DELETE FROM goods')
     db.exec('DELETE FROM cart')
     db.exec("DELETE FROM sqlite_sequence WHERE name='goods'")
     for (const r of rows) {
+      const bc = String(r.barcode || '').trim()
+      const img = String(r.image || '').trim() || (imgByBc[bc] || '')
       ins.run(
         String(r.name || '').trim(),
         Number(r.price || 0),
         Number(r.original_price || 0),
+        img,
         String(r.category || '其他').trim(),
         Number(r.stock) >= 0 ? Number(r.stock) : 999,
         r.status !== undefined ? Number(r.status) : 1,
         String(r.description || '').trim(),
-        String(r.barcode || '').trim(),
+        bc,
         String(r.unit || '').trim()
       )
     }
