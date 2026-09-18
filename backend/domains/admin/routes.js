@@ -51,6 +51,11 @@ module.exports = (store, deps) => {
     ok(res, data)
   })
 
+  // 前端底图用配置（天地图浏览器端 tk，存于 .env，随页面注入，不进仓库）
+  router.get('/config/tianditu', (req, res) => {
+    ok(res, { tk: process.env.TIANDITU_TK || '', ts: new Date().toISOString() })
+  })
+
   // ---------- 管理员工具（查看/修复机器人状态） ----------
   // 状态总览：设备 + 平台活跃任务 + 本地批次/订单/任务 + 死锁/异常检测
   router.get('/admin/state', adminGuard, async (req, res) => {

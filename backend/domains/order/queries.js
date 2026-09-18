@@ -19,9 +19,9 @@ module.exports = {
   },
   insert: (store, f) => {
     const info = store.prepare(`INSERT INTO orders
-      (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, status, remark, pickup_code, daily_seq)
-      VALUES (?,?,?,?,?,?,?,0,?,?,?)`)
-      .run(f.orderNo, f.userId, f.landmarkId, f.landmarkName, f.contactName, f.contactPhone, f.totalAmount, f.remark, f.pickupCode, f.seq)
+      (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, original_amount, discount_amount, activity_id, status, remark, pickup_code, daily_seq)
+      VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,?)`)
+      .run(f.orderNo, f.userId, f.landmarkId, f.landmarkName, f.contactName, f.contactPhone, f.totalAmount, f.originalAmount, f.discountAmount, f.activityId, f.remark, f.pickupCode, f.seq)
     return Number(info.lastInsertRowid)
   },
   // 模拟支付：直接置待接单(1)

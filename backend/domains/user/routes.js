@@ -12,12 +12,9 @@ module.exports = (store, deps) => {
   const router = express.Router()
 
   // ---------- 登录 ----------
-  // 【临时放开】测试阶段暂不校验邀请码：商家端(client=merchant)登录即授予商家角色，方便联调；
-  // 恢复邀请码校验时取消 service.js 内对应注释即可。
+  // 邀请码方案A（按商家一条、首绑 openid、可吊销）+ 登录限流（防暴力试码）都在 service.login 内。
   router.post('/auth/login', async (req, res) => {
-    const { code } = req.body || {}
-    if (!code) return res.status(400).json({ code: 400, msg: '缺少登录凭证' })
-    const r = await service.login(store, deps, req.body)
+    const r = await service.login(store, deps, req.body, service.clientIp(req))
     if (r.error) return res.status(r.error.status).json({ code: r.error.status, msg: r.error.msg })
     ok(res, r.data)
   })
@@ -31,7 +28,8 @@ module.exports = (store, deps) => {
   })
 
   // ---------- 购物车 ----------
-  router.get('/cart/list', auth, (req, res) => ok(res, q.cartList(store, req.user.id)))
+  // 购物车列表附折后价 price_now（展示估算；真实金额以 order 域 promotion 权威计算为准）
+  router.get('/cart/list', auth, (req, res) => ok(res, service.cartListWithPrice(store, req.user.id)))
 
   router.post('/cart/add', auth, (req, res) => {
     const { goods_id, quantity = 1 } = req.body || {}

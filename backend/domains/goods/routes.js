@@ -19,15 +19,18 @@ module.exports = (store, deps) => {
   // ---------- 商品（公开） ----------
   router.get('/goods/categories', (req, res) => ok(res, q.categories(store)))
 
-  router.get('/goods/list', (req, res) => ok(res, q.list(store, req.query)))
+  // 商品列表附折后价/命中折扣（sale_price/discount_info，展示用；真实金额以 order/create 权威计算）
+  router.get('/goods/list', (req, res) => ok(res, service.withPromoPrices(store, q.list(store, req.query))))
 
   router.get('/goods/detail', (req, res) => {
     const row = q.findById(store, req.query.id || 0)
-    row ? ok(res, row) : res.status(404).json({ code: 404, msg: '商品不存在' })
+    if (!row) return res.status(404).json({ code: 404, msg: '商品不存在' })
+    ok(res, service.withPromoPrices(store, row)[0])
   })
 
   // ---------- 活动（公开） ----------
-  router.get('/activity/list', (req, res) => ok(res, q.listActivities(store)))
+  // 类型化活动列表：附 type/config(已解析)/起止时间/state（active|pending|ended）
+  router.get('/activity/list', (req, res) => ok(res, service.listActivitiesTyped(store)))
 
   // ---------- 店铺状态 ----------
   router.get('/merchant/shop', merchantGuard, (req, res) => ok(res, service.shopWithRuntime(q.getShop(store), runtime)))
@@ -115,20 +118,21 @@ module.exports = (store, deps) => {
   router.get('/merchant/activities', merchantGuard, (req, res) => ok(res, q.merchantActivities(store)))
 
   router.post('/merchant/activities', merchantGuard, (req, res) => {
-    const { title, subtitle = '', image = '', link = '', sort = 0 } = req.body || {}
+    const { title, subtitle = '', image = '', link = '', sort = 0, type = 'custom', config, start_at = '', end_at = '' } = req.body || {}
     if (!title) return res.status(400).json({ code: 400, msg: '活动标题不能为空' })
-    const id = q.insertActivity(store, { title, subtitle, image, link, sort })
-    audit(req, 'activity/create', 'activity#' + id, 'title=' + title)
+    const cfgJson = typeof config === 'string' ? config : JSON.stringify(config || {})
+    const id = q.insertActivity(store, { title, subtitle, image, link, sort, type, config: cfgJson, start_at, end_at })
+    audit(req, 'activity/create', 'activity#' + id, 'title=' + title + ' type=' + type)
     ok(res, { id })
   })
 
   router.put('/merchant/activities', merchantGuard, (req, res) => {
-    const { id, title, subtitle, image, link, sort } = req.body || {}
+    const { id, title, subtitle, image, link, sort, type, config, start_at, end_at } = req.body || {}
     if (!id) return res.status(400).json({ code: 400, msg: '缺少活动ID' })
     const cur = q.findActivityById(store, id)
     if (!cur) return res.status(404).json({ code: 404, msg: '活动不存在' })
-    q.updateActivity(store, id, { title, subtitle, image, link, sort, cur })
-    audit(req, 'activity/update', 'activity#' + id, 'title=' + (title !== undefined ? title : cur.title))
+    q.updateActivity(store, id, { title, subtitle, image, link, sort, type, config, start_at, end_at, cur })
+    audit(req, 'activity/update', 'activity#' + id, 'title=' + (title !== undefined ? title : cur.title) + ' type=' + (type !== undefined ? type : cur.type))
     ok(res)
   })
 

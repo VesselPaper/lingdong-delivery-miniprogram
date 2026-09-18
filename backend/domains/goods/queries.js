@@ -39,17 +39,21 @@ module.exports = {
   merchantActivities: (store) => store.prepare('SELECT * FROM activities ORDER BY sort, id DESC').all(),
   findActivityById: (store, id) => store.prepare('SELECT * FROM activities WHERE id=?').get(Number(id)),
   insertActivity: (store, f) => {
-    const info = store.prepare('INSERT INTO activities (title, subtitle, image, link, status, sort) VALUES (?,?,?,?,1,?)')
-      .run(f.title, f.subtitle, f.image, f.link, Number(f.sort || 0))
+    const info = store.prepare('INSERT INTO activities (title, subtitle, image, link, status, sort, type, config, start_at, end_at) VALUES (?,?,?,?,1,?,?,?,?,?)')
+      .run(f.title, f.subtitle, f.image, f.link, Number(f.sort || 0), String(f.type || 'custom'), String(f.config || '{}'), f.start_at || null, f.end_at || null)
     return Number(info.lastInsertRowid)
   },
-  updateActivity: (store, id, f) => store.prepare('UPDATE activities SET title=?, subtitle=?, image=?, link=?, sort=? WHERE id=?')
+  updateActivity: (store, id, f) => store.prepare('UPDATE activities SET title=?, subtitle=?, image=?, link=?, sort=?, type=?, config=?, start_at=?, end_at=? WHERE id=?')
     .run(
       f.title !== undefined ? f.title : f.cur.title,
       f.subtitle !== undefined ? f.subtitle : f.cur.subtitle,
       f.image !== undefined ? f.image : f.cur.image,
       f.link !== undefined ? f.link : f.cur.link,
       f.sort !== undefined ? Number(f.sort) : f.cur.sort,
+      f.type !== undefined ? String(f.type) : String(f.cur.type || 'custom'),
+      f.config !== undefined ? (typeof f.config === 'string' ? f.config : JSON.stringify(f.config || {})) : String(f.cur.config || '{}'),
+      f.start_at !== undefined ? (f.start_at || null) : (f.cur.start_at || null),
+      f.end_at !== undefined ? (f.end_at || null) : (f.cur.end_at || null),
       Number(id)
     ),
   updateActivityStatus: (store, id, status) => store.prepare('UPDATE activities SET status=? WHERE id=?').run(Number(status), Number(id)),

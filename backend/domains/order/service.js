@@ -4,6 +4,8 @@
 // 跨域写一律走 deps.goods / deps.user（deductStock / removeCartItems / restoreStock / settleSales）。
 
 const q = require('./queries')
+// 促销计算（promotion.js）为共享服务（纯函数 + store 注入）：下单时权威计算折后应付/优惠金额
+const promotion = require('../../services/promotion')
 
 // ---------- 状态字典与常量（05 方案：ORDER_STATUS/REFUND_STATUS/CANCEL_REQ_STATUS/FREE_CANCEL_WINDOW_MS/PICKUP_*/DELIVERY_* 归 order 域） ----------
 const ORDER_STATUS = {
@@ -180,7 +182,7 @@ function createOrder(store, deps, body, userId) {
   if (shop.business_status === 'closed') {
     return { error: { status: 400, msg: '店铺歇业中，暂无法下单' } }
   }
-  const { landmark_id, landmark_name, remark = '', items = [], contact_name = '', contact_phone = '', address_id } = body || {}
+  const { landmark_id, landmark_name, remark = '', items = [], contact_name = '', contact_phone = '', address_id, activity_id } = body || {}
   if (!items.length) return { error: { status: 400, msg: '订单不能为空' } }
   // 收餐人落库（P0-3）：姓名 trim 非空 ≤20；手机号必须校验
   const cname = String(contact_name || '').trim()
@@ -213,14 +215,24 @@ function createOrder(store, deps, body, userId) {
   let seq = q.dailySeqCount(store)
   const orderNoNew = () => 'LD' + Date.now().toString().slice(-8) + Math.random().toString(36).slice(2, 6).toUpperCase()
   const pickupCodeNew = () => String(Math.floor(1000 + Math.random() * 9000))
+  // 当前生效且已发布的活动（含时间窗过滤）：同单只享一个，取用户选中的（activity_id），未选/失效取最大优惠
+  const ordersActivePromos = promotion.loadActive(store)
   for (const chunk of chunks) {
-    const chunkTotal = chunk.reduce((s, it) => s + it.goods.price * it.quantity, 0)
+    const originalTotal = chunk.reduce((s, it) => s + it.goods.price * it.quantity, 0)
+    // 权威优惠计算：后端重算应付金额，前端自报价无效
+    const promo = activity_id
+      ? promotion.resolvePicked(chunk.map((it) => ({ goods: it.goods, quantity: it.quantity })), ordersActivePromos, activity_id)
+      : promotion.resolve(chunk.map((it) => ({ goods: it.goods, quantity: it.quantity })), ordersActivePromos)
+    const chunkTotal = promo.payable
+    const discountAmount = promo.discount
     const orderNo = orderNoNew()
     const pickupCode = pickupCodeNew()
     seq += 1
     const orderId = q.insert(store, {
       orderNo, userId, landmarkId: String(landmark_id), landmarkName: lm.name,
-      contactName: cname, contactPhone: cphone, totalAmount: chunkTotal.toFixed(2),
+      contactName: cname, contactPhone: cphone, totalAmount: Number(chunkTotal).toFixed(2),
+      originalAmount: Number(originalTotal).toFixed(2), discountAmount: Number(discountAmount).toFixed(2),
+      activityId: promo.activity ? promo.activity.id : null,
       remark, pickupCode, seq
     })
     for (const { goods, quantity } of chunk) {
