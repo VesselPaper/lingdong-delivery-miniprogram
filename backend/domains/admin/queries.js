@@ -18,6 +18,8 @@ module.exports = {
   taskById: (store, id) => store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(Number(id)),
   batchById: (store, id) => store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(id)),
   batchOrders: (store, batchId) => store.prepare('SELECT * FROM orders WHERE batch_id=? AND status IN (0,1,2,3,6)').all(Number(batchId)),
+  // 批次内订单全量（含终态，供批次表展开查看；不受 history 100 条上限影响）
+  batchOrdersAll: (store, batchId) => store.prepare('SELECT id,order_no,status,batch_id,delivery_task_id,landmark_name,total_amount,pickup_code,picked_up_at,created_at FROM orders WHERE batch_id=? ORDER BY id').all(Number(batchId)),
 
   // ---------- 大屏聚合（只读，跨表例外） ----------
   activeBatchesOverview: (store) => store.prepare(`

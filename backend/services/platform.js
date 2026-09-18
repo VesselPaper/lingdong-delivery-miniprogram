@@ -202,6 +202,43 @@ async function syncLandmarks(store) {
   }
 }
 
+// ---------------- 机器人自身点位（landmarkInfo，实时刷新） ----------------
+// 数据来源：/open-api/v1/building/landmarkInfo（type=deliverPoint / patrolPoint）
+// 返回机器人自己配置的场地点位（取货点/巡逻点/上货点），坐标空间与 mapInfo bbox / eviz robotpose 一致。
+// 30s 缓存：随 /admin/map 4s 轮询自动刷新，避免每轮都对平台发起全量请求。
+let landmarkCache = { ts: 0, data: null }
+async function getPlatformLandmarks(store) {
+  if (landmarkCache.data && Date.now() - landmarkCache.ts < 30000) return landmarkCache.data
+  const out = []
+  try {
+    if (!platformReady()) return landmarkCache.data || out
+    const lm0 = store.prepare("SELECT platform_building_id FROM landmarks WHERE platform_building_id != '' LIMIT 1").get()
+    const buildingId = lm0 && lm0.platform_building_id
+    if (!buildingId) return landmarkCache.data || out
+    for (const type of ['deliverPoint', 'patrolPoint']) {
+      const r = await requestPlatform('GET', '/open-api/v1/building/landmarkInfo?buildingId=' + encodeURIComponent(buildingId) + '&type=' + type)
+      const pts = (r && r.data) || []
+      if (!Array.isArray(pts)) continue
+      for (const p of pts) {
+        if (!p || !p.landmarkName) continue
+        const pose = Array.isArray(p.pose) ? p.pose : []
+        if (pose.length < 2) continue
+        out.push({
+          id: p.landmarkId || '',
+          name: p.landmarkName,
+          type: /上货|商铺|店铺|铺子/.test(p.landmarkName) ? 'loadingPoint' : type,
+          x: Number(pose[0]),
+          y: Number(pose[1])
+        })
+      }
+    }
+    if (out.length) landmarkCache = { ts: Date.now(), data: out }
+    return out.length ? out : (landmarkCache.data || out)
+  } catch (e) {
+    return landmarkCache.data || out
+  }
+}
+
 // ---------------- 配送监控地图（真实校园地图 + 点位 + 路网 + 机器人位置 + 路线） ----------------
 // 数据来源：
 //  1. building/mapInfo/{mapId}：真实地图图片（map.png/barrier.png 签名 OSS 直链）+ mapDetailInfo.landmarks（点位坐标）
@@ -261,18 +298,20 @@ async function getMapOverview(store) {
   const mapUrl = data.map
   const barrierUrl = data.barrier || ''
   const detail = data.mapDetailInfo || {}
-  // 点位（含商铺上货 loading）
-  const landmarks = []
   const pts = detail.landmarks || {}
-  for (const k of Object.keys(pts)) {
-    const p = pts[k]
-    if (!p || !Array.isArray(p.pose) || p.pose.length < 2) continue
-    landmarks.push({
-      id: p.id || k,
-      name: p.name || '',
-      type: /上货|商铺|店铺|铺子/.test(p.name || '') ? 'loadingPoint' : 'deliverPoint',
-      x: Number(p.pose[0]), y: Number(p.pose[1])
-    })
+  // 点位：机器人自身点位（landmarkInfo 接口，实时刷新）；接口失败时回退 mapDetailInfo 内嵌点位
+  let landmarks = await getPlatformLandmarks(store)
+  if (!landmarks.length) {
+    for (const k of Object.keys(pts)) {
+      const p = pts[k]
+      if (!p || !Array.isArray(p.pose) || p.pose.length < 2) continue
+      landmarks.push({
+        id: p.id || k,
+        name: p.name || '',
+        type: /上货|商铺|店铺|铺子/.test(p.name || '') ? 'loadingPoint' : 'deliverPoint',
+        x: Number(p.pose[0]), y: Number(p.pose[1])
+      })
+    }
   }
   // 路网（固定路径 graph）
   const graph = { nodes: [], edges: [] }
@@ -290,6 +329,14 @@ async function getMapOverview(store) {
   // bbox：点位 + 路网节点 的外包框（前端按此把坐标映射到图片像素）
   const bbox = computeMapBbox(data)
   if (!bbox) return { ok: false, msg: '地图无点位数据' }
+  // 雷达图像素映射元数据（ROS map 惯例：origin=图片左下角世界坐标，resolution=米/像素，width/height=像素数）
+  const md = detail.metadata || {}
+  const meta = (md.width && md.height && md.resolution) ? {
+    width: Number(md.width),
+    height: Number(md.height),
+    resolution: Number(md.resolution),
+    origin: Array.isArray(md.origin) && md.origin.length >= 2 ? [Number(md.origin[0]), Number(md.origin[1])] : [0, 0]
+  } : null
     // 活跃批次路线（批次状态=配送中，route 停靠点坐标来自本地 landmarks）
     const routes = []
     const activeBatches = store.prepare('SELECT id FROM delivery_batches WHERE status=2 ORDER BY id DESC LIMIT 10').all()
@@ -316,7 +363,7 @@ async function getMapOverview(store) {
         robots.push({ device_sn: t.device_sn, x: Number(pos.x), y: Number(pos.y), theta: Number(pos.theta || 0), text: pos.text || '' })
       }
     }
-    return { ok: true, map_url: mapUrl, barrier_url: barrierUrl, bbox, landmarks, graph, robots, routes }
+    return { ok: true, map_url: mapUrl, barrier_url: barrierUrl, bbox, meta, landmarks, graph, robots, routes }
 }
 
 // ---------------- 地图底图字节（由后端代理下载） ----------------
@@ -721,6 +768,141 @@ async function summonToLoadingPoint(store, preferredSn) {
   }
 }
 
+// ---------------- 管理员手动召唤（可选目标点，含充电点） ----------------
+// 召唤目标点列表：上货点/取货点（本地 landmarks 同步自 landmarkInfo）+ 充电点（地图 landmarks 的 chargePoint）
+async function getSummonTargets(store) {
+  const out = []
+  const rows = store.prepare("SELECT id, name, type, platform_landmark_id, platform_map_id, platform_building_id, pos_x, pos_y FROM landmarks WHERE type IN ('loadingPoint','deliverPoint') ORDER BY sort").all()
+  for (const r of rows) {
+    if (!r.platform_landmark_id) continue
+    out.push({ id: r.platform_landmark_id, name: r.name || '', type: r.type, x: r.pos_x, y: r.pos_y })
+  }
+  try {
+    const data = await getMapRaw(store)
+    const detail = data && data.mapDetailInfo
+    const pts = (detail && detail.landmarks) || {}
+    for (const k of Object.keys(pts)) {
+      const p = pts[k]
+      if (p && p.type === 'chargePoint' && Array.isArray(p.pose) && p.pose.length >= 2) {
+        out.push({ id: p.id || k, name: p.name || '充电点', type: 'chargePoint', x: Number(p.pose[0]), y: Number(p.pose[1]) })
+      }
+    }
+  } catch (e) { /* 充电点获取失败不阻断取货点列表 */ }
+  return { ok: true, targets: out }
+}
+
+// 召唤指定机器人到指定点位（lightTask 轻任务；召唤会中断正在执行的配送任务，调用前须确认）
+async function summonToPoint(store, deviceSn, landmarkId) {
+  if (MOCK) return { ok: true, msg: '模拟召唤成功' }
+  if (!platformReady()) return { ok: false, msg: '未配置平台凭据' }
+  const base = store.prepare("SELECT platform_building_id, platform_map_id FROM landmarks WHERE platform_building_id != '' LIMIT 1").get()
+  if (!base || !base.platform_building_id) return { ok: false, msg: '未配置平台映射' }
+  // 解析目标点：本地 landmarks（上货/取货）；找不到则尝试地图 landmarks（充电点等）
+  let lm = landmarkId ? store.prepare('SELECT * FROM landmarks WHERE platform_landmark_id=?').get(landmarkId) : null
+  let targetName = lm ? lm.name : ''
+  if (!lm) {
+    const data = await getMapRaw(store)
+    const detail = data && data.mapDetailInfo
+    const pts = (detail && detail.landmarks) || {}
+    for (const k of Object.keys(pts)) {
+      const p = pts[k]
+      if (p && (p.id === landmarkId || k === landmarkId)) {
+        // mapId 必须用机器人实际使用的地图（DB platform_map_id，landmarkInfo 同源）；
+        // 不能用 mapInfo 的 kmapId（平台内部地图版本，与机器人地图不一致会报「点位不存在」）
+        lm = { platform_landmark_id: p.id || k, platform_map_id: base.platform_map_id || '', platform_building_id: base.platform_building_id }
+        targetName = p.name || '点位'
+        break
+      }
+    }
+  }
+  if (!lm || !lm.platform_landmark_id) return { ok: false, msg: '目标点位不存在' }
+  // 选择设备：指定设备优先，其次空闲/充电/待机/返程/召唤中的车，最后任意在线车
+  const r = await getDeviceList()
+  if (!r.ok || !r.robots || !r.robots.length) return { ok: false, msg: '无机器人可召唤' }
+  let robot = null
+  if (deviceSn) robot = r.robots.find((x) => x.online && x.device_sn === deviceSn)
+  if (!robot) robot = r.robots.find((x) => x.online && ['idle', 'standby', 'charging', 'returnChargingPile', 'returnStandby', 'lightTask'].includes(x.machine_status))
+  robot = robot || r.robots.find((x) => x.online) || null
+  if (!robot) return { ok: false, msg: '无在线机器人可召唤' }
+  try {
+    const body = {
+      principalId: PRINCIPAL_ID,
+      deviceSn: robot.device_sn,
+      landmarkId: lm.platform_landmark_id,
+      mapId: lm.platform_map_id || '',
+      buildingId: lm.platform_building_id || base.platform_building_id,
+      expireTime: formatLocalDt(Date.now() + 5 * 60 * 1000),
+      remark: '管理员召唤至 ' + (targetName || '点位'),
+      action: { type: 'wait', waitTime: 300 },
+      extInfo: {}
+    }
+    const resp = await requestPlatform('POST', '/open-api/v1/lightTask', body)
+    if (resp && (resp.code === 'COMM_200' || resp.success === true)) {
+      return { ok: true, device_sn: robot.device_sn, landmark: targetName || '' }
+    }
+    return { ok: false, msg: (resp && resp.msg) || '召唤失败' }
+  } catch (e) {
+    return { ok: false, msg: '召唤异常：' + e.message }
+  }
+}
+
+// ---------------- 管理员手动控制：驻停 / 恢复 / 停止并取消任务 ----------------
+// 设备驻停（stopTime 秒后自动恢复）
+async function stopRobot(deviceSn, stopTime) {
+  if (MOCK) return { ok: true, msg: '模拟驻停成功' }
+  if (!deviceSn) return { ok: false, msg: '缺少设备编号' }
+  try {
+    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/stop', { deviceSn, stopTime: Number(stopTime) || 30 })
+    return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '驻停失败' }
+  } catch (e) {
+    return { ok: false, msg: '驻停异常：' + e.message }
+  }
+}
+
+// 查设备当前活跃任务（basicPageList 按设备过滤，taskStatus<80 未终态）
+async function deviceActiveTasks(store, deviceSn) {
+  const r = await listPlatformTasks(store)
+  if (!r.ok) return []
+  return (r.tasks || []).filter((t) => t.deviceSn === deviceSn && Number(t.taskStatus) < 80)
+}
+
+// 恢复任务（继续工作）：恢复设备当前（挂起）任务；平台要求 taskId 必填
+async function recoverRobot(store, deviceSn) {
+  if (MOCK) return { ok: true, msg: '模拟恢复成功' }
+  if (!deviceSn) return { ok: false, msg: '缺少设备编号' }
+  let taskId = null
+  try {
+    const acts = await deviceActiveTasks(store, deviceSn)
+    if (acts.length) taskId = acts[0].id
+  } catch (e) { /* 查任务失败不阻断恢复指令 */ }
+  if (!taskId) return { ok: false, msg: '未找到 ' + deviceSn + ' 的当前任务（可能无任务或已终态），无法恢复' }
+  try {
+    const body = { deviceSn, taskId: Number(taskId), stockPos: 'pos_1' }
+    const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/recover', body)
+    return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '恢复任务失败' }
+  } catch (e) {
+    return { ok: false, msg: '恢复任务异常：' + e.message }
+  }
+}
+
+// 停止并取消正在做的任务：先关闭设备当前活跃任务（舱内有货自动开舱），再驻停
+async function stopAndCancelTask(store, deviceSn) {
+  if (MOCK) return { ok: true, msg: '模拟停止并取消成功' }
+  if (!deviceSn) return { ok: false, msg: '缺少设备编号' }
+  const out = { closed: 0, stopped: false }
+  try {
+    const acts = await deviceActiveTasks(store, deviceSn)
+    for (const t of acts.slice(0, 3)) {
+      const c = await closeTask(deviceSn, t.id, '管理员停止并取消任务')
+      if (c.ok) out.closed++
+    }
+  } catch (e) { /* 关闭失败不阻断驻停 */ }
+  const s = await stopRobot(deviceSn, 60)
+  out.stopped = s.ok
+  if (!out.closed && !out.stopped) return { ok: false, msg: '未关闭任何任务且驻停失败' }
+  return { ok: true, closed: out.closed, stopped: out.stopped }
+}
+
 // 取餐超时「回来再等」：为未取餐订单重建一个同卸载点位的配送任务，让机器人再跑一趟该点位等待。
 // 与 createTasksForBatch 的区别：**不把订单改回 status=2**（保持已送达 3，避免被「卡死配送中」扫描误伤），
 // 也不重新 loading（货已在舱）。真实平台对「同一单/同一货舱重建 queue/create 任务」是否可行、
@@ -761,7 +943,7 @@ async function verifyBatchLoading(store, batchId) {
   const tasks = batchPendingTasks(store, batchId)
   const out = []
   for (const t of tasks) {
-    if (!t.platform_task_id) { out.push({ task_id: t.id, ok: false, msg: '任务未下发到平台' }); continue }
+    if (!t.platform_task_id) { continue }   // 排队待下发（同批次上一单完成后才下发），本轮不参与开舱，跳过
     const r = await loadingVerify(t.device_sn, t.platform_task_id, { anyCode: t.pickup_code })
     out.push({ task_id: t.id, ok: r.ok, msg: r.ok ? '' : r.msg })
   }
@@ -777,7 +959,7 @@ async function confirmBatchLoading(store, batchId) {
   const tasks = batchPendingTasks(store, batchId)
   const out = []
   for (const t of tasks) {
-    if (!t.platform_task_id) { out.push({ task_id: t.id, ok: false, msg: '任务未下发到平台' }); continue }
+    if (!t.platform_task_id) { continue }   // 排队待下发，本轮不参与关舱/配送，跳过
     if (!t.device_sn) { out.push({ task_id: t.id, ok: false, msg: '缺少设备编号' }); continue }
     const r = await loadingConfirm(t.device_sn, t.platform_task_id, { anyCode: t.pickup_code })
     out.push({ task_id: t.id, ok: r.ok, msg: r.ok ? '' : r.msg })
@@ -1215,12 +1397,21 @@ async function robotAtLoadingPoint(store, deviceSn) {
       return { ok: false, msg: '无人车还在' + (me.machine_text || me.machine_status) + '，请等待其到达上货点后再开舱', at_loading_point: false, distance_m: null }
     }
   }
-  // 平台权威「到达上货点」：该设备最近配送任务状态 30/40
-  const t = store.prepare("SELECT * FROM delivery_tasks WHERE device_sn=? AND void_at IS NULL ORDER BY id DESC LIMIT 1").get(deviceSn)
-  if (!t) return { ok: false, msg: '未找到该设备的配送任务，请先「上货定型」', at_loading_point: false, distance_m: null }
-  if (t && [30, 40].includes(Number(t.task_status))) {
+  // 平台权威「到达上货点」：该设备**存在任一**配送任务状态 30/40 即视为已就位。
+  // 2026-09-18 修复：此前按 `ORDER BY id DESC LIMIT 1` 取「最新」一条任务判定，同一批次多单同机下，
+  // 若其中某单任务创建失败（platform_task_id 为空、status 停在 0），会误把「正在前往上货点」当最新
+  // 状态返回，导致车明明到了上货点（task_status=30）却无法开舱。正确判据 = 任一任务已到上货点。
+  const ready = store.prepare(
+    "SELECT task_status, status_text FROM delivery_tasks WHERE device_sn=? AND void_at IS NULL AND task_status IN (30,40) AND platform_task_id != '' LIMIT 1"
+  ).get(deviceSn)
+  if (ready) {
     return { ok: true, at_loading_point: true, distance_m: 0, by_task_status: true }
   }
+  // 无已就位任务：取最新一条有效任务做等待提示（排除平台未下发的空任务，避免误导）
+  const t = store.prepare(
+    "SELECT task_status, status_text FROM delivery_tasks WHERE device_sn=? AND void_at IS NULL AND platform_task_id != '' ORDER BY id DESC LIMIT 1"
+  ).get(deviceSn)
+  if (!t) return { ok: false, msg: '未找到该设备的配送任务，请先「上货定型」', at_loading_point: false, distance_m: null }
   return {
     ok: false,
     msg: '无人车正在前往上货点（' + (t.status_text || '状态 ' + t.task_status) + '），请等待其到达后再开舱',
@@ -1329,4 +1520,4 @@ async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, createTasksForBatch, createDirectTask, preCreateTask, deletePreCreateTask, listPlatformTasks, recreatePickupTask, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, getRobotRadar, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, getMapImageBytes, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, isRobotBusy, summonToLoadingPoint }
+module.exports = { createQueueTask, createTasksForBatch, createDirectTask, preCreateTask, deletePreCreateTask, listPlatformTasks, recreatePickupTask, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, getRobotRadar, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, getMapImageBytes, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, isRobotBusy, summonToLoadingPoint, getSummonTargets, summonToPoint, stopRobot, recoverRobot, stopAndCancelTask }
