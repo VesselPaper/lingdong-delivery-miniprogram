@@ -46,6 +46,7 @@ const goodsService = require('./domains/goods/service')
 const orderRoutes = require('./domains/order/routes')
 const orderService = require('./domains/order/service')
 const deliveryRoutes = require('./domains/delivery/routes')
+const deliveryService = require('./domains/delivery/service')
 const deliveryTimers = require('./domains/delivery/timers')
 const adminRoutes = require('./domains/admin/routes')
 
@@ -108,6 +109,15 @@ app.use('/api', deliveryRoutes(store, {
   runtime, platform, batch, orderCancel,
   goods: goodsService, order: orderService
 }))
+// 召唤多单配送推进钩子：批次内任一订单被取走（order.fulfillOrder→batch.countPicked→notify），
+// 由 delivery 域判断「当前楼栋是否全取完 → 停 5s → 召唤下一栋 / 全部送完召回完成」。
+// 捕获 store + deps，符合 batch.js 钩子签名 fn(batchId)（batch 域不持有 deps，避免循环依赖）。
+const deliveryHookDeps = { runtime, platform, batch, orderCancel, goods: goodsService, order: orderService }
+batch.registerSummonAdvance((batchId) => {
+  deliveryService.advanceSummonDelivery(store, deliveryHookDeps, batchId).catch((e) => {
+    console.warn('[summon] 批次推进后台失败 batch=' + batchId + ' msg=' + e.message)
+  })
+})
 app.use('/api', adminRoutes(store, {
   runtime, platform, orderCancel,
   goods: goodsService, order: orderService

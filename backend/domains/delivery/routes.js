@@ -214,6 +214,15 @@ module.exports = (store, deps) => {
         updated_at=datetime('now','localtime')
       WHERE id=? AND status IN (3,4) AND pickup_open_count < ?`).run(order.id, PICKUP.MAX_PICKUP_OPEN)
     if (claim.changes !== 1) return res.status(400).json({ code: 400, msg: '重新开舱次数已达上限，请联系商家处理' })
+    // 取餐开舱：召唤模式无配送任务，直接 drawerCtrl(1) 开舱；否则走 unloadingVerify（任务态）
+    if (deps.runtime.summonDelivery) {
+      const b = order.batch_id ? q.batchById(store, order.batch_id) : null
+      if (b && b.device_sn) {
+        const r = await deps.platform.drawerCtrl(b.device_sn, 1)
+        if (!r.ok) return res.status(502).json({ code: 502, msg: '开舱失败：' + r.msg })
+        return ok(res, { order_id: order.id, status: Number(order.status), opened_at: order.pickup_opened_at, summon: true })
+      }
+    }
     const task = order.delivery_task_id ? q.taskById(store, order.delivery_task_id) : null
     const ready = !!(task && task.device_sn && task.platform_task_id)
     if (ready) {
@@ -230,6 +239,18 @@ module.exports = (store, deps) => {
     const order = store.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(Number((req.body || {}).order_id), req.user.id)
     if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
     if (![3, 4].includes(Number(order.status))) return res.status(400).json({ code: 400, msg: '订单状态不允许关舱' })
+    // 召唤模式：关舱 = drawerCtrl(0)，取走动作收口到 order.fulfillOrder（写 order+结算，批次推进经钩子）
+    if (deps.runtime.summonDelivery) {
+      const b = order.batch_id ? q.batchById(store, order.batch_id) : null
+      if (b && b.device_sn) {
+        const c = await deps.platform.drawerCtrl(b.device_sn, 0)
+        if (!c.ok) return res.status(502).json({ code: 502, msg: '关舱失败：' + c.msg })
+      }
+      store.prepare("UPDATE orders SET picking_up_at=NULL, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
+      const r = deps.order.fulfillOrder(store, deps, order) // 置 4 已完成 + 结算销量 + 批次计数(钩子触发推进)
+      if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg })
+      return ok(res, { order_id: order.id, status: 4, summon: true })
+    }
     const task = order.delivery_task_id ? q.taskById(store, order.delivery_task_id) : null
     const ready = !!(task && task.device_sn && task.platform_task_id)
     if (ready) {
@@ -275,6 +296,23 @@ module.exports = (store, deps) => {
     const { batch_id } = req.body || {}
     const b = q.batchById(store, batch_id)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
+    // 召唤多单配送：无配送任务，门禁改用通用点位到达判定（robotAtPoint），开舱=召唤到上货点+drawerCtrl(1)
+    if (deps.runtime.summonDelivery) {
+      if (!b.device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号，请先派车定型' })
+      // 机器人被召唤到上货点等待，到点才允许开舱（无任务态可依赖，用通用门禁）
+      const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get() || null
+      if (loading && loading.platform_landmark_id) {
+        const gate = await deps.platform.robotAtPoint(store, b.device_sn, loading.platform_landmark_id, loading)
+        if (!gate.ok) return res.status(400).json({ code: 400, msg: gate.msg, reason: 'not_at_loading_point' })
+      }
+      const summoned = await deps.platform.summonToLoadingPoint(store, b.device_sn)
+      if (!summoned.ok) return res.status(502).json({ code: 502, msg: '召唤上货点失败：' + summoned.msg, reason: 'summon_failed' })
+      const opened = await deps.platform.drawerCtrl(b.device_sn, 1)
+      if (!opened.ok) return res.status(502).json({ code: 502, msg: '开舱失败：' + opened.msg })
+      q.setBatchLoading(store, b.id)
+      audit(req, 'device/batch-open', 'batch#' + b.id, '召唤开舱 device_sn=' + b.device_sn)
+      return ok(res, { batch_id: b.id, opened: b.total_orders, summoned: true })
+    }
     // 需求3门禁：无人车必须已到达上货点才能开舱上货（真实档校验；演示档恒通过）
     const gate = await deps.platform.robotAtLoadingPoint(store, b.device_sn)
     if (!gate.ok) {
@@ -326,6 +364,16 @@ module.exports = (store, deps) => {
     const { batch_id } = req.body || {}
     const b = q.batchById(store, batch_id)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
+    // 召唤多单配送：立即配送 = 按单数加权路线规划 + 召唤到首站 + 该站订单置待取货（不创建越凡配送任务）
+    if (deps.runtime.summonDelivery) {
+      try {
+        const detail = await s.startSummonDelivery(store, deps, b.id)
+        audit(req, 'device/batch-dispatch', 'batch#' + b.id, '召唤配送 device_sn=' + b.device_sn)
+        return ok(res, { batch_id: b.id, summoned: true, detail })
+      } catch (e) {
+        return res.status(400).json({ code: 400, msg: e.message })
+      }
+    }
     // 开始配送前（商家已上货并关舱）规划路线：按收餐点位分组 + 最近邻，写入 batch.route 供逐点配送/地图展示。
     // 路线规划失败不阻断配送（每个任务自带收餐点位，仍会逐点送达）。
     try {

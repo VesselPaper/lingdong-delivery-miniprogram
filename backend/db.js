@@ -208,6 +208,12 @@ function migrate(db) {
   if (!batchCols.includes('mock_arrive_at')) db.exec("ALTER TABLE delivery_batches ADD COLUMN mock_arrive_at TEXT")
   // delivery_batches：Route B 直接下发的设备控制权 ID（持久化，重启不丢，开始配送时释放）
   if (!batchCols.includes('ctrl_id')) db.exec("ALTER TABLE delivery_batches ADD COLUMN ctrl_id TEXT DEFAULT ''")
+  // delivery_batches：召唤多单配送（SUMMON_DELIVERY=true）的运行锚点。
+  // current_stop：当前正送到的停靠点序号（1-based，route 数组下标+1）；0=还没开始送。
+  //   落库用于服务重启后按批恢复推进；advance 用条件更新独占防并发重复召唤。
+  // delivery_mode：本批次的配送执行模式，'summon'=召唤多单配送 / 空或'task'=一单一单送。
+  if (!batchCols.includes('current_stop')) db.exec("ALTER TABLE delivery_batches ADD COLUMN current_stop INTEGER DEFAULT 0")
+  if (!batchCols.includes('delivery_mode')) db.exec("ALTER TABLE delivery_batches ADD COLUMN delivery_mode TEXT DEFAULT ''")
   // 历史数据回填：按创建日期逐日累计编号（id 即当日创建顺序）
   db.exec(`UPDATE delivery_batches SET daily_seq=(
     SELECT COUNT(*) FROM delivery_batches b2

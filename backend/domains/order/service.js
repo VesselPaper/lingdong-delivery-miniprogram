@@ -55,6 +55,57 @@ function orderStuckDelivering(store, order) {
   return !isNaN(t) && Date.now() - t > DELIVERY_TIMEOUT_MS
 }
 
+// ---------- 订单状态推进收口（召唤多单配送 + 取餐关舱路径：写 orders 的唯一咽喉） ----------
+// 数据项归属：orders 是 order 域专属表，故「到点待取货」「取走已完成」两类状态迁移在此收口，delivery 域调本域 service。
+// 状态守卫与 platform.js 的 canMoveOrderStatus 语义保持一致（终态不回退、只允许前向迁移）；
+// 平台回调 applyStatus/onTaskStatus 里直接写 orders 属历史遗留，另立 commit 收尾，本文件只负责召唤路径+pickup-close。
+const _ORDER_TERMINAL = [4, 5, 7]
+const _ORDER_RANK = { 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 0, 6: 5, 7: 0 }
+
+function canAdvanceOrderStatus(from, to) {
+  const f = Number(from)
+  const t = Number(to)
+  if (f === t) return false
+  if (_ORDER_TERMINAL.includes(f)) return false
+  if (t === 5) return [0, 1, 2, 3, 6].includes(f)
+  if (t === 6) return [1, 2, 3].includes(f)
+  if (f === 6) return [2, 3, 4].includes(t)
+  const rf = _ORDER_RANK[f]
+  const rt = _ORDER_RANK[t]
+  if (rf === undefined || rt === undefined) return false
+  return rt > rf
+}
+
+// 到点待取货：机器人召唤到达某点位，把该点位订单 2→3（已送达/待取货）。
+// 只负责 orders 写 + 结算销量（走 goods 域 service）；批次/点位推进仍由 delivery 域驱动。
+function arriveOrder(store, deps, order) {
+  if (!order) return { ok: false, msg: '订单不存在' }
+  const row = store.prepare('SELECT * FROM orders WHERE id=?').get(order.id) || order
+  const st = Number(row.status)
+  if (st === 3 || st === 4) return { ok: true, already: true } // 重复召唤/重复回调幂等
+  if (!canAdvanceOrderStatus(st, 3)) return { ok: false, msg: '订单状态不允许置待取货（当前 ' + st + '）' }
+  store.prepare("UPDATE orders SET status=3, delivered_at=COALESCE(delivered_at, datetime('now','localtime')), updated_at=datetime('now','localtime') WHERE id=?")
+    .run(row.id)
+  try { if (deps.goods && deps.goods.settleSales) deps.goods.settleSales(store, row.id) } catch (e) { /* 结算失败不阻断状态推进 */ }
+  return { ok: true }
+}
+
+// 取走已完成：用户关舱取走，订单 →4(已完成)。写 orders 后，批次计数/完成判定交 delivery 域（deps.batch.countPicked）。
+function fulfillOrder(store, deps, order) {
+  if (!order) return { ok: false, msg: '订单不存在' }
+  const row = store.prepare('SELECT * FROM orders WHERE id=?').get(order.id)
+  if (!row) return { ok: false, msg: '订单不存在' }
+  if (row.picked_up_at) return { ok: true, already: true }
+  if ([5, 7].includes(Number(row.status)) || row.cancelled_at) {
+    return { ok: false, msg: '已取消/退款订单不可标记已完成' }
+  }
+  store.prepare("UPDATE orders SET picked_up_at=datetime('now','localtime'), status=4, updated_at=datetime('now','localtime') WHERE id=?")
+    .run(row.id)
+  try { if (deps.goods && deps.goods.settleSales) deps.goods.settleSales(store, row.id) } catch (e) { /* 结算失败不阻断 */ }
+  try { if (row.batch_id && deps.batch && deps.batch.countPicked) deps.batch.countPicked(store, row) } catch (e) { /* 批次计数失败不阻断 */ }
+  return { ok: true }
+}
+
 // 自动接单：营业中且 auto_accept=1 时，已支付订单自动接单并并入当前配送批次。
 // 读 shops（goods 域，走 deps.goods.getShop）；并入批次调 deps.batch.addOrderToBatch（delivery 域，未拆前直连 services/batch）。
 function maybeAutoAccept(store, deps, order) {
@@ -293,6 +344,8 @@ module.exports = {
   // 状态机辅助
   orderTrulyDelivering, orderStuckDelivering, maybeAutoAccept, withinFreeCancelWindow,
   applyOrderCancelled, realRefundOrLocal, splitOrderChunks,
+  // 状态推进收口（召唤配送 / 取餐关舱）
+  canAdvanceOrderStatus, arriveOrder, fulfillOrder,
   // 业务
   createOrder, payOrder, computeStats
 }

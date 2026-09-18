@@ -846,6 +846,20 @@ async function summonToPoint(store, deviceSn, landmarkId) {
   }
 }
 
+// 召唤多单配送：把指定机器人召唤到 route 里的某停靠点（stop.landmark_id → 平台点位）。
+// 内部复用 summonToPoint；stop.landmark_id 是本地 landmarks 表主键（DB id，非平台 id），
+// summonToPoint 会按 platform_landmark_id 反查平台 landmark，故这里传本地 landmark 的 platform_landmark_id。
+async function summonDeliveryToStop(store, batch, stop) {
+  if (!store || !batch || !batch.device_sn || !stop) return { ok: false, msg: '参数不完整' }
+  const lm = store.prepare('SELECT * FROM landmarks WHERE id=?').get(String(stop.landmark_id))
+  if (!lm || !lm.platform_landmark_id) {
+    return { ok: false, msg: '点位「' + (stop.landmark_name || stop.landmark_id) + '」未配置平台映射，无法召唤' }
+  }
+  const r = await summonToPoint(store, batch.device_sn, lm.platform_landmark_id)
+  if (!r.ok) return { ok: false, msg: '召唤到点位失败：' + r.msg, device_sn: batch.device_sn }
+  return { ok: true, device_sn: r.device_sn, stop: Number(stop.stop || 0), landmark_id: stop.landmark_id, landmark_name: stop.landmark_name }
+}
+
 // ---------------- 管理员手动控制：驻停 / 恢复 / 停止并取消任务 ----------------
 // 设备驻停（stopTime 秒后自动恢复）
 async function stopRobot(deviceSn, stopTime) {
@@ -1385,6 +1399,10 @@ async function loadingConfirm(deviceSn, platformTaskId, strategies) {
 // 辅以机器状态预检（充电/返程/回待机 → 明确提示等车到位）。
 // MOCK 档恒 ok（demo 冒烟不受影响）；拿不到任务状态 → 保守拒绝，宁可挡住不可假装。
 const LOADING_RADIUS_M = Number(process.env.LOADING_POINT_RADIUS_M || 1.5)
+// 召唤模式点位到达门禁半径（米）与定位标定系数：robotAtPoint 用 getDevicePosition 测距判定到点。
+// 真机标定 ARRIVE_RADIUS_M（距目标点 ≤ 该值判为已到）与 POS_M_PER_UNIT（SLAM 网格坐标→局部米）。
+const ARRIVE_RADIUS_M = Number(process.env.ARRIVE_RADIUS_M || 2.0)
+const POS_M_PER_UNIT = Number(process.env.POS_M_PER_UNIT || 1.0)
 
 async function robotAtLoadingPoint(store, deviceSn) {
   if (MOCK) return { ok: true, at_loading_point: true, distance_m: 0 }
@@ -1417,6 +1435,45 @@ async function robotAtLoadingPoint(store, deviceSn) {
     msg: '无人车正在前往上货点（' + (t.status_text || '状态 ' + t.task_status) + '），请等待其到达后再开舱',
     at_loading_point: false,
     distance_m: null
+  }
+}
+
+// 召唤模式点位到达门禁：判定指定机器人是否已到达某 landmarks 点位（robotAtPoint）。
+// 与 robotAtLoadingPoint 的区别：召唤多单配送下**没有配送任务**可依赖，故不用任务状态，
+// 改用机器状态预检 + getDevicePosition 测距到目标 landmark 坐标（≤ ARRIVE_RADIUS_M 判为已到）。
+// 软信号辅助：machine_status==='lightTask'（车正被召唤停在该点待命）。
+// MOCK 档恒 ok；定位数据拿不到则保守拒绝（宁可挡，不假装）。
+async function robotAtPoint(store, deviceSn, landmarkId, landmark) {
+  if (MOCK) return { ok: true, at_point: true, distance_m: 0 }
+  if (!deviceSn) return { ok: false, msg: '缺少设备编号', at_point: false, distance_m: null }
+  // 机器状态预检：充电/返程/回待机 = 不在目标点，直接拒绝
+  const dev = await getDeviceList()
+  if (dev.ok && dev.robots && dev.robots.length) {
+    const me = dev.robots.find((x) => x.device_sn === deviceSn)
+    if (me && ['charging', 'returnChargingPile', 'returnStandby'].includes(me.machine_status)) {
+      return { ok: false, msg: '无人车还在' + (me.machine_text || me.machine_status) + '，请等待其到达后再开舱', at_point: false, distance_m: null }
+    }
+  }
+  // 解析目标点坐标：优先入参 landmark，其次按 id 查本地 landmarks
+  let lm = landmark
+  if (!lm && landmarkId) lm = store.prepare('SELECT * FROM landmarks WHERE platform_landmark_id=? OR id=?').get(String(landmarkId), String(landmarkId))
+  const tx = lm ? Number(lm.pos_x || 0) : 0
+  const ty = lm ? Number(lm.pos_y || 0) : 0
+  if (!tx && !ty) return { ok: false, msg: '目标点位无坐标，无法判定到达', at_point: false, distance_m: null }
+  try {
+    const pos = await getDevicePosition(store, deviceSn)
+    const px = pos ? Number(pos.position_x != null ? pos.position_x : pos.x) : null
+    const py = pos ? Number(pos.position_y != null ? pos.position_y : pos.y) : null
+    if (px === null || py === null || isNaN(px) || isNaN(py)) {
+      return { ok: false, msg: '无法获取机器人当前位置', at_point: false, distance_m: null }
+    }
+    const dx = (px - tx) * POS_M_PER_UNIT
+    const dy = (py - ty) * POS_M_PER_UNIT
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    if (dist <= ARRIVE_RADIUS_M) return { ok: true, at_point: true, distance_m: dist }
+    return { ok: false, msg: '机器人尚未到达点位（距目标 ' + dist.toFixed(1) + 'm）', at_point: false, distance_m: dist }
+  } catch (e) {
+    return { ok: false, msg: '判断到达异常：' + e.message, at_point: false, distance_m: null }
   }
 }
 
@@ -1520,4 +1577,4 @@ async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, createTasksForBatch, createDirectTask, preCreateTask, deletePreCreateTask, listPlatformTasks, recreatePickupTask, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, getRobotRadar, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, getMapImageBytes, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, isRobotBusy, summonToLoadingPoint, getSummonTargets, summonToPoint, stopRobot, recoverRobot, stopAndCancelTask }
+module.exports = { createQueueTask, createTasksForBatch, createDirectTask, preCreateTask, deletePreCreateTask, listPlatformTasks, recreatePickupTask, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, getRobotRadar, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, getMapImageBytes, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, robotAtPoint, isRobotBusy, summonToLoadingPoint, getSummonTargets, summonToPoint, summonDeliveryToStop, stopRobot, recoverRobot, stopAndCancelTask }

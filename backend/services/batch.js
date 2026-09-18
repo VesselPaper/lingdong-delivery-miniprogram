@@ -24,6 +24,18 @@ const BATCH_MAX_ITEMS = Number(process.env.BATCH_MAX_ITEMS || 12)
 const BATCH_MAX_ORDERS = BATCH_MAX_ITEMS
 // 自动派车等待时间：自动接单模式下，批次成立后等待该时长自动派车（单位 ms）
 const BATCH_WAIT_MS = Number(process.env.BATCH_WAIT_MS || 90 * 1000)
+// 单数加权最近邻权重 α（ROUTE_COUNT_WEIGHT）：给「距离」按该站点订单数打折，
+// 有效距离 = 距离平方 ÷ (订单数^α)。α=0 退化纯最近邻，越大越偏好多单楼栋。默认 0.5。
+const ROUTE_COUNT_WEIGHT = Number(process.env.ROUTE_COUNT_WEIGHT || 0.5)
+
+// 召唤多单配送的「推进钩子」：当某停靠点第单被取走（批次计数+1）时，通知 delivery 域去判断
+// 「当前楼栋是否全取完 → 停 5s → 召唤下一栋」。hook 由 delivery/service.js 注册（registerSummonAdvance），
+// 避免 batch.js 与 delivery 域循环依赖（本库不接受 deps）。
+let summonAdvanceHook = null
+function registerSummonAdvance(fn) { summonAdvanceHook = fn }
+function notifySummonAdvance(batchId) {
+  if (summonAdvanceHook) { try { summonAdvanceHook(batchId) } catch (e) { console.warn('[batch] summonAdvance hook 异常', e.message) } }
+}
 
 function statusText(st) {
   return BATCH_STATUS[Number(st)] || ('状态 ' + st)
@@ -133,10 +145,27 @@ function markOrderPicked(store, order) {
     .run(row.id)
   // 收货完成：结算本单商品已售（幂等）
   try { require('./goodsStats').settleSales(store, row.id) } catch (e) { /* 忽略 */ }
+  countPicked(store, row)
+}
+
+// 批次已取走计数（幂等护栏在 markOrderPicked/fulfillOrder 已做，本函数只对仍生效的单+批计数）。
+// 也被 order.service.fulfillOrder 跨域调用，作为 delivery 域对订单「已完成」的批次侧落账。
+function countPicked(store, order) {
+  if (!order) return
+  const row = store.prepare('SELECT * FROM orders WHERE id=?').get(order.id)
+  if (!row) return
+  if ([5, 7].includes(Number(row.status)) || row.cancelled_at) return
   if (row.batch_id) {
     store.prepare("UPDATE delivery_batches SET picked_orders=picked_orders+1, updated_at=datetime('now','localtime') WHERE id=?")
       .run(row.batch_id)
+    const b = getBatch(store, row.batch_id)
     maybeCompleteBatch(store, row.batch_id)
+    // 召唤模式：取完扇动推进钩子（delivery 域判断是否该推下一栋 / 召回）。
+    // 注意不限制 status=2 —— 最后一单取走时 maybeCompleteBatch 可能已把批次置 3，
+    // 若guard成 [2] 会挡住「召回上货点 + current_stop 归零」的收尾路径。
+    if (b && b.delivery_mode === 'summon') {
+      notifySummonAdvance(row.batch_id)
+    }
   }
 }
 
@@ -174,9 +203,11 @@ function onTaskStatus(store, task, status) {
 }
 
 // ---------- 路径规划（多地点配送顺序，最小化顾客总等待） ----------
-// 贪心最近邻：从上货点出发，每次去「当前最近的未访问点位」。
-// 同点位多单合并为一站。该启发式在配送场景近似最小化所有顾客等待时间之和。
-// 无坐标时退化为点位 sort 顺序。
+// 单数加权最近邻：从上货点出发，每次去「有效距离最小」的未访问点位。
+//  有效距离 = 距离平方 ÷ (该站点订单数^ROUTE_COUNT_WEIGHT)。
+// 与纯最近邻的区别：同距离下、甚至稍远一点点，单数多的楼栋会被优先安排 ——
+// 否则 1 单近楼栋会抢在 5 单楼栋前，让多单楼栋的人平均等待被拖长。
+// 同一楼栋多单合并为一站。无坐标时退化为【单数从多到少，同单数按点位 sort】。（仍单数优先）
 function planRoute(store, orders) {
   const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get() || null
   const groups = new Map()
@@ -196,7 +227,7 @@ function planRoute(store, orders) {
   const ly = loading ? Number(loading.pos_y || 0) : 0
   const hasCoord = arr.some((g) => g.landmark && (Number(g.landmark.pos_x) || Number(g.landmark.pos_y)))
   if (hasCoord) {
-    // 最近邻贪心
+    const alpha = Math.max(0, Number(ROUTE_COUNT_WEIGHT)) // α≥0，防负值把「多单」反向变远
     const remaining = arr.slice()
     const route = []
     let cx = lx
@@ -208,8 +239,10 @@ function planRoute(store, orders) {
         const g = remaining[i]
         const dx = cx - Number(g.landmark.pos_x || 0)
         const dy = cy - Number(g.landmark.pos_y || 0)
-        const d = dx * dx + dy * dy
-        if (d < bestD) { bestD = d; best = i }
+        const n = g.orders.length || 1
+        // 单数加权：距离平方除以「订单数的 α 次方」，多单楼栋的有效距离被缩小 → 更早被选
+        const d2 = (dx * dx + dy * dy) / Math.pow(n, alpha)
+        if (d2 < bestD) { bestD = d2; best = i }
       }
       const g = remaining.splice(best, 1)[0]
       route.push({ stop: route.length + 1, landmark_id: g.landmark.id, landmark_name: g.name, order_ids: g.orders.map((o) => o.id) })
@@ -218,8 +251,10 @@ function planRoute(store, orders) {
     }
     return route
   }
-  // 无坐标：按点位 sort 顺序（与种子/平台同步顺序一致）
-  arr.sort((a, b) => (a.landmark ? Number(a.landmark.sort || 99) : 99) - (b.landmark ? Number(b.landmark.sort || 99) : 99))
+  // 无坐标：单数优先（多单楼栋先送，符合"人多的先送"目标），同单数按点位 sort 顺序兜底
+  const byCountThenSort = (a, b) => (b.orders.length - a.orders.length)
+    || ((a.landmark ? Number(a.landmark.sort || 99) : 99) - (b.landmark ? Number(b.landmark.sort || 99) : 99))
+  arr.sort(byCountThenSort)
   return arr.map((g, i) => ({ stop: i + 1, landmark_id: g.landmark ? g.landmark.id : g.orders[0].landmark_id, landmark_name: g.name, order_ids: g.orders.map((o) => o.id) }))
 }
 
@@ -260,6 +295,7 @@ function getBatchDetail(store, batchId) {
     id: b.id, batch_no: b.batch_no, status: b.status, status_text: b.status_text || statusText(b.status),
     daily_seq: Number(b.daily_seq || b.id),
     device_sn: b.device_sn, total_orders: orders.length, total_items: totalItems, picked_orders: picked,
+    delivery_mode: b.delivery_mode || '', current_stop: Number(b.current_stop || 0),
     created_at: b.created_at, dispatched_at: b.dispatched_at, completed_at: b.completed_at,
     route: cleanStops, route_text: routeText, route_stops_text: distinctLandmarks.join('、'),
     orders
@@ -269,5 +305,6 @@ function getBatchDetail(store, batchId) {
 module.exports = {
   BATCH_STATUS, BATCH_MAX_ORDERS, BATCH_MAX_ITEMS, BATCH_WAIT_MS, statusText, cleanName, landmarkNameOf,
   orderItemCount, getBatch, getOrCreateOpenBatch, addOrderToBatch, removeOrderFromBatch,
-  markOrderPicked, maybeCompleteBatch, onTaskStatus, planRoute, getBatchDetail
+  markOrderPicked, countPicked, maybeCompleteBatch, onTaskStatus, planRoute, getBatchDetail,
+  registerSummonAdvance
 }

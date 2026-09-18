@@ -81,6 +81,17 @@ const deviceMock = mode === 'demo'
 
 const merchantInviteCode = process.env.MERCHANT_INVITE_CODE || ''
 
+// 召唤多单配送（SUMMON_DELIVERY=true）：弃用越凡配送任务接口，改用
+// 「召唤(summonToPoint) + 开关舱门(drawerCtrl)」逐点推进。默认 false=沿用一单一单送。
+const summonDelivery = envFlag('SUMMON_DELIVERY')
+// 路线规划单数权重 α（ROUTE_COUNT_WEIGHT）：给"距离"按该站点订单数打折，
+// α=0 退化为纯最近邻；越大越偏好多单楼栋。默认 0.5（√ 开方，见效又不过猛）。
+const routeCountWeight = Number(process.env.ROUTE_COUNT_WEIGHT || 0.5)
+// 召唤模式点位到达门禁半径（机器人测距距目标点 ≤ 该米数判为已到；MOCK 档恒到）
+const arriveRadiusM = Number(process.env.ARRIVE_RADIUS_M || 2.0)
+// 定位标定系数：getDevicePosition 返回 SLAM 网格坐标 → 局部米的换算（现场真机标定）
+const posMPerUnit = Number(process.env.POS_M_PER_UNIT || 1.0)
+
 // 平台回调防伪令牌：拼在 feedbackDeliveryTaskUrl / checkBizOrderStatusUrl 的 query 上，回调时校验。
 // 未显式配置时由 PLATFORM_SECRET 派生 —— 必须跨重启稳定，否则重启前创建的任务回调会被全部拒收。
 const callbackToken = (function resolveToken() {
@@ -199,6 +210,10 @@ function describe() {
     platform_host: platformHost,
     prod_platform: prodPlatform,
     unsafe_prod: unsafeProd,
+    summon_delivery: summonDelivery,
+    route_count_weight: routeCountWeight,
+    arrive_radius_m: arriveRadiusM,
+    pos_m_per_unit: posMPerUnit,
     merchant_invite_configured: !!merchantInviteCode,
     callback_token_configured: !!callbackToken
   }
@@ -238,6 +253,10 @@ module.exports = {
   platformHost,
   callbackToken,
   merchantInviteCode,
+  summonDelivery,
+  routeCountWeight,
+  arriveRadiusM,
+  posMPerUnit,
   check,
   assertBootable,
   describe,
