@@ -2,6 +2,7 @@
 const { DatabaseSync } = require('node:sqlite')
 const path = require('path')
 const fs = require('fs')
+const crypto = require('crypto')
 
 const DATA_DIR = path.join(__dirname, 'data')
 // 数据库路径：默认 backend/data/lingdong.db；可用 LINGDONG_DB 覆盖（多实例/测试隔离用）
@@ -54,6 +55,8 @@ function init() {
       status INTEGER DEFAULT 1,
       description TEXT,
       sales INTEGER DEFAULT 0,
+      barcode TEXT DEFAULT '',     -- 商品条码（门店进销存）
+      unit TEXT DEFAULT '',        -- 主单位（袋/盒/瓶…）
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS cart (
@@ -166,6 +169,7 @@ function init() {
   `)
   migrate(db)
   seed(db)
+  importStoreGoods(db)
   return db
 }
 
@@ -270,6 +274,10 @@ function migrate(db) {
   if (!orderCols.includes('original_amount')) db.exec("ALTER TABLE orders ADD COLUMN original_amount REAL")
   if (!orderCols.includes('discount_amount')) db.exec("ALTER TABLE orders ADD COLUMN discount_amount REAL DEFAULT 0")
   if (!orderCols.includes('activity_id')) db.exec("ALTER TABLE orders ADD COLUMN activity_id INTEGER")
+  // 商品：条码 / 主单位（门店进销存数据导入）
+  const goodsCols = db.prepare('PRAGMA table_info(goods)').all().map((c) => c.name)
+  if (!goodsCols.includes('barcode')) db.exec("ALTER TABLE goods ADD COLUMN barcode TEXT DEFAULT ''")
+  if (!goodsCols.includes('unit')) db.exec("ALTER TABLE goods ADD COLUMN unit TEXT DEFAULT ''")
 
   // 支付回调幂等表：微信对同一事件会重推，event_id 唯一约束即幂等键
   db.exec(`
@@ -375,6 +383,56 @@ function seed(db) {
   ].forEach(r => insGoods.run(...r))
 
   // 不再写入演示账号：登录必须走真实微信 code2session（WX_APPID / WX_SECRET）
+}
+
+// 门店真实商品（进销存）导入 —— 替换型、幂等。
+// 数据源：backend/store_goods.json（从门店 Excel「名称/分类/条码/主单位/库存量/销售价」导出）。
+// 注意：data/ 目录被 .gitignore，因此数据文件放在 backend/ 根目录（随 Git 提交、人本地可复现）。
+// 幂等键：对数据文件内容做 sha256，写入 meta.store_goods_import_hash。
+// 变更数据文件后重启后端会自动把商品表整体替换为新库存；未变更则跳过，绝不在每次启动重复插入。
+// 替换会 DELETE 旧商品并清空购物车（旧商品不再存在，孤儿购物车无意义）——
+// 历史订单在 order_items 中留存了商品名快照，不受影响。
+function importStoreGoods(db) {
+  const file = path.join(__dirname, 'store_goods.json')
+  const meta = db.prepare("SELECT value FROM meta WHERE key='store_goods_import_hash'").get()
+  if (!fs.existsSync(file)) return
+  let rows
+  try {
+    rows = JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch (e) {
+    console.error('[db] store_goods.json 解析失败，跳过商品导入', e.message)
+    return
+  }
+  if (!Array.isArray(rows)) return
+  const hash = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
+  if (meta && meta.value === hash) return
+
+  const ins = db.prepare('INSERT INTO goods (name, price, original_price, category, stock, status, description, barcode, unit) VALUES (?,?,?,?,?,?,?,?,?)')
+  db.exec('BEGIN')
+  try {
+    db.exec('DELETE FROM goods')
+    db.exec('DELETE FROM cart')
+    db.exec("DELETE FROM sqlite_sequence WHERE name='goods'")
+    for (const r of rows) {
+      ins.run(
+        String(r.name || '').trim(),
+        Number(r.price || 0),
+        Number(r.original_price || 0),
+        String(r.category || '其他').trim(),
+        Number(r.stock) >= 0 ? Number(r.stock) : 999,
+        r.status !== undefined ? Number(r.status) : 1,
+        String(r.description || '').trim(),
+        String(r.barcode || '').trim(),
+        String(r.unit || '').trim()
+      )
+    }
+    db.prepare("INSERT INTO meta (key, value) VALUES ('store_goods_import_hash', ?)").run(hash)
+    db.exec('COMMIT')
+    console.log(`[db] 门店商品已导入（替换）：${rows.length} 个商品`)
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
 }
 
 module.exports = { init, DB_PATH }

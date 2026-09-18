@@ -88,22 +88,27 @@ module.exports = (store, deps) => {
   })
 
   router.post('/merchant/goods', merchantGuard, (req, res) => {
-    const { name, price, original_price, image, category, stock, description } = req.body || {}
+    const { name, price, original_price, image, category, stock, description, barcode, unit } = req.body || {}
     if (!name) return res.status(400).json({ code: 400, msg: '商品名称不能为空' })
     const st = toStock(stock, 999)
-    const id = q.insert(store, { name, price, original_price, image, category, stock: st, description })
+    const id = q.insert(store, { name, price, original_price, image, category, stock: st, description, barcode, unit })
     audit(req, 'goods/create', 'goods#' + id, 'name=' + name + ' price=' + price + ' stock=' + st)
     ok(res, { id })
   })
 
   router.put('/merchant/goods', merchantGuard, (req, res) => {
-    const { id, name, price, original_price, image, category, stock, description, status } = req.body || {}
+    const { id, name, price, original_price, image, category, stock, description, status, barcode, unit } = req.body || {}
     if (!id) return res.status(400).json({ code: 400, msg: '缺少商品 id' })
     const cur = q.findById(store, id)
     if (!cur) return res.status(404).json({ code: 404, msg: '商品不存在' })
     // 编辑商品时未传 stock 字段 → 保留原库存；传了（含 0）→ 用传入值（修复「设 0 变 999」）
     const st = stock === undefined || stock === null || stock === '' ? cur.stock : toStock(stock, 999)
-    q.update(store, id, { name, price, original_price, image, category, stock: st, description, status: status !== undefined ? Number(status) : 1 })
+    q.update(store, id, {
+      name, price, original_price, image, category, stock: st, description,
+      status: status !== undefined ? Number(status) : 1,
+      barcode: barcode !== undefined ? barcode : (cur.barcode || ''),
+      unit: unit !== undefined ? unit : (cur.unit || '')
+    })
     audit(req, 'goods/update', 'goods#' + id, 'name=' + name + ' price=' + price + ' stock=' + st + ' status=' + (status !== undefined ? status : 1))
     ok(res)
   })

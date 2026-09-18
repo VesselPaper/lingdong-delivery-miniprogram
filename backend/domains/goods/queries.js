@@ -21,12 +21,12 @@ module.exports = {
   merchantCategories: (store) => store.prepare("SELECT category FROM goods WHERE category != '' GROUP BY category ORDER BY MIN(id)").all().map((r) => r.category),
   updateStock: (store, id, stock) => store.prepare('UPDATE goods SET stock=? WHERE id=?').run(stock, Number(id)),
   insert: (store, f) => {
-    const info = store.prepare('INSERT INTO goods (name, price, original_price, image, category, stock, description) VALUES (?,?,?,?,?,?,?)')
-      .run(f.name, Number(f.price), Number(f.original_price || 0), f.image || '', f.category || '其他', f.stock, f.description || '')
+    const info = store.prepare('INSERT INTO goods (name, price, original_price, image, category, stock, description, barcode, unit) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(f.name, Number(f.price), Number(f.original_price || 0), f.image || '', f.category || '其他', f.stock, f.description || '', String(f.barcode || '').trim(), String(f.unit || '').trim())
     return Number(info.lastInsertRowid)
   },
-  update: (store, id, f) => store.prepare('UPDATE goods SET name=?, price=?, original_price=?, image=?, category=?, stock=?, description=?, status=? WHERE id=?')
-    .run(f.name, Number(f.price), Number(f.original_price || 0), f.image || '', f.category || '其他', f.stock, f.description || '', f.status, Number(id)),
+  update: (store, id, f) => store.prepare('UPDATE goods SET name=?, price=?, original_price=?, image=?, category=?, stock=?, description=?, status=?, barcode=?, unit=? WHERE id=?')
+    .run(f.name, Number(f.price), Number(f.original_price || 0), f.image || '', f.category || '其他', f.stock, f.description || '', f.status, String(f.barcode !== undefined ? f.barcode : '').trim(), String(f.unit !== undefined ? f.unit : '').trim(), Number(id)),
   updateStatus: (store, id, status) => store.prepare('UPDATE goods SET status=? WHERE id=?').run(Number(status), Number(id)),
 
   // ---------- shops ----------

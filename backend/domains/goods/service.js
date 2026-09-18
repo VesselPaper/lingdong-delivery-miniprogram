@@ -32,6 +32,7 @@ const promotion = require('../../services/promotion')
 
 // 为商品行附加"折后价/是否参与折扣"，供用户端商品页/购物车展示划线价与折后价。
 // 仅做展示，不参与交易；真实金额在 order/create 由 promotion.resolve 权威计算。
+// 用户端商城只展示名称/分类/销售价 —— 条码、主单位仅商家端进销存可见，在此一并裁掉。
 // rowsOrRow：单行或行数组；行需含 id 与 price（购物车行请先把 goods_id 映射成 id 再传入）。
 function withPromoPrices(store, rowsOrRow) {
   const rows = Array.isArray(rowsOrRow) ? rowsOrRow : [rowsOrRow]
@@ -49,7 +50,8 @@ function withPromoPrices(store, rowsOrRow) {
         }
       }
     }
-    return Object.assign({}, row, { sale_price, discount_info })
+    const { barcode, unit, ...rest } = row
+    return Object.assign({}, rest, { sale_price, discount_info })
   })
 }
 

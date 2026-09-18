@@ -42,6 +42,14 @@
       <input class="field-input" type="number" placeholder="99" value="{{form.stock}}" bind:change="onField" data-field="stock" />
       <view class="field-hint text-weak text-sm">库存为 0 时用户端显示「售罄」且无法下单</view>
     </view>
+    <view class="field">
+      <view class="field-label">条码</view>
+      <input class="field-input" placeholder="商品条形码" value="{{form.barcode}}" bind:change="onField" data-field="barcode" />
+    </view>
+    <view class="field">
+      <view class="field-label">主单位</view>
+      <input class="field-input" placeholder="如：袋 / 盒 / 瓶" value="{{form.unit}}" bind:change="onField" data-field="unit" />
+    </view>
   </view>
 
   <view class="card">

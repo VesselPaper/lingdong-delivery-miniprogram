@@ -42,6 +42,8 @@
             <view class="goods-name ellipsis">{{item.name}}</view>
             <view class="soldout-tag" wx:if="{{item.sold_out}}">售罄</view>
           </view>
+          <view class="goods-meta text-sm">分类: {{item.category || '—'}}</view>
+          <view class="goods-meta text-sm">条码: {{item.barcode || '—'}}　单位: {{item.unit || '—'}}</view>
           <view class="goods-meta text-sm">库存: {{item.stock}}　已售: {{item.sales || 0}}</view>
         </view>
         <view class="goods-price"><text class="price-symbol">¥</text><text class="price-num">{{item.price}}</text></view>

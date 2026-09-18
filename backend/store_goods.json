@@ -1,0 +1,1946 @@
+[
+ {
+  "name": "豪士黄油厚切鲜奶吐司52g",
+  "category": "中长期面包",
+  "barcode": "6973202701485",
+  "unit": "袋",
+  "stock": 11,
+  "price": 4.5,
+  "status": 1
+ },
+ {
+  "name": "烘焙村爆浆流心面包巧克力味85g",
+  "category": "中长期面包",
+  "barcode": "6920202902992",
+  "unit": "袋",
+  "stock": 10,
+  "price": 4.5,
+  "status": 1
+ },
+ {
+  "name": "布鲁托海盐小面包（海盐黄油）108g",
+  "category": "中长期面包",
+  "barcode": "6950881299212",
+  "unit": "袋",
+  "stock": 11,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "巧乐角面包（饼干碎奶油味）",
+  "category": "中长期面包",
+  "barcode": "6972333772968",
+  "unit": "无",
+  "stock": 12,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "佐滋榛子巧克力味蛋糕80g",
+  "category": "中长期面包",
+  "barcode": "6970512358996",
+  "unit": "袋",
+  "stock": 15,
+  "price": 5.5,
+  "status": 1
+ },
+ {
+  "name": "嗨山姆先森青柠风卷蛋糕",
+  "category": "中长期面包",
+  "barcode": "6972024832704",
+  "unit": "袋",
+  "stock": 16,
+  "price": 4.5,
+  "status": 1
+ },
+ {
+  "name": "甘小鲜仲夏玫瑰全麦",
+  "category": "中长期面包",
+  "barcode": "6975233794573",
+  "unit": "袋",
+  "stock": 9,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "布鲁托薄切虎皮蛋糕卷108g",
+  "category": "中长期面包",
+  "barcode": "6950881298840",
+  "unit": "袋",
+  "stock": 6,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "甘小鲜奶皮包包面包（黑椒牛肉风味）80g",
+  "category": "中长期面包",
+  "barcode": "6975233793699",
+  "unit": "袋",
+  "stock": 8,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "V1162 维达180抽/提悬挂式洗脸巾",
+  "category": "纸巾",
+  "barcode": "6901236333709",
+  "unit": "提",
+  "stock": 8,
+  "price": 25.0,
+  "status": 1
+ },
+ {
+  "name": "维达超韧8包110抽",
+  "category": "纸巾",
+  "barcode": "6901236336922",
+  "unit": "提",
+  "stock": 11,
+  "price": 28.0,
+  "status": 1
+ },
+ {
+  "name": "洁柔湿厕6+2迷你包",
+  "category": "纸巾",
+  "barcode": "6914068042428",
+  "unit": "10包",
+  "stock": 15,
+  "price": 13.0,
+  "status": 1
+ },
+ {
+  "name": "GR226-01洁柔牌纸面巾（便利抽立体压花挂抽）320抽3层",
+  "category": "纸巾",
+  "barcode": "6914068053189",
+  "unit": "提",
+  "stock": 10,
+  "price": 10.0,
+  "status": 1
+ },
+ {
+  "name": "橘子姑娘173抽纸3包",
+  "category": "纸巾",
+  "barcode": "6976774380249",
+  "unit": "提",
+  "stock": 12,
+  "price": 10.0,
+  "status": 1
+ },
+ {
+  "name": "得宝6送2优惠装",
+  "category": "纸巾",
+  "barcode": "6901236332122",
+  "unit": "提",
+  "stock": 6,
+  "price": 37.0,
+  "status": 1
+ },
+ {
+  "name": "外星人电解质水白桃500ml",
+  "category": "元气森林",
+  "barcode": "6937003707114",
+  "unit": "瓶",
+  "stock": 16,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "元气减糖冰柠檬茶900ml",
+  "category": "元气森林",
+  "barcode": "6975176784785",
+  "unit": "瓶",
+  "stock": 12,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "元气葡萄柚绿茶味冰茶900ml",
+  "category": "元气森林",
+  "barcode": "6937003703437",
+  "unit": "瓶",
+  "stock": 12,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "元气森林西绵绵冰",
+  "category": "元气森林",
+  "barcode": "6937003711418",
+  "unit": "瓶",
+  "stock": 10,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "外星人电解质水青柠三效600ml",
+  "category": "元气森林",
+  "barcode": "6937003706315",
+  "unit": "瓶",
+  "stock": 11,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "外星人电解质水青柠500ml",
+  "category": "元气森林",
+  "barcode": "6937003707138",
+  "unit": "瓶",
+  "stock": 8,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "外星人电解质水荔枝海盐950ml",
+  "category": "元气森林",
+  "barcode": "6937003703840",
+  "unit": "瓶",
+  "stock": 9,
+  "price": 8.0,
+  "status": 1
+ },
+ {
+  "name": "怡宝酸梅汤450ml",
+  "category": "怡宝",
+  "barcode": "6920458837024",
+  "unit": "450ml",
+  "stock": 12,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "怡宝拿铁咖啡",
+  "category": "怡宝",
+  "barcode": "6920458837109",
+  "unit": "瓶",
+  "stock": 10,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "依能蜜柠水1L",
+  "category": "依能",
+  "barcode": "6971329920895",
+  "unit": "1L",
+  "stock": 6,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "依能蜜桃水1L",
+  "category": "依能",
+  "barcode": "6971329921007",
+  "unit": "1L",
+  "stock": 12,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "伊利安慕希PET原味230ML",
+  "category": "伊利",
+  "barcode": "6907992513645",
+  "unit": "盒",
+  "stock": 9,
+  "price": 8.0,
+  "status": 1
+ },
+ {
+  "name": "DKMLL03朵蕾蜜零感吸纯棉女性卫生裤M-L码（3片装）",
+  "category": "卫生巾",
+  "barcode": "6914068045979",
+  "unit": "包",
+  "stock": 8,
+  "price": 11.0,
+  "status": 1
+ },
+ {
+  "name": "Herlab 她研社深藏不露卫生巾（轻透款）290mm 6片装   QR",
+  "category": "卫生巾",
+  "barcode": "6974354667506",
+  "unit": "包",
+  "stock": 12,
+  "price": 14.0,
+  "status": 1
+ },
+ {
+  "name": "DJ29E07朵蕾蜜天鹅奢绒290日夜兼用卫生巾（7片装）",
+  "category": "卫生巾",
+  "barcode": "6914068028118",
+  "unit": "包",
+  "stock": 11,
+  "price": 14.0,
+  "status": 1
+ },
+ {
+  "name": "自由点无感无忧8片日用240 FSC8210",
+  "category": "卫生巾",
+  "barcode": "6926052500456",
+  "unit": "包",
+  "stock": 16,
+  "price": 11.0,
+  "status": 1
+ },
+ {
+  "name": "自由点舒睡360 8片约会款 FLB8508",
+  "category": "卫生巾",
+  "barcode": "6926052512558",
+  "unit": "包",
+  "stock": 8,
+  "price": 11.0,
+  "status": 1
+ },
+ {
+  "name": "自由点无感七日夜棉（新品） FWD2309",
+  "category": "卫生巾",
+  "barcode": "6926052510356",
+  "unit": "包",
+  "stock": 8,
+  "price": 11.0,
+  "status": 1
+ },
+ {
+  "name": "维他瓶装（桃果茶）500ml",
+  "category": "维他",
+  "barcode": "4891028720232",
+  "unit": "无",
+  "stock": 6,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "红烧·袋",
+  "category": "统一面",
+  "barcode": "6925303710187",
+  "unit": "无",
+  "stock": 6,
+  "price": 2.5,
+  "status": 1
+ },
+ {
+  "name": "汤达人韩式（杯）",
+  "category": "统一面",
+  "barcode": "6925303792978",
+  "unit": "无",
+  "stock": 9,
+  "price": 5.5,
+  "status": 1
+ },
+ {
+  "name": "汤达人·肥汁米线",
+  "category": "统一面",
+  "barcode": "6925303797751",
+  "unit": "盒",
+  "stock": 6,
+  "price": 5.5,
+  "status": 1
+ },
+ {
+  "name": "汤达人酸酸辣辣（杯）",
+  "category": "统一面",
+  "barcode": "6925303770556",
+  "unit": "无",
+  "stock": 6,
+  "price": 5.5,
+  "status": 1
+ },
+ {
+  "name": "双面·袋·泡椒袋",
+  "category": "统一面",
+  "barcode": "6925303797362",
+  "unit": "无",
+  "stock": 11,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "辣翻天韩式辣鸡肉味桶面",
+  "category": "统一面",
+  "barcode": "6925303764050",
+  "unit": "盒",
+  "stock": 9,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "汤达人海鲜（杯）",
+  "category": "统一面",
+  "barcode": "6925303791155",
+  "unit": "无",
+  "stock": 11,
+  "price": 5.5,
+  "status": 1
+ },
+ {
+  "name": "涨·酱拌·担担碗",
+  "category": "统一面",
+  "barcode": "6925303740719",
+  "unit": "无",
+  "stock": 10,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "巧面馆红油酸菜",
+  "category": "统一面",
+  "barcode": "6925303770310",
+  "unit": "无",
+  "stock": 15,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "茄皇番茄牛肉面·桶",
+  "category": "统一面",
+  "barcode": "6925303796426",
+  "unit": "无",
+  "stock": 12,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "来一桶麻辣牛肉",
+  "category": "统一面",
+  "barcode": "6925303773076",
+  "unit": "无",
+  "stock": 8,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "日式汤达人·大大杯",
+  "category": "统一面",
+  "barcode": "6925303797461",
+  "unit": "杯",
+  "stock": 6,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "双面饼·酸菜·桶",
+  "category": "统一面",
+  "barcode": "6925303793159",
+  "unit": "无",
+  "stock": 9,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "巧面馆泡椒",
+  "category": "统一面",
+  "barcode": "6925303711368",
+  "unit": "无",
+  "stock": 8,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "汤达人日式豚骨（杯）",
+  "category": "统一面",
+  "barcode": "6925303770563",
+  "unit": "无",
+  "stock": 9,
+  "price": 5.5,
+  "status": 1
+ },
+ {
+  "name": "统一春佛绿茶900ml",
+  "category": "统一",
+  "barcode": "6925303702496",
+  "unit": "瓶",
+  "stock": 16,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "统一蜜桃多听装310ml",
+  "category": "统一",
+  "barcode": "6925303701314",
+  "unit": "瓶",
+  "stock": 16,
+  "price": 3.0,
+  "status": 1
+ },
+ {
+  "name": "统一双萃鸭屎香柠檬茶1L",
+  "category": "统一",
+  "barcode": "6925303701536",
+  "unit": "瓶",
+  "stock": 15,
+  "price": 4.5,
+  "status": 1
+ },
+ {
+  "name": "小茗同学青柠红茶480ml",
+  "category": "统一",
+  "barcode": "6925303754952",
+  "unit": "瓶",
+  "stock": 8,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "统一红茶1L",
+  "category": "统一",
+  "barcode": "6925303723910",
+  "unit": "瓶",
+  "stock": 9,
+  "price": 4.5,
+  "status": 1
+ },
+ {
+  "name": "薯愿红酒牛排味",
+  "category": "薯片",
+  "barcode": "6920907809886",
+  "unit": "盒",
+  "stock": 8,
+  "price": 8.0,
+  "status": 1
+ },
+ {
+  "name": "可比克105g薯片（罐装）青瓜味★",
+  "category": "薯片",
+  "barcode": "6911988013194",
+  "unit": "罐",
+  "stock": 8,
+  "price": 8.0,
+  "status": 1
+ },
+ {
+  "name": "乐事135g薯片墨西哥鸡汁番茄味★",
+  "category": "薯片",
+  "barcode": "6924743924154",
+  "unit": "袋",
+  "stock": 8,
+  "price": 12.5,
+  "status": 1
+ },
+ {
+  "name": "脆升升 薯片番茄味42g",
+  "category": "薯片",
+  "barcode": "6977190630642",
+  "unit": "袋",
+  "stock": 6,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "脆升升 蒜香黄油味薯角50g",
+  "category": "薯片",
+  "barcode": "6977190630192",
+  "unit": "袋",
+  "stock": 9,
+  "price": 7.0,
+  "status": 1
+ },
+ {
+  "name": "子弟95g薯片黑椒牛扒味★",
+  "category": "薯片",
+  "barcode": "6922222098914",
+  "unit": "袋",
+  "stock": 6,
+  "price": 7.5,
+  "status": 1
+ },
+ {
+  "name": "脆升升 薯条蜂蜜黄油味50g",
+  "category": "薯片",
+  "barcode": "6937439915350",
+  "unit": "袋",
+  "stock": 8,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "脆升升 杯装薯条蜂蜜黄油50g",
+  "category": "薯片",
+  "barcode": "6937439920057",
+  "unit": "杯",
+  "stock": 11,
+  "price": 6.5,
+  "status": 1
+ },
+ {
+  "name": "脆升升 薯条原味50g",
+  "category": "薯片",
+  "barcode": "6937439915343",
+  "unit": "袋",
+  "stock": 12,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "脆升升 炭烤和牛味薯角50g",
+  "category": "薯片",
+  "barcode": "6977190630208",
+  "unit": "袋",
+  "stock": 9,
+  "price": 7.0,
+  "status": 1
+ },
+ {
+  "name": "乐事135g薯片美国经典原味★",
+  "category": "薯片",
+  "barcode": "6924743924130",
+  "unit": "袋",
+  "stock": 16,
+  "price": 12.5,
+  "status": 1
+ },
+ {
+  "name": "好丽友70g呀土豆麻辣小龙虾味★",
+  "category": "薯片",
+  "barcode": "6920907814637",
+  "unit": "袋",
+  "stock": 11,
+  "price": 6.5,
+  "status": 1
+ },
+ {
+  "name": "子弟95g薯片巴西烤肉味★",
+  "category": "薯片",
+  "barcode": "6922222020168",
+  "unit": "袋",
+  "stock": 9,
+  "price": 7.5,
+  "status": 1
+ },
+ {
+  "name": "JS285-01E洁柔面子牌湿巾（益生菌湿厕纸)80片装",
+  "category": "湿纸巾",
+  "barcode": "6914068055510",
+  "unit": "包",
+  "stock": 12,
+  "price": 15.0,
+  "status": 1
+ },
+ {
+  "name": "JS003-10洁柔清爽洁肤湿巾",
+  "category": "湿纸巾",
+  "barcode": "6914068020037",
+  "unit": "袋",
+  "stock": 16,
+  "price": 3.9,
+  "status": 1
+ },
+ {
+  "name": "JS008-01 洁柔80片婴儿湿巾",
+  "category": "湿纸巾",
+  "barcode": "6914068020082",
+  "unit": "包",
+  "stock": 15,
+  "price": 16.0,
+  "status": 1
+ },
+ {
+  "name": "三养蒜香辣虾味",
+  "category": "三养火鸡面",
+  "barcode": "6976879911386",
+  "unit": "袋",
+  "stock": 6,
+  "price": 6.5,
+  "status": 1
+ },
+ {
+  "name": "三养火鸡面辣鸡肉碗装105g",
+  "category": "三养火鸡面",
+  "barcode": "8801073210363",
+  "unit": "无",
+  "stock": 9,
+  "price": 11.5,
+  "status": 1
+ },
+ {
+  "name": "三养80g杯面奶油辣鸡味★☆",
+  "category": "三养火鸡面",
+  "barcode": "8801073211681",
+  "unit": "杯",
+  "stock": 11,
+  "price": 8.5,
+  "status": 1
+ },
+ {
+  "name": "三养76.5g炸酱面（12桶*件）★",
+  "category": "三养火鸡面",
+  "barcode": "6976879911065",
+  "unit": "杯",
+  "stock": 12,
+  "price": 5.5,
+  "status": 1
+ },
+ {
+  "name": "三养芝士火鸡面",
+  "category": "三养火鸡面",
+  "barcode": "8801073113268",
+  "unit": "无",
+  "stock": 10,
+  "price": 7.5,
+  "status": 1
+ },
+ {
+  "name": "娃哈哈AD钙奶水蜜桃味450ml",
+  "category": "其它水饮",
+  "barcode": "6902083814045",
+  "unit": "瓶",
+  "stock": 9,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "娃哈哈AD钙奶草莓味450ml",
+  "category": "其它水饮",
+  "barcode": "6902083814052",
+  "unit": "无",
+  "stock": 9,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "清蓝生椰牛乳380ml",
+  "category": "其它水饮",
+  "barcode": "6935925602371",
+  "unit": "380ml",
+  "stock": 15,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "大果粒蜂蜜荔枝1L",
+  "category": "其它水饮",
+  "barcode": "6970804371979",
+  "unit": "无",
+  "stock": 12,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "肆芳 酸梅汤4.2g",
+  "category": "其它水饮",
+  "barcode": "6973658061126",
+  "unit": "枚",
+  "stock": 10,
+  "price": 2.0,
+  "status": 1
+ },
+ {
+  "name": "肆芳 西瓜乌龙茶3.5g",
+  "category": "其它水饮",
+  "barcode": "6973658060914",
+  "unit": "枚",
+  "stock": 11,
+  "price": 2.0,
+  "status": 1
+ },
+ {
+  "name": "营养快线原味500ml",
+  "category": "其它水饮",
+  "barcode": "6902083898618",
+  "unit": "无",
+  "stock": 10,
+  "price": 4.5,
+  "status": 1
+ },
+ {
+  "name": "肆芳 蜜桃乌龙茶4g",
+  "category": "其它水饮",
+  "barcode": "6973658060402",
+  "unit": "枚",
+  "stock": 11,
+  "price": 2.5,
+  "status": 1
+ },
+ {
+  "name": "肆芳 苦荞玉米须茶5g",
+  "category": "其它水饮",
+  "barcode": "6973658060228",
+  "unit": "枚",
+  "stock": 10,
+  "price": 2.0,
+  "status": 1
+ },
+ {
+  "name": "让茶无糖青柠芭乐茉莉500ml",
+  "category": "其它水饮",
+  "barcode": "6973903121353",
+  "unit": "瓶",
+  "stock": 15,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "生和堂本草果汁药食同源六物茶120ml",
+  "category": "其它水饮",
+  "barcode": "6940471611487",
+  "unit": "袋",
+  "stock": 9,
+  "price": 3.9,
+  "status": 1
+ },
+ {
+  "name": "让茶茉莉雪梨500ml",
+  "category": "其它水饮",
+  "barcode": "6973903121995",
+  "unit": "无",
+  "stock": 10,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "百佳得乐红柚600ml",
+  "category": "其它水饮",
+  "barcode": "6934024590718",
+  "unit": "瓶",
+  "stock": 11,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "生和堂本草果汁药食同源七星茶120ml",
+  "category": "其它水饮",
+  "barcode": "6940471611470",
+  "unit": "袋",
+  "stock": 10,
+  "price": 3.9,
+  "status": 1
+ },
+ {
+  "name": "生和堂吸吸多肉葡萄味168g",
+  "category": "其它水饮",
+  "barcode": "6940471610787",
+  "unit": "袋",
+  "stock": 15,
+  "price": 2.9,
+  "status": 1
+ },
+ {
+  "name": "生和堂饮料本草果汁金银花双柚汁200ml",
+  "category": "其它水饮",
+  "barcode": "6940471609088",
+  "unit": "袋",
+  "stock": 8,
+  "price": 2.9,
+  "status": 1
+ },
+ {
+  "name": "生和堂益生元羽衣甘蓝奇亚籽120ml",
+  "category": "其它水饮",
+  "barcode": "6940471610572",
+  "unit": "袋",
+  "stock": 8,
+  "price": 4.9,
+  "status": 1
+ },
+ {
+  "name": "生和堂吸吸蓝莓西米露味168g",
+  "category": "其它水饮",
+  "barcode": "6940471610770",
+  "unit": "袋",
+  "stock": 9,
+  "price": 2.9,
+  "status": 1
+ },
+ {
+  "name": "豆本豆唯甄豆奶",
+  "category": "其它牛奶",
+  "barcode": "6911988030382",
+  "unit": "无",
+  "stock": 8,
+  "price": 2.0,
+  "status": 1
+ },
+ {
+  "name": "汤臣牧场生牛乳（茉莉花茶）450ml",
+  "category": "其它牛奶",
+  "barcode": "6977899900404",
+  "unit": "无",
+  "stock": 6,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "汤臣牧场生牛乳（燕麦味）450ml",
+  "category": "其它牛奶",
+  "barcode": "6977899900114",
+  "unit": "无",
+  "stock": 16,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "草莓味威化饼115g",
+  "category": "其它（膨化食品）",
+  "barcode": "6901180581683",
+  "unit": "袋",
+  "stock": 9,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "奥利奥可可脆卷",
+  "category": "其它（膨化食品）",
+  "barcode": "6901668936332",
+  "unit": "盒",
+  "stock": 9,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "咪咪76g乐园炭烧鸡汁味点心面",
+  "category": "其它（膨化食品）",
+  "barcode": "6921323200523",
+  "unit": "袋",
+  "stock": 8,
+  "price": 2.0,
+  "status": 1
+ },
+ {
+  "name": "脆升升 波浪薯片蜂蜜黄油味38g",
+  "category": "其它（膨化食品）",
+  "barcode": "6977190631687",
+  "unit": "袋",
+  "stock": 9,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "浪味仙70g岩烧海苔",
+  "category": "其它（膨化食品）",
+  "barcode": "6905734301482",
+  "unit": "无",
+  "stock": 12,
+  "price": 7.0,
+  "status": 1
+ },
+ {
+  "name": "三辉麦风 马铃薯脆片原味50g",
+  "category": "其它（膨化食品）",
+  "barcode": "6922734850055",
+  "unit": "盒",
+  "stock": 10,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "嘉士利威化饼干115g",
+  "category": "其它（膨化食品）",
+  "barcode": "6901180929812",
+  "unit": "袋",
+  "stock": 15,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "双汇105g鸡肉火腿肠（18支*件）",
+  "category": "其它（火腿肠、卤蛋）",
+  "barcode": "6902890264651",
+  "unit": "支",
+  "stock": 8,
+  "price": 2.5,
+  "status": 1
+ },
+ {
+  "name": "莫小仙100g酸辣粉",
+  "category": "其它（火腿肠、卤蛋）",
+  "barcode": "6958770002615",
+  "unit": "桶",
+  "stock": 10,
+  "price": 5.5,
+  "status": 1
+ },
+ {
+  "name": "华夏百分帝王蟹黄拌面",
+  "category": "其它（火腿肠、卤蛋）",
+  "barcode": "6974373599192",
+  "unit": "盒",
+  "stock": 8,
+  "price": 2.5,
+  "status": 1
+ },
+ {
+  "name": "逍遥派200g鹌鹑蛋麻辣味",
+  "category": "其它（火腿肠、卤蛋）",
+  "barcode": "6933811920202",
+  "unit": "袋",
+  "stock": 8,
+  "price": 6.5,
+  "status": 1
+ },
+ {
+  "name": "良品铺子 爆汁猪肉牛筋肠105g",
+  "category": "其它（火腿肠、卤蛋）",
+  "barcode": "6974218863389",
+  "unit": "袋",
+  "stock": 6,
+  "price": 16.9,
+  "status": 1
+ },
+ {
+  "name": "农夫维他命水柑橘味500ml*15瓶",
+  "category": "农夫",
+  "barcode": "6921168550142",
+  "unit": "500ml*15瓶",
+  "stock": 6,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "蒙牛早餐麦香250ML",
+  "category": "蒙牛",
+  "barcode": "6923644241353",
+  "unit": "盒",
+  "stock": 11,
+  "price": 3.0,
+  "status": 1
+ },
+ {
+  "name": "蒙牛真果粒椰果250ML",
+  "category": "蒙牛",
+  "barcode": "6923644268480",
+  "unit": "盒",
+  "stock": 16,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "可口可乐 888ml",
+  "category": "可口可乐",
+  "barcode": "6954767416274",
+  "unit": "888ml",
+  "stock": 6,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "水动乐 蜜桃500ml",
+  "category": "可口可乐",
+  "barcode": "6954767403557",
+  "unit": "500ml",
+  "stock": 6,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "可乐益生元 500ml",
+  "category": "可口可乐",
+  "barcode": "6954767410586",
+  "unit": "500ml",
+  "stock": 8,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "美汁源清橙柠柚420ml",
+  "category": "可口可乐",
+  "barcode": "6954767404356",
+  "unit": "420ml",
+  "stock": 16,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "雪碧零卡（摩登）330ml",
+  "category": "可口可乐",
+  "barcode": "6954767437187",
+  "unit": "330ml",
+  "stock": 12,
+  "price": 3.0,
+  "status": 1
+ },
+ {
+  "name": "爽粒花语红提葡萄450ml",
+  "category": "可口可乐",
+  "barcode": "6954767404219",
+  "unit": "450ml",
+  "stock": 16,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "魔爪（白）330ml",
+  "category": "可口可乐",
+  "barcode": "4897036692202",
+  "unit": "330ml",
+  "stock": 12,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅好汤桶老母鸡汤面117g",
+  "category": "康师傅面",
+  "barcode": "6937962134617",
+  "unit": "无",
+  "stock": 8,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅红烧牛肉干拌面122克",
+  "category": "康师傅面",
+  "barcode": "6920208984015",
+  "unit": "无",
+  "stock": 9,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅金汤肥牛面",
+  "category": "康师傅面",
+  "barcode": "6937962130145",
+  "unit": "无",
+  "stock": 10,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅大食桶香菇炖鸡",
+  "category": "康师傅面",
+  "barcode": "6937962101749",
+  "unit": "桶",
+  "stock": 15,
+  "price": 5.8,
+  "status": 1
+ },
+ {
+  "name": "康师傅大食袋红烧牛肉",
+  "category": "康师傅面",
+  "barcode": "6920208924011",
+  "unit": "无",
+  "stock": 10,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "麻辣牛肉面桶106克",
+  "category": "康师傅面",
+  "barcode": "6920208904372",
+  "unit": "无",
+  "stock": 15,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅老鸭汤",
+  "category": "康师傅面",
+  "barcode": "6920208958177",
+  "unit": "盒",
+  "stock": 15,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅大食袋香辣牛肉",
+  "category": "康师傅面",
+  "barcode": "6920208924028",
+  "unit": "袋",
+  "stock": 15,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "康师傅大食袋麻辣牛肉",
+  "category": "康师傅面",
+  "barcode": "6920208924035",
+  "unit": "无",
+  "stock": 11,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "康师傅大食袋酸菜牛肉",
+  "category": "康师傅面",
+  "barcode": "6920208924394",
+  "unit": "无",
+  "stock": 11,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "康师傅酸菜牛肉面127克",
+  "category": "康师傅面",
+  "barcode": "6920208957972",
+  "unit": "无",
+  "stock": 15,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅香葱鸡汁味",
+  "category": "康师傅面",
+  "barcode": "6920208912902",
+  "unit": "无",
+  "stock": 15,
+  "price": 1.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅韩式火鸡面拌面",
+  "category": "康师傅面",
+  "barcode": "6937962144715",
+  "unit": "无",
+  "stock": 12,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅麻辣排骨面",
+  "category": "康师傅面",
+  "barcode": "6920208916719",
+  "unit": "盒",
+  "stock": 10,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅香爆脆芝士火鸡味45g",
+  "category": "康师傅面",
+  "barcode": "6937962144791",
+  "unit": "无",
+  "stock": 11,
+  "price": 1.5,
+  "status": 1
+ },
+ {
+  "name": "康师傅和面牛肉面",
+  "category": "康师傅面",
+  "barcode": "6937962144968",
+  "unit": "盒",
+  "stock": 9,
+  "price": 10.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅大食桶红烧牛肉面",
+  "category": "康师傅面",
+  "barcode": "6920208900374",
+  "unit": "无",
+  "stock": 6,
+  "price": 5.8,
+  "status": 1
+ },
+ {
+  "name": "康师傅小酪多多酸奶味500ml",
+  "category": "康师傅",
+  "barcode": "6922456842970",
+  "unit": "瓶",
+  "stock": 8,
+  "price": 3.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅酸梅汤500ml",
+  "category": "康师傅",
+  "barcode": "6922456892685",
+  "unit": "瓶",
+  "stock": 16,
+  "price": 3.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅茉莉花茶900ml",
+  "category": "康师傅",
+  "barcode": "6973870137227",
+  "unit": "瓶",
+  "stock": 11,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅茉莉白茶900ml",
+  "category": "康师傅",
+  "barcode": "6973870139559",
+  "unit": "瓶",
+  "stock": 15,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "康师傅大红袍奶茶500ml",
+  "category": "康师傅",
+  "barcode": "6973870132949",
+  "unit": "瓶",
+  "stock": 10,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "菊乐核桃花生奶255",
+  "category": "菊乐",
+  "barcode": "6903979001907",
+  "unit": "盒",
+  "stock": 8,
+  "price": 2.5,
+  "status": 1
+ },
+ {
+  "name": "今麦郎高汤辣牛肉汤面桶144g",
+  "category": "今麦郎面",
+  "barcode": "6921555579220",
+  "unit": "桶",
+  "stock": 8,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "今麦郎一袋半奶油味火鸡拌面133g",
+  "category": "今麦郎面",
+  "barcode": "6921555584415",
+  "unit": "袋",
+  "stock": 9,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "今麦郎一桶半麻辣牛肉面144g",
+  "category": "今麦郎面",
+  "barcode": "6921555524671",
+  "unit": "桶",
+  "stock": 16,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "今麦郎香锅麻辣牛肉面桶157g",
+  "category": "今麦郎面",
+  "barcode": "6921555581087",
+  "unit": "桶",
+  "stock": 10,
+  "price": 5.5,
+  "status": 1
+ },
+ {
+  "name": "今麦郎一桶半泡椒牛肉面140g",
+  "category": "今麦郎面",
+  "barcode": "6921555524626",
+  "unit": "桶",
+  "stock": 10,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "今麦郎一袋半火鸡拌面芝士味133g",
+  "category": "今麦郎面",
+  "barcode": "6921555584453",
+  "unit": "袋",
+  "stock": 11,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "今麦郎一桶半老坛酸菜面152g",
+  "category": "今麦郎面",
+  "barcode": "6921555522417",
+  "unit": "桶",
+  "stock": 8,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "乐吧鸡肉",
+  "category": "锅巴",
+  "barcode": "6930799503564",
+  "unit": "袋",
+  "stock": 6,
+  "price": 2.0,
+  "status": 1
+ },
+ {
+  "name": "大吃兄 蛋黄锅巴盐焗蟹香风味42g",
+  "category": "锅巴",
+  "barcode": "6924911906920",
+  "unit": "袋",
+  "stock": 6,
+  "price": 2.9,
+  "status": 1
+ },
+ {
+  "name": "好诺美 红豆沙面包",
+  "category": "短保面包",
+  "barcode": "6973672130532",
+  "unit": ".个",
+  "stock": 15,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "东鹏果之茶柠檬红茶1L*12瓶壹元乐享",
+  "category": "东鹏",
+  "barcode": "6934502303250",
+  "unit": "1L*12瓶",
+  "stock": 6,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "旺旺118g旺仔小馒头原味★",
+  "category": "蛋糕类",
+  "barcode": "6935041525387",
+  "unit": "袋",
+  "stock": 6,
+  "price": 7.5,
+  "status": 1
+ },
+ {
+  "name": "好丽友派138g提拉米苏味★",
+  "category": "蛋糕类",
+  "barcode": "6920907801323",
+  "unit": "盒",
+  "stock": 8,
+  "price": 12.5,
+  "status": 1
+ },
+ {
+  "name": "黄龙绿豆糕100g",
+  "category": "蛋糕类",
+  "barcode": "8936137560006",
+  "unit": "盒",
+  "stock": 10,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "丽芝士145g纳宝帝威化饼干椰子味★",
+  "category": "蛋糕类",
+  "barcode": "8993175549721",
+  "unit": "盒",
+  "stock": 12,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "好丽友派222g巧克力味（加量装）★",
+  "category": "蛋糕类",
+  "barcode": "6920907825565",
+  "unit": "盒",
+  "stock": 15,
+  "price": 11.5,
+  "status": 1
+ },
+ {
+  "name": "好丽友派216g清新抹茶味★",
+  "category": "蛋糕类",
+  "barcode": "6920907800654",
+  "unit": "盒",
+  "stock": 16,
+  "price": 12.5,
+  "status": 1
+ },
+ {
+  "name": "达利园补水乐（海盐荔枝）500ml",
+  "category": "达利园",
+  "barcode": "6911988060723",
+  "unit": "瓶",
+  "stock": 9,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "达利园青提绿茶950ml",
+  "category": "达利园",
+  "barcode": "6911988056122",
+  "unit": "瓶",
+  "stock": 15,
+  "price": 5.2,
+  "status": 1
+ },
+ {
+  "name": "达利园豆本豆原味360ml",
+  "category": "达利园",
+  "barcode": "6911988025319",
+  "unit": "瓶",
+  "stock": 8,
+  "price": 5.5,
+  "status": 1
+ },
+ {
+  "name": "嘉士利75g迷你果乐果香夹心饼干香橙味",
+  "category": "饼干类",
+  "barcode": "6901180964813",
+  "unit": "袋",
+  "stock": 6,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "丽芝士145g威化饼干巧克力味★",
+  "category": "饼干类",
+  "barcode": "8993175540643",
+  "unit": "盒",
+  "stock": 6,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "CODEX库德士 双重可可曲奇",
+  "category": "饼干类",
+  "barcode": "5060609692209",
+  "unit": "盒",
+  "stock": 9,
+  "price": 5.9,
+  "status": 1
+ },
+ {
+  "name": "马奇新涂层夹心饼干",
+  "category": "饼干类",
+  "barcode": "9556439884069",
+  "unit": "袋",
+  "stock": 9,
+  "price": 9.9,
+  "status": 1
+ },
+ {
+  "name": "真巧103g马卡龙夹心饼干蓝莓芒果味★",
+  "category": "饼干类",
+  "barcode": "6952389223843",
+  "unit": "盒",
+  "stock": 9,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "C2 番茄味脆纸署片饼干38g",
+  "category": "饼干类",
+  "barcode": "6971552201303",
+  "unit": "盒",
+  "stock": 6,
+  "price": 2.9,
+  "status": 1
+ },
+ {
+  "name": "马奇新巧克力注心威化卷",
+  "category": "饼干类",
+  "barcode": "9556439891012",
+  "unit": "盒",
+  "stock": 6,
+  "price": 9.9,
+  "status": 1
+ },
+ {
+  "name": "奥利奥72g双心脆威化香草口味★",
+  "category": "饼干类",
+  "barcode": "6901668928108",
+  "unit": "盒",
+  "stock": 8,
+  "price": 6.5,
+  "status": 1
+ },
+ {
+  "name": "Aji酵母减盐味苏打饼干100g",
+  "category": "饼干类",
+  "barcode": "4894375008985",
+  "unit": "袋",
+  "stock": 6,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "Pocky巧克力味涂层饼干",
+  "category": "饼干类",
+  "barcode": "8990044000000",
+  "unit": "无",
+  "stock": 9,
+  "price": 8.0,
+  "status": 1
+ },
+ {
+  "name": "趣多多85g（王子曲奇星）香浓巧克力味★",
+  "category": "饼干类",
+  "barcode": "6904682123207",
+  "unit": "袋",
+  "stock": 6,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "Pocky双巧克力味涂层饼干",
+  "category": "饼干类",
+  "barcode": "8990044000031",
+  "unit": "无",
+  "stock": 8,
+  "price": 8.0,
+  "status": 1
+ },
+ {
+  "name": "KK 黄油喵脆饼 黄油芝士味80g",
+  "category": "饼干类",
+  "barcode": "4895235562890",
+  "unit": "盒",
+  "stock": 6,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "太平100g梳打饼干香葱味★",
+  "category": "饼干类",
+  "barcode": "6901668200235",
+  "unit": "个",
+  "stock": 8,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "格力高55g（百奇）蜜桃味★",
+  "category": "饼干类",
+  "barcode": "6901845042764",
+  "unit": "盒",
+  "stock": 9,
+  "price": 6.5,
+  "status": 1
+ },
+ {
+  "name": "格力高55g（百奇）巧克力味★",
+  "category": "饼干类",
+  "barcode": "6901845045062",
+  "unit": "盒",
+  "stock": 9,
+  "price": 6.5,
+  "status": 1
+ },
+ {
+  "name": "马奇新新力士岩盐巧克力夹心饼干",
+  "category": "饼干类",
+  "barcode": "9556439892835",
+  "unit": "袋",
+  "stock": 6,
+  "price": 9.9,
+  "status": 1
+ },
+ {
+  "name": "KK 醇萃浪帆黑巧味40g",
+  "category": "饼干类",
+  "barcode": "4895235565433",
+  "unit": "盒",
+  "stock": 6,
+  "price": 4.5,
+  "status": 1
+ },
+ {
+  "name": "康元早餐饼干",
+  "category": "饼干类",
+  "barcode": "084501142315",
+  "unit": "袋",
+  "stock": 6,
+  "price": 2.5,
+  "status": 1
+ },
+ {
+  "name": "Pocky奶油曲奇味涂层饼干",
+  "category": "饼干类",
+  "barcode": "8990044000024",
+  "unit": "无",
+  "stock": 12,
+  "price": 8.0,
+  "status": 1
+ },
+ {
+  "name": "嘉士利85g果乐果香夹心饼干香橙味",
+  "category": "饼干类",
+  "barcode": "6901180911510",
+  "unit": "袋",
+  "stock": 10,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "丽芝士56g威化饼干草莓芝士蛋糕味★",
+  "category": "饼干类",
+  "barcode": "8993175548823",
+  "unit": "袋",
+  "stock": 16,
+  "price": 3.0,
+  "status": 1
+ },
+ {
+  "name": "真巧酱芯曲奇",
+  "category": "饼干类",
+  "barcode": "6952389211048",
+  "unit": "袋",
+  "stock": 16,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "精益珍 无蔗糖沙琪玛80g",
+  "category": "饼干类",
+  "barcode": "6920902969028",
+  "unit": "袋",
+  "stock": 16,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "芝莉巧克力涂层香草味夹心棒21g",
+  "category": "饼干类",
+  "barcode": "8992775345269",
+  "unit": "条",
+  "stock": 10,
+  "price": 2.0,
+  "status": 1
+ },
+ {
+  "name": "比时咔 焦糖饼干93g",
+  "category": "饼干类",
+  "barcode": "5410126486438",
+  "unit": "袋",
+  "stock": 12,
+  "price": 13.5,
+  "status": 1
+ },
+ {
+  "name": "奥利奥72g双心脆威化草莓味★",
+  "category": "饼干类",
+  "barcode": "6901668928061",
+  "unit": "盒",
+  "stock": 9,
+  "price": 6.5,
+  "status": 1
+ },
+ {
+  "name": "NicePia巧克力味涂层棒33g",
+  "category": "饼干类",
+  "barcode": "8993083941518",
+  "unit": "盒",
+  "stock": 16,
+  "price": 3.9,
+  "status": 1
+ },
+ {
+  "name": "马来西亚威化饼",
+  "category": "饼干类",
+  "barcode": "9556439881532",
+  "unit": "袋",
+  "stock": 8,
+  "price": 9.9,
+  "status": 1
+ },
+ {
+  "name": "Pocky抹茶味涂层饼干",
+  "category": "饼干类",
+  "barcode": "8990044000048",
+  "unit": "无",
+  "stock": 10,
+  "price": 8.0,
+  "status": 1
+ },
+ {
+  "name": "好吃点146g杏仁味",
+  "category": "饼干类",
+  "barcode": "6911988000293",
+  "unit": "袋",
+  "stock": 15,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "马奇新新 妙乐榛子巧克力味夹心威化饼干90g",
+  "category": "饼干类",
+  "barcode": "9556439881556",
+  "unit": "袋",
+  "stock": 10,
+  "price": 9.5,
+  "status": 1
+ },
+ {
+  "name": "马奇新新 巧克力味夹心曲奇饼干64g",
+  "category": "饼干类",
+  "barcode": "9556439894334",
+  "unit": "个",
+  "stock": 16,
+  "price": 3.9,
+  "status": 1
+ },
+ {
+  "name": "芝莉巧克力涂层味夹心棒21g",
+  "category": "饼干类",
+  "barcode": "8992775345023",
+  "unit": "条",
+  "stock": 10,
+  "price": 2.0,
+  "status": 1
+ },
+ {
+  "name": "奥利奥48.5g小饼干原味★",
+  "category": "饼干类",
+  "barcode": "6901668935649",
+  "unit": "个",
+  "stock": 15,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "康元燕麦早餐饼干",
+  "category": "饼干类",
+  "barcode": "6925981401261",
+  "unit": "袋",
+  "stock": 15,
+  "price": 2.5,
+  "status": 1
+ },
+ {
+  "name": "亨裕158g涂层棒抹茶味",
+  "category": "饼干类",
+  "barcode": "6932024205724",
+  "unit": "罐",
+  "stock": 10,
+  "price": 9.0,
+  "status": 1
+ },
+ {
+  "name": "茱蒂丝 茱蒂丝花生酱三明治饼干90g",
+  "category": "饼干类",
+  "barcode": "9556121026999",
+  "unit": "袋",
+  "stock": 12,
+  "price": 9.5,
+  "status": 1
+ },
+ {
+  "name": "杨生记75g松松火山芝士",
+  "category": "饼干类",
+  "barcode": "6971767636785",
+  "unit": "袋",
+  "stock": 16,
+  "price": 4.0,
+  "status": 1
+ },
+ {
+  "name": "Tipo面包干牛奶味39g",
+  "category": "饼干类",
+  "barcode": "8934760219278",
+  "unit": "无",
+  "stock": 12,
+  "price": 4.5,
+  "status": 1
+ },
+ {
+  "name": "Gery芝莉巧克力味夹心卷饼干70g",
+  "category": "饼干类",
+  "barcode": "8992775341841",
+  "unit": "盒",
+  "stock": 10,
+  "price": 5.9,
+  "status": 1
+ },
+ {
+  "name": "KK 黄油喵脆饼黄油咖啡味80g",
+  "category": "饼干类",
+  "barcode": "4895235562883",
+  "unit": "盒",
+  "stock": 9,
+  "price": 6.0,
+  "status": 1
+ },
+ {
+  "name": "暴肌独角兽 加根鲜鸡腿卤香味75g",
+  "category": "饼干类",
+  "barcode": "6972933567155",
+  "unit": "个",
+  "stock": 16,
+  "price": 7.5,
+  "status": 1
+ },
+ {
+  "name": "格力高55g（百奇）草莓味★",
+  "category": "饼干类",
+  "barcode": "6901845041606",
+  "unit": "盒",
+  "stock": 8,
+  "price": 6.5,
+  "status": 1
+ },
+ {
+  "name": "Pocky草莓味涂层饼干",
+  "category": "饼干类",
+  "barcode": "8990044000017",
+  "unit": "无",
+  "stock": 10,
+  "price": 8.0,
+  "status": 1
+ },
+ {
+  "name": "奥利奥97g饼干（双果）树莓+蓝莓味★",
+  "category": "饼干类",
+  "barcode": "6901668005915",
+  "unit": "盒",
+  "stock": 6,
+  "price": 7.0,
+  "status": 1
+ },
+ {
+  "name": "Anemon3,118g比利时风味焦糖饼干",
+  "category": "饼干类",
+  "barcode": "4897090850174",
+  "unit": "袋",
+  "stock": 6,
+  "price": 5.5,
+  "status": 1
+ },
+ {
+  "name": "奥利奥97g饼干夹心草莓味★",
+  "category": "饼干类",
+  "barcode": "6901668935748",
+  "unit": "盒",
+  "stock": 9,
+  "price": 7.0,
+  "status": 1
+ },
+ {
+  "name": "果缤纷甜蜜出桃450ml",
+  "category": "百事可乐",
+  "barcode": "6934024517418",
+  "unit": "无",
+  "stock": 9,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "百佳得乐西柚600ML",
+  "category": "百事可乐",
+  "barcode": "6934024590466",
+  "unit": "600ML",
+  "stock": 15,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "百事无糖青柠500ML",
+  "category": "百事可乐",
+  "barcode": "6915766004947",
+  "unit": "500ML",
+  "stock": 16,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "百七喜中瓶装500ML",
+  "category": "百事可乐",
+  "barcode": "6940553370011",
+  "unit": "500ML",
+  "stock": 12,
+  "price": 3.5,
+  "status": 1
+ },
+ {
+  "name": "白象老坛酸豆角",
+  "category": "白象面",
+  "barcode": "6935270644309",
+  "unit": "盒",
+  "stock": 12,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "白象大辣娇常规拌面方便面红油辣酱111g*12桶",
+  "category": "白象面",
+  "barcode": "6935270639053",
+  "unit": "无",
+  "stock": 11,
+  "price": 5.0,
+  "status": 1
+ },
+ {
+  "name": "白象汤好喝辣牛肉汤面119g*12桶",
+  "category": "白象面",
+  "barcode": "6935270642121",
+  "unit": "无",
+  "stock": 11,
+  "price": 5.5,
+  "status": 1
+ }
+]

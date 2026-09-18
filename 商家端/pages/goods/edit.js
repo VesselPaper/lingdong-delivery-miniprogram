@@ -5,7 +5,8 @@ const config = require('../../utils/config')
 const ORIGIN = config.baseUrl.replace(/\/api$/, '')
 
 const DEFAULT = {
-  name: '', category: '热卤', price: '', original_price: '', stock: '99', description: '', image: ''
+  name: '', category: '热卤', price: '', original_price: '', stock: '99', description: '', image: '',
+  barcode: '', unit: ''
 }
 Page({
   data: {
@@ -28,7 +29,8 @@ Page({
           this.setData({ form: {
             name: item.name, category: item.category, price: String(item.price),
             original_price: String(item.original_price || ''), stock: String(item.stock),
-            description: item.description || '', image: item.image || ''
+            description: item.description || '', image: item.image || '',
+            barcode: item.barcode || '', unit: item.unit || ''
           }})
         }
       } catch (e) { /* handled */ }
@@ -125,7 +127,9 @@ Page({
       original_price: Number(form.original_price || 0),
       stock: Number(form.stock || 99),
       description: form.description || '',
-      image: (form.image || '').replace(ORIGIN, '')
+      image: (form.image || '').replace(ORIGIN, ''),
+      barcode: (form.barcode || '').trim(),
+      unit: (form.unit || '').trim()
     }
     try {
       if (id) {
