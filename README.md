@@ -1,7 +1,7 @@
 # 校内快递配送机器人
 
-最后更新：2026-09-04
-四川师范大学无人送餐车项目：双微信小程序（用户端 + 商家端）+ Node.js 后端 + 开放物流平台（robox）对接。
+最后更新：2026-09-18
+四川师范大学校内无人送餐车项目：双微信小程序（用户端 + 商家端）+ Node.js 后端 + 开放物流平台（robox）对接。后端**单进程**同时托管三个服务（同一端口 3000）：小程序 API（`/api`）、管理员网页（`/admin`）、数据可视化大屏（`/dashboard`）。
 
 ## 目录
 
@@ -38,13 +38,12 @@
 
 ```
 校内快递配送机器人/
-├── backend/                        # Node.js 后端
-│   ├── server.js                   # API 入口：路由、鉴权、.env 加载、平台回调、批次自动派车调度
+├── backend/                        # Node.js 后端（Express + node:sqlite，端口 3000）
+│   ├── server.js                   # 装配入口：加载 .env、挂载 5 域路由、静态托管管理员页/大屏
 │   ├── db.js                       # 建表、迁移、种子数据（商品/点位/店铺）
-│   ├── services/
-│   │   ├── platform.js             # 开放物流平台对接：排队任务、状态轮询、eviz 位置、点位同步、批次批量建任务/批量上货
-│   │   ├── batch.js                # 配送批次服务（一车多件：按商品件数 best-fit 分批/组单/派车/路径规划/取餐计数/批次完成）
-│   │   └── wxpay.js                # 微信支付 V3：统一下单、回调解密
+│   ├── domains/                    # 分层域：user/goods/order/delivery/admin（每域 queries/service/routes）
+│   ├── services/                   # 共享服务：platform（平台对接）/ runtime / promotion（活动计价）/ merchantInvite（邀请码）/ batch / wxpay / orderCancel
+│   ├── tools/                      # 维护脚本（merchant_invite.js 邀请码管理）
 │   ├── data/lingdong.db            # SQLite 数据库（首次启动自动创建+种子数据）
 │   ├── uploads/                    # 商家上传的商品图片
 │   └── .env.example                # 环境变量模板（复制为 .env 填写）
@@ -53,17 +52,19 @@
 │   ├── pages/                      # index/goods/cart/order/delivery/user/address/activity
 │   ├── utils/                      # api.js 接口定义、request.js 请求封装、config.js 环境配置、pay.js 支付封装
 │   ├── custom-tab-bar/             # 自定义底部导航
-│   ├── miniprogram_npm/            # tdesign-miniprogram（仅 icon 图标）
-│   └── 示例设计图/                  # UI 参考图
+│   └── miniprogram_npm/            # tdesign-miniprogram（仅 icon 图标）
 ├── 商家端/                          # 商家管理小程序（19 页）
 │   ├── app.js / app.json / app.wxss
 │   ├── pages/                      # index/shop/orders/goods/activity/delivery/user
+│   ├── components/                 # search-box / empty-view / goods-row / status-text / batch-card / order-card
 │   ├── utils/                      # api.js、request.js、config.js、shopState.js（店铺状态）
-│   ├── custom-tab-bar/、miniprogram_npm/、示例设计图/
-├── doc/                            # 项目文档（PRD/接口/技术方案/数据库/路由/常量/链路）
-├── 交接文档.md                      # 新成员/新对话接手入口
-├── 真实上线所需功能书.md             # 上线缺口与资金/老师决策清单
-└── 启动服务器.bat                  # 后端启动快捷方式（cd backend && node server.js）
+│   └── custom-tab-bar/、miniprogram_npm/
+├── 管理员网页/                      # 浏览器端管理工具（http://<IP>:3000/admin/）
+├── 可视化大屏/                      # 数据可视化大屏（http://<IP>:3000/dashboard/）
+├── agent/                          # 交接文档（agent交接文档/交接文档1~6）+ 理思路文件夹（分层改造方案与记录）
+├── doc/                            # 项目文档：01_PRD / 02_接口 / 03_技术方案 / 04_数据库 / 05_路由 / 06_常量 / 07_链路 + 逻辑树
+├── 工具/ · 接口/ · 二维码/            # 辅助资源（平台 openapi 导出、二维码图等）
+└── 启动服务器.bat                  # 一键启动后端（API + 管理员 + 大屏，同一端口 3000）
 ```
 
 ## 技术栈
@@ -96,6 +97,12 @@ node server.js
 
 ### 4. 验证
 浏览器访问 http://127.0.0.1:3000/api/goods/list ，返回 `{"code":0,...,"data":[...]}` 即正常。
+
+后端单进程同时托管三个服务（同一端口 3000）：
+- 小程序 API：`http://127.0.0.1:3000/api/...`
+- 管理员网页：`http://127.0.0.1:3000/admin/`（首次打开需输入管理员令牌，默认 `123456`）
+- 数据大屏：`http://127.0.0.1:3000/dashboard/`
+
 （若设置 PLATFORM_MOCK=true，控制台会提示"配送层：本地 Mock 状态机"。）
 
 ## 二、新环境首次运行并预览
@@ -245,8 +252,8 @@ git push origin main         # 再推送（普通推送，不要加 --force）
 ## 文档索引
 
 - 启动与运行：见本文件「一、启动后端服务器」「二、新环境首次运行并预览」（含导入编译、预览流程、真机预览、常见问题、成员同步更新）。
-- **交接文档**：`交接文档.md`（项目根目录）——项目全貌、当前运行状态、真实/模拟清单、git 状态与推送策略、已知问题与待办，供新对话/新成员接手。
-- **真实上线所需功能书**：`真实上线所需功能书.md`（项目根目录）——当前哪些是真实功能、哪些仍是模拟，上线前逐项要做的事（真实登录/支付/退款/扫码、机器人联调、部署域名、合规运营）、**资金清单与需老师决策的事项**、验收清单。
+- **交接文档**：`agent/agent交接文档/交接文档6.md`（最新）——项目全貌、当前运行状态、真实/模拟清单、git 状态与推送策略、已知问题与待办，供新对话/新成员接手；交接文档1~5 为历史背景。
+- **分层改造方案与记录**：`agent/理思路文件夹/`（00 总览决策 / 01 数据项地图 / 02·03·04 链路追踪 / 05 分层改造方案 / 06 回归验证清单 / 07 分层改造进行时）。
 - 项目文档（doc/ 目录）：
   - `doc/01_PRD需求文档.md` 需求/角色/流程/异常
   - `doc/02_接口文档.md` 全部 API 说明
