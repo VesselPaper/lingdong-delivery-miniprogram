@@ -1,10 +1,10 @@
 // 网络请求封装
 const config = require('./config')
 
-// 相对资源路径统一转成完整地址（后端上传的 /uploads/xxx）
+// 相对资源路径统一转成完整地址（后端上传的 /uploads/xxx、种子图 /store-img/xxx）
 function normalize(v) {
   if (typeof v === 'string') {
-    if (v.indexOf('/uploads/') === 0) return config.baseUrl.replace(/\/api$/, '') + v
+    if (v.indexOf('/uploads/') === 0 || v.indexOf('/store-img/') === 0) return config.baseUrl.replace(/\/api$/, '') + v
     return v
   }
   if (Array.isArray(v)) return v.map(normalize)

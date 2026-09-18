@@ -1,7 +1,7 @@
 # 灵栋配送 · 商品图抽查清单（最终）
 
 - 生成：全覆盖尝试后。总商品 216，**已填真实图 42 个**，无图（苏宁无对应SKU/品牌）174 个。
-- 图片一律按商品名命名存 `backend/uploads/`，`goods.image` 指向 `/uploads/<名>.jpg|png`；已校验 DB路径↔磁盘文件一一对应。
+- 图片一律按商品名命名存 `backend/seed_images/`（随 git 跟踪），`goods.image` 指向 `/store-img/<名>.jpg|png`（`server.js` 已把 `backend/seed_images/` 托到 `/store-img`；前端 `utils/request.js` 已支持 `/store-img/` 前缀补全）；已校验 DB路径↔磁盘文件一一对应。
 
 ## 一、已填图（42 个）
 

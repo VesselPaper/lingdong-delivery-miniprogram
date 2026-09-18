@@ -1,4 +1,4 @@
-﻿// 零栋无人送餐后端
+// 零栋无人送餐后端
 const crypto = require('crypto')
 const path = require('path')
 const fs = require('fs')
@@ -56,6 +56,8 @@ const store = init()
 const app = express()
 const PORT = process.env.PORT || 3000
 const UPLOAD_DIR = path.join(__dirname, 'uploads')
+// 商品种子图（随 git 跟踪）：http://<IP>:3000/store-img/<名>.jpg，goods.image 指向 /store-img/*
+const SEED_IMG_DIR = path.join(__dirname, 'seed_images')
 // 数据可视化大屏（只读展示页）：主机浏览器访问 http://<IP>:3000/dashboard 即可全屏展示
 const DASHBOARD_DIR = path.join(__dirname, '..', '可视化大屏')
 // 管理员工具页（查看/修复机器人状态）：http://<IP>:3000/admin
@@ -71,6 +73,7 @@ app.use(cors())
 // 仅对支付回调路径保存原始报文（供 P0-6 平台证书验签）；其它路径（如 8mb 图片上传）不缓存，避免内存翻倍
 app.use(express.json({ limit: '8mb', verify: (req, res, buf) => { if (req.originalUrl === '/api/pay/notify') req.rawBody = buf } }))
 app.use('/uploads', express.static(UPLOAD_DIR))
+app.use('/store-img', express.static(SEED_IMG_DIR))
 // 管理员工具页（静态）：http://<IP>:3000/admin；API 在 domains/admin/routes.js（adminGuard）
 // serve-static 对目录请求自带 301 → /admin/，页面里相对路径（admin.js）因此能正确解析。
 app.use('/admin', express.static(ADMIN_DIR))
