@@ -426,7 +426,7 @@ function importStoreGoods(db) {
         String(r.unit || '').trim()
       )
     }
-    db.prepare("INSERT INTO meta (key, value) VALUES ('store_goods_import_hash', ?)").run(hash)
+    db.prepare("INSERT INTO meta (key, value) VALUES ('store_goods_import_hash', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(hash)
     db.exec('COMMIT')
     console.log(`[db] 门店商品已导入（替换）：${rows.length} 个商品`)
   } catch (e) {
