@@ -27,6 +27,11 @@
   var API = location.protocol === 'file:'
     ? 'http://127.0.0.1:3000/api/dashboard/overview'
     : '/api/dashboard/overview'
+  // 无人车实时位置：轻量接口，比 overview 高频得多（车要看得见在动）
+  var API_ROBOTS = location.protocol === 'file:'
+    ? 'http://127.0.0.1:3000/api/dashboard/robot-positions'
+    : '/api/dashboard/robot-positions'
+  var ROBOT_POLL_MS = 1000          // 车辆位置轮询间隔
 
   var $ = function (id) { return document.getElementById(id) }
 
@@ -88,6 +93,32 @@
       .catch(function (e) { clearTimeout(timer); throw e })
   }
 
+  // 无人车实时位置：单独高频轮询，只喂给 3D 地图（不动其它面板）
+  function fetchRobotPositions() {
+    var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort() }, FETCH_TIMEOUT)
+    return fetch(API_ROBOTS, { signal: ctrl ? ctrl.signal : undefined, cache: 'no-store' })
+      .then(function (r) { return r.json() })
+      .then(function (j) {
+        clearTimeout(timer)
+        if (!j || j.code !== 0 || !j.data) throw new Error((j && j.msg) || '返回格式异常')
+        return j.data
+      })
+      .catch(function (e) { clearTimeout(timer); throw e })
+  }
+
+  function pollRobots() {
+    if (!window.Map3D || !Map3D.setRobots) return
+    fetchRobotPositions().then(function (d) {
+      var list = (d && d.robots) || []
+      // 只有拿到有效坐标的才交给地图（没定位的保持上一次/等下一轮）
+      var withPos = list.filter(function (r) { return r && r.has_pos !== false && r.x != null && r.y != null })
+      Map3D.setRobots(withPos)
+      var tip = $('mapTip')
+      if (tip && d && d.msg) tip.textContent = '车辆位置接口：' + d.msg
+    }).catch(function () { /* 轮询失败静默，等下一轮 */ })
+  }
+
   /* ---------------- 渲染：运行状态 ---------------- */
 
   function renderRunState(d) {
@@ -114,7 +145,9 @@
   function paintMetric(el, value) {
     var v = num(value)
     txt(el, v)
-    setClass(el, v === 0 ? 'is-zero' : '')
+    if (el) {
+      if (v === 0) el.classList.add('is-zero'); else el.classList.remove('is-zero')
+    }
   }
 
   function renderStats(stats) {
@@ -328,128 +361,143 @@
 
   /* ---------------- 地图：Leaflet 实时可拖拽地图 ---------------- */
 
-  // 底图提供商（矢量道路图，非卫星影像）。对齐结果按提供商保存，切换后需重新对齐：
-  //   'amap-vector' = 高德矢量（默认：国内稳定、中文楼名、时效性好；免费瓦片 maxZoom=18）
-  //   'amap-sat'    = 高德卫星影像（真实影像，无道路标注）
-  //   'carto'       = CARTO Voyager（干净现代矢量路网；境外 CDN，国内偶发慢）
-  //   'osm'         = OpenStreetMap 官方源（国内被墙，会 403/白图，不推荐）
-  // 注意：高德瓦片按 GCJ-02 渲染，OSM/CARTO 按 WGS84 —— 两者偏差约几百米，切换后点位会偏移，
-  // 需重新用「对齐校准」把雷达底图对到新底图上。
-  var TILE_PROVIDER = 'amap-vector'
-
-  // ---- 坐标变换：平台局部坐标(米) → 经纬度 ----
-  // 优先用「雷达图手动对齐」结果（本机 localStorage 保存）：
-  //   qx = a*x - b*y + tx ; qy = b*x + a*y + ty （平台坐标 → WebMercator米）→ 反投影经纬度
-  // 未对齐前按底图类型用内置标定兜底：
-  //   · 高德瓦片（GCJ-02）：LEGACY_AMAP（东苑锚点推断，±20~30m）
-  //   · OSM/CARTO（WGS84）：CALIB_T（成员 ?calib=1 拖拽标定）
-  var LEGACY_AMAP = {
-    bbMinX: -36.849, bbMaxX: 231.945, bbMinY: -107.831, bbMaxY: 139.007,
-    platW: 5776, platH: 5537,
-    S: 0.09, cx: 2888, cy: 2768.5, tx: 2138, ty: 2501,
-    z: 18, tx0: 206943, ty0: 107671
-  }
+  // 标定常量（用户 ?calib=1 拖拽标定得出，2026-09-22）：
+  // 平台局部坐标(米) -> WebMercator米（相似变换）-> WGS84 经纬度（匹配 OSM 底图）。
+  // qx = a*px - b*py + tx ; qy = b*px + a*py + ty
   var CALIB_T = { a: 1.184949, b: 0.339779, tx: 11599629.22, ty: 3576279.423 }
 
-  function legacyAmapToLngLat(x, y) {
-    var C = LEGACY_AMAP
-    var plx = (x - C.bbMinX) / (C.bbMaxX - C.bbMinX) * C.platW
-    var ply = (1 - (y - C.bbMinY) / (C.bbMaxY - C.bbMinY)) * C.platH
-    var navX = C.S * (plx - C.cx) + C.tx
-    var navY = C.S * (ply - C.cy) + C.ty
-    var n = Math.pow(2, C.z)
-    var lng = ((C.tx0 * 256 + navX) / 256) / n * 360 - 180
-    var wy = (C.ty0 * 256 + navY) / 256
-    var lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * wy / n))) * 180 / Math.PI
-    return [lat, lng]
-  }
-
-  function calibWgsToLngLat(x, y) {
+  // 平台坐标（米，自有原点）→ WGS84 经纬度 [lat, lng]
+  function platformToLngLat(x, y) {
     var R = 6378137
     var qx = CALIB_T.a * x - CALIB_T.b * y + CALIB_T.tx
     var qy = CALIB_T.b * x + CALIB_T.a * y + CALIB_T.ty
-    return [Math.atan(Math.sinh(qy / R)) * 180 / Math.PI, qx / R * 180 / Math.PI]
-  }
-
-  // 对齐状态：saved=已保存的结果；on=正在对齐；preview=拖动中的实时预览变换
-  var ALIGN = {
-    on: false, preview: null, saved: null,
-    el: null, img: null, imgW: 0, imgH: 0,
-    L: 0, T: 0, W: 0, H: 0, rot: 0, lock: true,
-    bbox: null, drag: null, tile: null, lastRepaint: 0
-  }
-
-  function alignActiveTransform() {
-    if (ALIGN.on && ALIGN.preview) return ALIGN.preview
-    if (ALIGN.saved && ALIGN.saved.provider === TILE_PROVIDER) return ALIGN.saved
-    return null
-  }
-
-  // 平台坐标（米，自有原点）→ 经纬度 [lat, lng]
-  function platformToLngLat(x, y) {
-    var t = alignActiveTransform()
-    if (t) {
-      var R = 6378137
-      var qx = t.a * x - t.b * y + t.tx
-      var qy = t.b * x + t.a * y + t.ty
-      return [Math.atan(Math.sinh(qy / R)) * 180 / Math.PI, qx / R * 180 / Math.PI]
-    }
-    return (TILE_PROVIDER === 'amap-vector' || TILE_PROVIDER === 'amap-sat')
-      ? legacyAmapToLngLat(x, y)
-      : calibWgsToLngLat(x, y)
-  }
-
-  // 平台坐标 → 雷达图叠加层在 mapBox 里的像素（与 Leaflet containerPoint 同一坐标系）。
-  // 映射约定与商家端 monitor.js 一致：x 左→右、y 上→下（平台 y 向北，转成图片向下）。
-  function platformToContainerPoint(x, y) {
-    var bb = ALIGN.bbox
-    var iw = ALIGN.imgW || 5786, ih = ALIGN.imgH || 5406
-    var px = (x - bb.minX) / (bb.maxX - bb.minX) * iw
-    var py = (bb.maxY - y) / (bb.maxY - bb.minY) * ih
-    var dx = px * (ALIGN.W / iw)
-    var dy = py * (ALIGN.H / ih)
-    var cx = ALIGN.W / 2, cy = ALIGN.H / 2
-    var th = ALIGN.rot * Math.PI / 180, cos = Math.cos(th), sin = Math.sin(th)
-    var rx = (dx - cx) * cos - (dy - cy) * sin + cx
-    var ry = (dx - cx) * sin + (dy - cy) * cos + cy
-    return [ALIGN.L + rx, ALIGN.T + ry]
+    var lng = qx / R * 180 / Math.PI
+    var lat = Math.atan(Math.sinh(qy / R)) * 180 / Math.PI
+    return [lat, lng]
   }
 
   var mapObj = null
   var mapLayers = { lms: {}, cars: {}, stops: {}, route: null, graph: null }
 
+  // 天地图浏览器端 tk：由后端 /api/config/tianditu 注入（存于 .env，不进仓库）
+  var TIANDITU_TK = null
+  var TIANDITU_FETCHING = false
+  function getTiandituTk() {
+    if (TIANDITU_TK !== null) return Promise.resolve(TIANDITU_TK)
+    if (TIANDITU_FETCHING) {
+      return new Promise(function (resolve) {
+        var iv = setInterval(function () {
+          if (TIANDITU_TK !== null) { clearInterval(iv); resolve(TIANDITU_TK) }
+        }, 100)
+      })
+    }
+    TIANDITU_FETCHING = true
+    return fetch((location.protocol === 'file:' ? 'http://127.0.0.1:3000' : '') + '/api/config/tianditu').then(function (r) { return r.json() }).then(function (j) {
+      TIANDITU_TK = (j && j.data && j.data.tk) || ''
+      return TIANDITU_TK
+    }).catch(function () { TIANDITU_TK = ''; return '' })
+  }
+  function tiandituUrl(layer, tk) {
+    return 'https://t{s}.tianditu.gov.cn/' + layer + '_w/wmts?tk=' + tk +
+      '&TILEMATRIXSET=w&Service=WMTS&Request=GetTile&Version=1.0.0&FORMAT=tiles' +
+      '&Layer=' + layer + '&Style=default&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'
+  }
+
   function initMap() {
     if (mapObj || !window.L) return
     var el = $('mapBox')
     if (!el) return
+    // 底图源（矢量道路图，非卫星影像）。方便切换：改动 TILE_PROVIDER 一项即可。
+    //   'tianditu'    = 天地图（矢量底图+中文注记，国内稳定、无水印、数据较新，默认）
+    //   'carto'       = CARTO Voyager（干净现代矢量路网）
+    //   'osm'         = OpenStreetMap 标准（部分环境会 403）
+    //   'osm-de'      = OSM 德国镜像（标准 OSM 画风，国内可达；备用降级源）
+    //   'amap-vector' = 高德矢量（自带中文楼名，但带回源水印；最终兜底）
+    //   'amap-sat'    = 高德卫星影像（真实影像，无道路标注；用水印，需留意版权）
+    var TILE_PROVIDER = 'tianditu'
     var TILE = {
-      'amap-vector': { url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', subs: ['1', '2', '3', '4'], attr: '&copy; 高德地图', max: 18 },
-      'amap-sat': { url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}', subs: ['1', '2', '3', '4'], attr: '&copy; 高德地图', max: 18 },
-      carto: { url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', subs: ['a', 'b', 'c', 'd'], attr: '&copy; OpenStreetMap &copy; CARTO', max: 20 },
-      osm: { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', subs: ['a', 'b', 'c'], attr: '&copy; OpenStreetMap', max: 20 }
+      tianditu:   { name: '天地图', max: 18 },
+      carto:      { url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', subs: ['a', 'b', 'c', 'd'], attr: '&copy; OpenStreetMap &copy; CARTO', max: 20 },
+      osm:        { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', subs: ['a', 'b', 'c'], attr: '&copy; OpenStreetMap', max: 20 },
+      'osm-de':   { url: 'https://tile.openstreetmap.de/{z}/{x}/{y}.png', subs: [''], attr: '&copy; OpenStreetMap', max: 19 },
+      'amap-vector': { url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', subs: ['1', '2', '3', '4'], attr: '&copy; 高德地图', max: 20 },
+      'amap-sat': { url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}', subs: ['1', '2', '3', '4'], attr: '&copy; 高德地图', max: 20 }
     }
-    var t = TILE[TILE_PROVIDER] || TILE['amap-vector']
+    var t = TILE[TILE_PROVIDER] || TILE.carto
     mapObj = L.map(el, {
       zoomControl: true,
-      scrollWheelZoom: true,
-      maxZoom: t.max,
-      attributionControl: true     // 保留底图版权署名（高德/OSM 授权要求）
+      scrollWheelZoom: true,        // 允许鼠标滚轮缩放（网页端需求）
+      maxZoom: 20,                  // 最高 20 级（天地图原生到 18，19~20 由 maxNativeZoom 放大）
+      attributionControl: false     // 隐藏底图版权水印（内部演示大屏；正式发布建议按版权保留）
     })
-    ALIGN.tile = L.tileLayer(t.url, {
+    // 天地图为主底图（团队方案）：tk 由后端注入；未配置或加载失败时降级到备用源
+    if (TILE_PROVIDER === 'tianditu') {
+      getTiandituTk().then(function (tk) {
+        if (!tk || !mapObj) { txt($('mapTip'), '天地图密钥未配置（backend/.env 的 TIANDITU_TK），自动使用备用底图'); startFallbackTiles(); return }
+        // 天地图原生最高 18 级；maxNativeZoom=18 让 19~20 级自动放大原图，避免空白
+        L.tileLayer(tiandituUrl('vec', tk), { subdomains: '01234567', maxNativeZoom: 18, maxZoom: 20 }).addTo(mapObj)  // 矢量底图
+        L.tileLayer(tiandituUrl('cva', tk), { subdomains: '01234567', maxNativeZoom: 18, maxZoom: 20 }).addTo(mapObj)  // 中文注记
+      })
+      return
+    }
+    // 非天地图源：OSM 降级链 + 防抖（本地保留）
+    // 国内网络常无法访问 OSM/CARTO 官方瓦片服务器（实测超时），底图会整片空白/灰底。
+    // 降级链：OSM 德国镜像(同为 OSM 画风，国内可达) → 高德矢量（最终兜底）。
+    // 防抖规则：当前底图只要有瓦片成功加载过（tileload）就锁定、不再降级，个别瓦片失败只是抖动；
+    // 只有「从未成功 + 连续失败 >= 3」才判定该源不可用并切换到下一个。
+    var FALLBACK_CHAIN = ['osm-de', 'amap-vector']
+    var fallbackIdx = 0
+    var tileEverOk = false
+    var tileErrCount = 0
+    var tileLayer = L.tileLayer(t.url, {
       subdomains: t.subs,
       maxZoom: t.max,
-      attribution: t.attr,
-      opacity: 1
-    }).addTo(mapObj)
+      attribution: t.attr
+    })
+    function onTileLoad() { tileEverOk = true }
+    function onTileError() {
+      if (tileEverOk) return
+      tileErrCount++
+      if (tileErrCount < 3) return
+      if (fallbackIdx >= FALLBACK_CHAIN.length) return
+      var fb = TILE[FALLBACK_CHAIN[fallbackIdx]]
+      fallbackIdx++
+      if (!fb) return
+      try { mapObj.removeLayer(tileLayer) } catch (e) {}
+      tileLayer = L.tileLayer(fb.url, { subdomains: fb.subs, maxZoom: fb.max, attribution: fb.attr })
+      tileEverOk = false
+      tileErrCount = 0
+      tileLayer.on('tileload', onTileLoad)
+      tileLayer.on('tileerror', onTileError)
+      tileLayer.addTo(mapObj)
+      console.warn('[map] 底图源连续加载失败，已自动切换为 ' + FALLBACK_CHAIN[fallbackIdx - 1])
+    }
+    tileLayer.on('tileload', onTileLoad)
+    tileLayer.on('tileerror', onTileError)
+    tileLayer.addTo(mapObj)
+
+    // 备用底图（天地图无 tk 时）：osm-de → amap-vector 防抖降级
+    function startFallbackTiles() {
+      var tl = L.tileLayer(TILE['osm-de'].url, { subdomains: TILE['osm-de'].subs, maxZoom: TILE['osm-de'].max, attribution: TILE['osm-de'].attr })
+      var ever = false, errs = 0
+      tl.on('tileload', function () { ever = true })
+      tl.on('tileerror', function () {
+        if (ever) return
+        if (++errs < 3) return
+        try { mapObj.removeLayer(tl) } catch (e) {}
+        var fb2 = TILE['amap-vector']
+        L.tileLayer(fb2.url, { subdomains: fb2.subs, maxZoom: fb2.max, attribution: fb2.attr }).addTo(mapObj)
+        console.warn('[map] 天地图密钥缺失且 osm-de 连续失败，已降级为高德矢量')
+      })
+      tl.addTo(mapObj)
+    }
     mapObj.setView(platformToLngLat(0, 15), Math.min(18, t.max))   // 东苑宿舍区
+    // 普通模式套「数字孪生暗色地图」皮肤（仅地图面板）；标定模式保持原样便于拖拽
+    if (!CALIB) el.classList.add('map-digital')
     var mask = $('mapMask')
     if (mask) mask.hidden = true
     var reset = $('mapReset')
     if (reset) reset.hidden = false
-    var ab = $('alignBtn')
-    if (ab) ab.hidden = false
-    var ac = $('alignClear')
-    if (ac) ac.hidden = !ALIGN.saved
   }
 
   function mapResized() {
@@ -477,7 +525,7 @@
         var isLoad = m.type === 'loadingPoint'
         mk = L.circleMarker(ll, {
           radius: isLoad ? 8 : 5, weight: 2, color: '#ffffff',
-          fillColor: isLoad ? '#e8890c' : '#2b50a1', fillOpacity: 1
+          fillColor: isLoad ? '#ffb020' : '#5aff86', fillOpacity: 1   // 站点=橙 / 途经点=荧光绿
         })
         mk.bindTooltip(m.name || '', { direction: 'top', offset: [0, -8], className: 'lmTip' })
         mk.addTo(mapObj)
@@ -496,7 +544,7 @@
     var pts = llList(graph && graph.nodes)
     if (mapLayers.graph) { mapLayers.graph.setLatLngs(pts); return }
     if (!pts.length) return
-    mapLayers.graph = L.polyline(pts, { color: '#8fb1e6', weight: 2, opacity: .6 }).addTo(mapObj)
+    mapLayers.graph = L.polyline(pts, { color: '#45d0ff', weight: 2.5, opacity: .85 }).addTo(mapObj)   // 发光路网（青色，光晕由 CSS drop-shadow 提供）
   }
 
   // 路线（虚线）+ 停靠序号
@@ -504,7 +552,7 @@
     var r = (routes || []).filter(function (x) { return x && x.stops && x.stops.length > 1 })[0]
     var pts = r ? llList(r.stops) : []
     if (mapLayers.route) mapLayers.route.setLatLngs(pts)
-    else if (pts.length) mapLayers.route = L.polyline(pts, { color: '#2e7cf6', weight: 3, dashArray: '8 6' }).addTo(mapObj)
+    else if (pts.length) mapLayers.route = L.polyline(pts, { color: '#66f0ff', weight: 3, dashArray: '8 6' }).addTo(mapObj)   // 配送路线（青色流动感）
     var seenN = {}
     ;((r && r.stops) || []).forEach(function (s) {
       var key = 's' + r.batch_id + '_' + num(s.stop)
@@ -555,25 +603,37 @@
   }
 
   function renderMap(d) {
+    var map = d.map
+    if (CALIB) { if (!map) return; initMap(); renderCalib(map); return }
+    // 立体地图（Map3D）：静态几何来自 assets/map-calibration.json + radar-ground.png，
+    // 因此平台地图接口不可用时（演示档）也能出图，只是没有实时车辆/路线。
+    if (window.Map3D) {
+      Map3D.ensure()
+      Map3D.update(map || null, d)
+      // mapMask 的显隐由 Map3D 自己管（标定文件加载成功才隐藏，失败时保留错误提示）
+      if (map) txt($('mapTip'), '立体地图 · ' + (map.landmarks || []).length + ' 个点位 · ' + (map.robots || []).length + ' 台车')
+      return
+    }
+    if (!map) return
+    // 回退：雷达底图 + 发光图层（RadarMap）
+    if (window.RadarMap) {
+      RadarMap.ensure()
+      RadarMap.update(map)
+      var mask2 = $('mapMask'); if (mask2) mask2.hidden = true
+      txt($('mapTip'), '雷达地图 · ' + (map.landmarks || []).length + ' 个点位 · ' + (map.graph && map.graph.nodes ? map.graph.nodes.length : 0) + ' 个路网节点')
+      return
+    }
     initMap()
     var mask = $('mapMask')
     if (!mapObj) {
       if (mask) { txt(mask, '地图组件加载失败（vendor/leaflet.js 缺失）'); mask.hidden = false }
       return
     }
-    var map = d.map
-    if (!map) return
-    if (CALIB) { renderCalib(map); return }
     updateLandmarks(map)
     updateGraph(map.graph)
     updateRoutes(map.routes)
     updateCars(map.robots)
-    if (ALIGN.on) {
-      txt($('mapTip'), '对齐中：拖动雷达底图，点位实时跟随')
-    } else {
-      txt($('mapTip'), (map.landmarks || []).length + ' 个点位 · ' + (map.graph && map.graph.nodes ? map.graph.nodes.length : 0) + ' 个路网节点'
-        + (ALIGN.saved && ALIGN.saved.provider === TILE_PROVIDER ? ' · 已手动对齐' : ' · 未对齐，点「对齐校准」'))
-    }
+    txt($('mapTip'), (map.landmarks || []).length + ' 个点位 · ' + (map.graph && map.graph.nodes ? map.graph.nodes.length : 0) + ' 个路网节点')
     mapResized()
   }
 
@@ -701,227 +761,6 @@
     if (pts.length) mapObj.fitBounds(L.latLngBounds(pts.map(function (g) { return [g[0], g[1]] })))
   }
 
-  /* ---------------- 地图对齐：全局地图 + 局部雷达图 手动对齐 ---------------- */
-  // 平台没有 GPS，机器人定位只有激光 SLAM 局部坐标（eviz robotpose）。
-  // 做法：把平台下发的雷达底图（/api/dashboard/map-image）半透明叠在全局在线地图上，
-  // 手动拖动 / 缩放 / 旋转到两者轮廓重合 → 点「保存对齐」→ 由当前几何反推相似变换
-  // （平台坐标 → WebMercator米），之后所有点位/路网/车辆坐标都经该变换显示在全局地图上。
-  // 对齐结果只存在本机浏览器 localStorage（键 dash_align_v1），按底图提供商区分。
-  var fitScale = 1
-
-  function alignLoadSaved() {
-    try {
-      var s = JSON.parse(localStorage.getItem('dash_align_v1') || 'null')
-      if (s && isFinite(s.a) && isFinite(s.tx)) {
-        ALIGN.saved = s
-        ALIGN.L = s.L || 0; ALIGN.T = s.T || 0
-        ALIGN.W = s.W || 0; ALIGN.H = s.H || 0; ALIGN.rot = s.rot || 0
-      }
-    } catch (e) { ALIGN.saved = null }
-  }
-
-  // 创建雷达图叠加层（懒加载：进入对齐模式时才创建）
-  function alignUI() {
-    if (ALIGN.el) { ALIGN.el.style.display = 'block'; return ALIGN.el }
-    var d = document.createElement('div')
-    d.id = 'radarOverlay'
-    d.className = 'radarOverlay'
-    var tag = document.createElement('span')
-    tag.className = 'radarTag'
-    tag.textContent = '雷达底图（可拖动）'
-    var img = document.createElement('img')
-    img.className = 'radarImg'
-    img.alt = '平台雷达底图'
-    img.src = (location.protocol === 'file:' ? 'http://127.0.0.1:3000' : '') + '/api/dashboard/map-image'
-    d.appendChild(tag)
-    d.appendChild(img)
-    ALIGN.img = img
-    var box = $('mapBox')
-    if (!box) return null
-    box.appendChild(d)
-    ALIGN.el = d
-    img.onload = function () {
-      ALIGN.imgW = img.naturalWidth || 5786
-      ALIGN.imgH = img.naturalHeight || 5406
-      var st = $('alignStatus')
-      if (st) txt(st, '雷达底图 ' + ALIGN.imgW + '×' + ALIGN.imgH + ' 已加载')
-    }
-    img.onerror = function () {
-      var st = $('alignStatus')
-      if (st) txt(st, '雷达底图加载失败：本地演示模式（PLATFORM_MOCK）下平台不提供底图，需真实平台环境')
-    }
-    // 拖动（平移）
-    d.addEventListener('mousedown', function (e) {
-      if (e.button !== 0) return
-      e.preventDefault()
-      e.stopPropagation()
-      ALIGN.drag = { sx: e.clientX, sy: e.clientY, l: ALIGN.L, t: ALIGN.T }
-      setClass(d, 'radarOverlay dragging')
-    })
-    // 滚轮缩放（围绕雷达图中心）
-    d.addEventListener('wheel', function (e) {
-      e.preventDefault()
-      e.stopPropagation()
-      var f = e.deltaY < 0 ? 1.08 : 0.92
-      alignResize(ALIGN.W * f, ALIGN.H * f)
-    }, { passive: false })
-    return d
-  }
-
-  function alignApply() {
-    var d = ALIGN.el
-    if (!d) return
-    d.style.left = ALIGN.L + 'px'
-    d.style.top = ALIGN.T + 'px'
-    d.style.width = ALIGN.W + 'px'
-    d.style.height = ALIGN.H + 'px'
-    d.style.transform = ALIGN.rot ? ('rotate(' + ALIGN.rot + 'deg)') : ''
-  }
-
-  function alignResize(w, h) {
-    w = Math.max(40, Math.min(2200, w))
-    h = Math.max(40, Math.min(2200, h))
-    var dw = w - ALIGN.W, dh = h - ALIGN.H
-    ALIGN.W = w; ALIGN.H = h
-    ALIGN.L -= dw / 2; ALIGN.T -= dh / 2
-    alignApply()
-    alignPreview()
-  }
-
-  // 由当前几何算相似变换（平台坐标 → WebMercator米），复用标定模式的最小二乘解算
-  function alignComputeTransform() {
-    var bb = ALIGN.bbox
-    var corners = [
-      { x: bb.minX, y: bb.minY }, { x: bb.maxX, y: bb.minY },
-      { x: bb.maxX, y: bb.maxY }, { x: bb.minX, y: bb.maxY }
-    ]
-    var pairs = []
-    corners.forEach(function (c) {
-      var cp = platformToContainerPoint(c.x, c.y)
-      var ll = mapObj.containerPointToLatLng([cp[0], cp[1]])
-      var m = merc(ll.lat, ll.lng)
-      pairs.push({ px: c.x, py: c.y, mx: m.x, my: m.y })
-    })
-    return solveSimilarity(pairs)
-  }
-
-  // 拖动/缩放/旋转时实时刷新点位（限频），让用户直接看到"对齐准不准"
-  function alignPreview() {
-    var now = Date.now()
-    if (now - ALIGN.lastRepaint < 80) return
-    ALIGN.lastRepaint = now
-    if (!ALIGN.bbox || !mapObj) return
-    var t = alignComputeTransform()
-    ALIGN.preview = t
-    if (state.lastData) renderMap(state.lastData)
-  }
-
-  window.enterAlign = function () {
-    if (!mapObj) return
-    var d = state.lastData && state.lastData.map
-    if (!d || !d.bbox) { alert('还没有地图数据（bbox），无法对齐'); return }
-    ALIGN.bbox = d.bbox
-    var box = $('mapBox')
-    if (!box) return
-    // 首次进入：雷达图居中，约占地图框 62%
-    if (!ALIGN.W || !ALIGN.H) {
-      var iw = ALIGN.imgW || 5786, ih = ALIGN.imgH || 5406
-      var bw = box.clientWidth, bh = box.clientHeight
-      ALIGN.W = Math.round(Math.min(bw * .62, 760))
-      ALIGN.H = Math.round(ALIGN.W * ih / iw)
-      ALIGN.L = Math.round((bw - ALIGN.W) / 2)
-      ALIGN.T = Math.round((bh - ALIGN.H) / 2)
-      ALIGN.rot = 0
-    }
-    ALIGN.on = true
-    alignUI()
-    mapObj.dragging.disable()
-    mapObj.scrollWheelZoom.disable()
-    if (ALIGN.tile) ALIGN.tile.setOpacity(.5)
-    $('alignPanel').hidden = false
-    $('alignBtn').hidden = true
-    txt($('alignTip'), '拖动橙色虚线框里的雷达底图，让校园轮廓与下方全局地图重合；' +
-      '滚轮缩放、滑块微调大小/角度。蓝色点位会实时跟着变换，对齐准不准一眼可见。')
-    txt($('alignStatus'), ALIGN.saved ? '已有对齐结果，重新对齐将覆盖' : '拖动/缩放雷达图开始')
-    $('alignRot').value = ALIGN.rot
-    $('alignW').value = ALIGN.W
-    $('alignH').value = ALIGN.H
-    alignApply()
-  }
-
-  window.alignSave = function () {
-    if (!ALIGN.on) return
-    if (!ALIGN.bbox || !ALIGN.imgW) { txt($('alignStatus'), '雷达底图还没加载完成，稍等再试'); return }
-    var t = alignComputeTransform()
-    ALIGN.preview = null
-    ALIGN.saved = {
-      a: t.a, b: t.b, tx: t.tx, ty: t.ty,
-      provider: TILE_PROVIDER, ts: Date.now(),
-      imgW: ALIGN.imgW, imgH: ALIGN.imgH,
-      L: ALIGN.L, T: ALIGN.T, W: ALIGN.W, H: ALIGN.H, rot: ALIGN.rot
-    }
-    try { localStorage.setItem('dash_align_v1', JSON.stringify(ALIGN.saved)) } catch (e) { /* 隐私模式忽略 */ }
-    alignExit()
-    txt($('mapTip'), '对齐已保存 ✓ a=' + t.a.toFixed(3) + ' b=' + t.b.toFixed(3))
-  }
-
-  window.alignCancel = function () {
-    if (!ALIGN.on) return
-    ALIGN.preview = null
-    alignExit()
-  }
-
-  window.clearAlign = function () {
-    ALIGN.saved = null
-    ALIGN.preview = null
-    try { localStorage.removeItem('dash_align_v1') } catch (e) { /* 忽略 */ }
-    var ac = $('alignClear')
-    if (ac) ac.hidden = true
-    if (state.lastData) renderMap(state.lastData)
-    txt($('mapTip'), '已清除对齐，恢复内置标定（±20~30m，建议尽快重新对齐）')
-  }
-
-  function alignExit() {
-    ALIGN.on = false
-    ALIGN.preview = null
-    ALIGN.drag = null
-    if (mapObj) { mapObj.dragging.enable(); mapObj.scrollWheelZoom.enable() }
-    if (ALIGN.tile) ALIGN.tile.setOpacity(1)
-    if (ALIGN.el) ALIGN.el.style.display = 'none'
-    var p = $('alignPanel')
-    if (p) p.hidden = true
-    var ab = $('alignBtn')
-    if (ab) ab.hidden = false
-    var ac = $('alignClear')
-    if (ac) ac.hidden = !ALIGN.saved
-    if (state.lastData) renderMap(state.lastData)
-  }
-
-  function wireAlignControls() {
-    var rot = $('alignRot'), w = $('alignW'), h = $('alignH'), lock = $('alignLock')
-    rot.oninput = function () {
-      ALIGN.rot = Number(this.value)
-      alignApply()
-      alignPreview()
-    }
-    w.oninput = function () {
-      var v = Number(this.value)
-      var nh = lock.checked ? Math.round(v * (ALIGN.imgH || 5406) / (ALIGN.imgW || 5786)) : ALIGN.H
-      alignResize(v, nh)
-      h.value = ALIGN.H
-    }
-    h.oninput = function () {
-      var v = Number(this.value)
-      var nw = lock.checked ? Math.round(v * (ALIGN.imgW || 5786) / (ALIGN.imgH || 5406)) : ALIGN.W
-      alignResize(nw, v)
-      w.value = ALIGN.W
-    }
-    var save = $('alignSave')
-    if (save) save.onclick = window.alignSave
-    var cancel = $('alignCancel')
-    if (cancel) cancel.onclick = window.alignCancel
-  }
-
   /* ---------------- 主循环 ---------------- */
 
   // 演示模式（地址栏加 ?demo=1）：机器人未开工 / 汇报演示时，用真实地图与点位叠加模拟车辆，
@@ -1021,7 +860,6 @@
     var el = $('screen')
     if (!el) return
     var s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080)
-    fitScale = s
     var dx = (window.innerWidth - 1920 * s) / 2
     var dy = (window.innerHeight - 1080 * s) / 2
     el.style.transform = 'translate(' + dx.toFixed(1) + 'px,' + dy.toFixed(1) + 'px) scale(' + s.toFixed(4) + ')'
@@ -1032,30 +870,15 @@
     setInterval(tickClock, 1000)
 
     fitScreen()
-    alignLoadSaved()
-    wireAlignControls()
     window.resetMap = function () { if (mapObj) mapObj.setView(platformToLngLat(0, 15), 18) }
-    // 雷达图拖动：全局监听鼠标位移（限对齐模式内生效）
-    window.addEventListener('mousemove', function (e) {
-      if (!ALIGN.drag || !ALIGN.el) return
-      var dx = (e.clientX - ALIGN.drag.sx) / fitScale
-      var dy = (e.clientY - ALIGN.drag.sy) / fitScale
-      ALIGN.L = ALIGN.drag.l + dx
-      ALIGN.T = ALIGN.drag.t + dy
-      alignApply()
-      alignPreview()
-    })
-    window.addEventListener('mouseup', function () {
-      if (ALIGN.drag) {
-        ALIGN.drag = null
-        if (ALIGN.el) setClass(ALIGN.el, 'radarOverlay')
-      }
-    })
     // 无第三方图表库：状态分布用纯 CSS 堆叠条渲染 —— 页面更轻、少一个依赖、7×24 更稳
     window.addEventListener('resize', function () { fitScreen(); mapResized() })
 
     loop()
     setInterval(loop, POLL_MS)
+    // 无人车位置单独高频轮询 —— 让车在地图上连续移动（overview 5s 一次太慢）
+    pollRobots()
+    setInterval(pollRobots, ROBOT_POLL_MS)
     setInterval(memoryGuard, 60000)
     setInterval(dailyReload, 60000)
   }

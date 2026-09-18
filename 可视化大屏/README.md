@@ -67,6 +67,10 @@
 ├─ index.html              大屏页面（三栏：信息 / 地图 / 车辆与批次）
 ├─ css/dashboard.css       设计系统：色板、字体、栅格、组件样式
 ├─ js/dashboard.js         取数与渲染逻辑（固定 DOM、增量更新、transform 位移）
+├─ js/map3d-core.js        立体地图投影与场景构建（浏览器/Node 共用）
+├─ js/map3d.js             立体地图渲染器（Canvas 2D 伪 3D，中栏地图）
+├─ assets/radar-ground.png 雷达底图（重绘：蓝色走廊 + 柔光）
+├─ assets/map-calibration.json 静态几何：楼栋轮廓/层高 + 道路 + 雷达骨架路线
 ├─ deploy/
 │  ├─ 看门狗.ps1            每 60s 检查「后端在跑 + 大屏在放」，异常自动拉起
 │  └─ 安装开机自启.ps1      注册登录自启计划任务（跑看门狗）
