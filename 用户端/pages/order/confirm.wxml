@@ -6,7 +6,7 @@
       <block wx:if="{{selectedPoint}}">
         <view class="addr-line">
           <t-icon name="location" size="18" color="#3078C0" />
-          <text class="addr-main-text">{{selectedPoint.name}}{{selectedAddress && selectedAddress.detail ? ' · ' + selectedAddress.detail : ''}}</text>
+          <text class="addr-main-text">{{selectedPoint.name}}</text>
           <t-icon name="chevron-right" size="14" color="#C0C0C0" />
         </view>
       </block>
@@ -132,7 +132,7 @@
             bindtap="choosePoint" data-item="{{item}}"
           >
             <view class="picker-name">{{item.name}}</view>
-            <view class="picker-sub text-weak text-sm">{{item.building}} {{item.floor}}</view>
+            <view class="picker-sub text-weak text-sm">{{item.building}}</view>
           </view>
           <view wx:if="{{!points.length}}" class="picker-empty text-weak text-sm">暂无可用送达点</view>
         </view>

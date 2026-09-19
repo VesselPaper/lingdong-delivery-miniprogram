@@ -3,6 +3,7 @@ const request = require('../../utils/request')
 const pay = require('../../utils/pay')
 
 const LAST_KEY = 'last_confirm'
+const POINT_KEY = 'user_point'   // 首页选定的送达楼栋（下次下单沿用）
 
 Page({
   data: {
@@ -188,7 +189,7 @@ Page({
   async onShow() {
     if (!this.ready) return
     await this.loadAddresses()
-    if (!this.data.selectedAddress) this.applyBestAddress()
+    if (!this.data.selectedAddress) this.pickDeliveryAddress()
   },
 
   // 回填上次下单记住的点位/姓名/电话/备注（无已存地址时的兜底）
@@ -203,6 +204,51 @@ Page({
     this.setData(patch)
   },
 
+  // 首页选定的楼栋：决定送达点位；昵称/手机号用最近一次地址的数据
+  applyPickedAddress() {
+    const picked = wx.getStorageSync(POINT_KEY)
+    if (!picked) return
+    const point = (this.data.points || []).find((p) => Number(p.id) === Number(picked.landmark_id)) ||
+      (this.data.points || []).find((p) => p.name === picked.name)
+    const latest = this.latestAddress()
+    const patch = {}
+    if (point) patch.selectedPoint = point
+    if (latest) {
+      // 关联最近一次地址：拿它的昵称/手机号/详细地址，但送达楼栋以首页选定的为准
+      patch.selectedAddress = Object.assign({}, latest, {
+        landmark_id: point ? String(point.id) : latest.landmark_id,
+        landmark_name: point ? point.name : latest.landmark_name
+      })
+      patch.contactName = latest.contact_name || this.data.contactName || ''
+      patch.contactPhone = latest.contact_phone || this.data.contactPhone || ''
+    }
+    if (Object.keys(patch).length) this.setData(patch)
+  },
+
+  // 最近一次地址：本地记录的最近使用地址 > 最近新建（id 最大）> 默认地址 > 第一条
+  latestAddress() {
+    const list = this.data.addresses || []
+    if (!list.length) return null
+    const picked = wx.getStorageSync(POINT_KEY) || {}
+    const byPicked = picked.addrId ? list.find((a) => Number(a.id) === Number(picked.addrId)) : null
+    const newest = list.reduce((m, a) => (Number(a.id) > Number(m.id) ? a : m), list[0])
+    return byPicked || newest || list.find((a) => a.is_default) || list[0]
+  },
+
+  // 结算页默认送达地址优先级：首页选定楼栋 > 默认地址 > 第一条 > 上次下单
+  pickDeliveryAddress() {
+    if (wx.getStorageSync(POINT_KEY)) {
+      this.applyPickedAddress()
+      if (this.data.selectedPoint) return
+      // 选定楼栋已失效：仍保留已填写的昵称/手机号，只补一个可用点位
+      const def = (this.data.addresses || []).find((a) => a.is_default) || (this.data.addresses || [])[0]
+      if (def) { this.applyAddress(def, true); return }
+      this.applyLast()
+      return
+    }
+    this.applyBestAddress()
+  },
+
   // 自动选择默认地址（否则取第一条）；无地址时回填上次下单
   applyBestAddress() {
     const { addresses } = this.data
@@ -215,14 +261,18 @@ Page({
   },
 
   // 根据收货地址填充送达点位 + 收餐人
-  applyAddress(addr) {
+  // keepContact=true 时只切换送达地址：昵称/手机号沿用已保存的数据（为空才用地址里的兜底）
+  applyAddress(addr, keepContact) {
     if (!addr) return
     // 数值比较兜底（历史地址 landmark_id 可能是 "2.0" 文本）
     const point = this.data.points.find((p) => Number(p.id) === Number(addr.landmark_id))
-    const patch = {
-      selectedAddress: addr,
-      contactName: addr.contact_name || '',
-      contactPhone: addr.contact_phone || ''
+    const patch = { selectedAddress: addr }
+    if (keepContact) {
+      patch.contactName = this.data.contactName || addr.contact_name || ''
+      patch.contactPhone = this.data.contactPhone || addr.contact_phone || ''
+    } else {
+      patch.contactName = addr.contact_name || ''
+      patch.contactPhone = addr.contact_phone || ''
     }
     if (point) patch.selectedPoint = point
     this.setData(patch)
@@ -248,7 +298,7 @@ Page({
       const user = await request.get(api.getProfile)
       this.setData({ contactName: user.nickname || '', contactPhone: user.phone || '' })
     } catch (e) { /* handled */ }
-    this.applyBestAddress()
+    this.pickDeliveryAddress()
   },
 
   showPointPicker() {
@@ -261,9 +311,20 @@ Page({
 
   noop() {},
 
-  // 选择送达楼栋：仅更换送达点位，收餐人/详细地址仍沿用默认地址信息
+  // 选择送达楼栋：只更换送达点位；昵称/手机号/详细地址仍沿用最近一次地址
   choosePoint(e) {
-    this.setData({ selectedPoint: e.currentTarget.dataset.item, showPicker: false })
+    const point = e.currentTarget.dataset.item
+    const latest = this.latestAddress()
+    const patch = { selectedPoint: point, showPicker: false }
+    if (latest) {
+      patch.selectedAddress = Object.assign({}, latest, {
+        landmark_id: String(point.id),
+        landmark_name: point.name
+      })
+      patch.contactName = this.data.contactName || latest.contact_name || ''
+      patch.contactPhone = this.data.contactPhone || latest.contact_phone || ''
+    }
+    this.setData(patch)
   },
 
   openTimeSheet() {
@@ -342,13 +403,26 @@ Page({
         items: items.map((it) => ({ goods_id: it.goods_id, quantity: it.quantity }))
       })
       wx.removeStorageSync('checkout_items')
-      // 记住本次下单选项，并同步到用户信息
+      // 记住本次下单选项（地址用于下次沿用），并同步昵称/手机号到用户信息
       wx.setStorageSync(LAST_KEY, {
         point: selectedPoint,
         name: contactName,
         phone: contactPhone,
         remark
       })
+      if (selectedAddress) {
+        wx.setStorageSync(POINT_KEY, {
+          landmark_id: selectedPoint.id,
+          name: selectedPoint.name,
+          addrId: selectedAddress.id
+        })
+      } else {
+        wx.setStorageSync(POINT_KEY, {
+          landmark_id: selectedPoint.id,
+          name: selectedPoint.name,
+          addrId: null
+        })
+      }
       request.put(api.updateProfile, { nickname: contactName, phone: contactPhone }).catch(() => {})
       // 拆单：后端返回 orders 数组时逐个支付（mock 支付无成本），否则按单订单处理
       const orderIds = res.split ? (res.orders || []).map((o) => o.order_id) : [res.order_id]

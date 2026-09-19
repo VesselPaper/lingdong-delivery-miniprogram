@@ -57,7 +57,7 @@
           <view class="meta-label text-weak text-sm">电量</view>
         </view>
         <view class="meta-item">
-          <view class="meta-num">{{item.building ? item.building + (item.floor ? ' ' + item.floor : '') : '—'}}</view>
+          <view class="meta-num">{{item.building || '—'}}</view>
           <view class="meta-label text-weak text-sm">当前位置</view>
         </view>
       </view>

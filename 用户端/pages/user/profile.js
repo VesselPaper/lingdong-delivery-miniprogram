@@ -82,12 +82,5 @@ Page({
 
   goSetting() {
     wx.navigateTo({ url: '/pages/user/settings' })
-  },
-
-  logout() {
-    wx.removeStorageSync('token')
-    wx.removeStorageSync('userInfo')
-    this.setData({ user: {} })
-    wx.showToast({ title: '已退出', icon: 'success' })
   }
 })

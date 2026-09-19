@@ -27,7 +27,8 @@ Page({
       wx.setStorageSync('runtimeFlags', res.runtime || {})
       wx.showToast({ title: '登录成功', icon: 'success' })
       setTimeout(() => {
-        wx.switchTab({ url: '/pages/user/profile', fail: () => wx.navigateBack() })
+        // 登录成功后回到首页，不再强制切到“我的”（否则入口总落在“我的”）
+        wx.switchTab({ url: '/pages/index/index', fail: () => undefined })
       }, 500)
     } catch (e) {
       wx.showToast({ title: (e && e.message) || '登录失败，请稍后重试', icon: 'none' })

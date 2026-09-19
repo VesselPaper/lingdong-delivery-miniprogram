@@ -80,12 +80,6 @@
       <view class="cell-value"></view>
       <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
-    <view class="cell" bindtap="logout" wx:if="{{user}}">
-      <t-icon name="logout" size="18" color="#111111" />
-      <view class="cell-label" style="margin-left:16rpx;">退出登录</view>
-      <view class="cell-value"></view>
-      <t-icon name="chevron-right" size="14" color="#C0C0C0" />
-    </view>
   </view>
 
   <view class="foot text-weak text-sm">零栋GO · 四川师范大学 · 零栋铺子</view>

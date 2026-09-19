@@ -9,7 +9,7 @@
         </view>
         <view class="addr-line2 text-sub text-sm">
           <t-icon name="location" size="14" color="#3078C0" />
-          <text>{{item.landmark_name}} {{item.detail}}</text>
+          <text>{{item.landmark_name}}</text>
         </view>
         <view class="addr-set-default" wx:if="{{!item.is_default}}" catchtap="setDefault" data-id="{{item.id}}">设为默认</view>
       </view>

@@ -11,6 +11,8 @@
 .home-top {
   background: transparent;
   padding: 24rpx 32rpx;
+  position: relative;
+  z-index: 10;
 }
 
 .brand-row {
@@ -45,6 +47,131 @@
 .search-text {
   font-size: 26rpx;
   color: #999999;
+}
+
+.search-input {
+  flex: 1;
+  font-size: 26rpx;
+  color: #111111;
+}
+
+.search-clear {
+  padding: 4rpx;
+  flex-shrink: 0;
+}
+
+.search-focus {
+  border-color: var(--brand);
+  background: #ffffff;
+}
+
+/* 点空白处收起历史面板（透明遮罩，不挡视觉） */
+.history-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 9;
+  background: transparent;
+}
+
+.search-empty {
+  padding: 48rpx 0 64rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: #999999;
+}
+
+/* 历史搜索 */
+.history {
+  margin-top: 20rpx;
+}
+
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+}
+
+.history-title {
+  font-size: 24rpx;
+  color: #999999;
+}
+
+.history-clear {
+  padding: 4rpx;
+}
+
+.history-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.history-tag {
+  max-width: 320rpx;
+  padding: 8rpx 24rpx;
+  background: #ffffff;
+  border: 1rpx solid #EBEBEB;
+  border-radius: 100rpx;
+  font-size: 24rpx;
+  color: #555555;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 分类按钮排：可横向滑动，避免分类多时挤压 */
+.cat-bar {
+  display: flex;
+  align-items: center;
+  margin: 8rpx 0 24rpx;
+  padding: 24rpx 20rpx;
+  background: #ffffff;
+  border: 1rpx solid #EBEBEB;
+  border-radius: 12rpx;
+  margin-left: 32rpx;
+  margin-right: 32rpx;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+.cat-item {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+  width: 140rpx;
+  flex-shrink: 0;
+}
+
+.cat-icon {
+  width: 84rpx;
+  height: 84rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cat-name {
+  font-size: 24rpx;
+  color: #333333;
+}
+
+/* 分组标题：图标 + 文字 */
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.section-title-text {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #111111;
 }
 
 /* 米色福利卡 */
@@ -142,20 +269,21 @@
   white-space: nowrap;
 }
 
-.goods-row {
-  display: inline-flex;
+/* 热门商品网格：每行 2 个，按分类成排 */
+.goods-grid {
+  display: flex;
+  flex-wrap: wrap;
   gap: 20rpx;
-  padding: 0 32rpx 24rpx;
+  padding: 0 32rpx 8rpx;
 }
 
 .goods-card {
-  width: 264rpx;
+  width: calc((100% - 20rpx) / 2);
   background: #ffffff;
   border: 1rpx solid #EBEBEB;
   border-radius: 12rpx;
   overflow: hidden;
-  display: inline-block;
-  vertical-align: top;
+  box-sizing: border-box;
 }
 
 .goods-img {
@@ -219,4 +347,118 @@
   font-weight: 500;
   display: flex;
   align-items: center;
+}
+
+/* 点位选择弹层 */
+.picker-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 100;
+}
+
+.picker-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 101;
+  background: #ffffff;
+  border-radius: 24rpx 24rpx 0 0;
+  padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 32rpx 16rpx;
+}
+
+.picker-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #111111;
+}
+
+.picker-close {
+  padding: 4rpx;
+}
+
+.picker-list {
+  max-height: 46vh;
+}
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 26rpx 32rpx;
+  border-top: 1rpx solid #F5F5F5;
+}
+
+.picker-item.on {
+  background: #F5F9FF;
+}
+
+.picker-item-name {
+  font-size: 28rpx;
+  color: #333333;
+}
+
+.picker-item-body {
+  flex: 1;
+  overflow: hidden;
+}
+
+.picker-item-sub {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #999999;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.picker-item.on .picker-item-name {
+  color: #3078C0;
+  font-weight: 600;
+}
+
+.picker-empty {
+  padding: 48rpx 0;
+  text-align: center;
+  font-size: 26rpx;
+  color: #999999;
+}
+
+.picker-actions {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin: 16rpx 32rpx 0;
+}
+
+.picker-reset {
+  flex: 1;
+  padding: 24rpx 0;
+  text-align: center;
+  font-size: 28rpx;
+  color: #3078C0;
+  background: #F5F9FF;
+  border-radius: 12rpx;
+}
+
+.picker-list .picker-item {
+  align-items: flex-start;
+}
+
+.picker-list .picker-item > t-icon:first-child {
+  margin-top: 4rpx;
 }

@@ -55,7 +55,6 @@
         enhanced
         show-scrollbar="{{false}}"
         scroll-into-view="{{mainTo}}"
-        scroll-with-animation
         bindscroll="onScroll"
       >
         <view class="main-inner">
@@ -77,7 +76,7 @@
                 data-id="{{item.id}}"
               >
                 <view class="p-img" style="background: {{item.theme}};">
-                  <image wx:if="{{item.image}}" class="fill-img" src="{{item.image}}" mode="aspectFill" />
+                  <image wx:if="{{item.image}}" class="fill-img" src="{{item.image}}" mode="aspectFill" lazy-load bindload="onImageLoad" />
                   <t-icon wx:else name="{{item.icon}}" size="26" color="#BFBFBF" />
                 </view>
                 <view class="p-info">

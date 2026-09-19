@@ -1,25 +1,86 @@
 <view class="home sky-bg">
+  <!-- 顶部：定位（可切换楼栋）+ 搜索 -->
   <view class="home-top">
     <view class="brand-row">
-      <view class="brand-loc">
+      <view class="brand-loc" bindtap="openPointPicker">
         <t-icon name="location" size="16" color="#3078C0" />
-        <text class="brand-name">川师成龙校区</text>
-        <t-icon name="chevron-right" size="14" color="#999999" />
+        <text class="brand-name">{{location}}</text>
+        <t-icon name="chevron-down" size="14" color="#999999" />
       </view>
     </view>
-    <view class="search-box" bindtap="goSearch">
+    <view class="search-box {{searchFocus ? 'search-focus' : ''}}" bindtap="onSearchTap">
       <t-icon name="search" size="16" color="#999999" />
-      <text class="search-text">搜索热卤、饮品、套餐</text>
+      <input
+        class="search-input"
+        value="{{keyword}}"
+        placeholder="搜索热卤、饮品、套餐"
+        placeholder-class="search-text"
+        confirm-type="search"
+        focus="{{searchFocus}}"
+        bindinput="onSearchInput"
+        bindconfirm="onSearchConfirm"
+        bindfocus="onSearchFocus"
+      />
+      <view class="search-clear" wx:if="{{keyword}}" catchtap="clearKeyword">
+        <t-icon name="close-circle-filled" size="16" color="#CCCCCC" />
+      </view>
+    </view>
+
+    <!-- 历史搜索记录：点搜索框后固定展开，直到选择/搜索/清空/点空白处 -->
+    <view class="history" wx:if="{{showHistory && history.length}}">
+      <view class="history-head">
+        <text class="history-title">历史搜索</text>
+        <view class="history-clear" catchtap="clearHistory">
+          <t-icon name="delete" size="14" color="#999999" />
+        </view>
+      </view>
+      <view class="history-tags">
+        <view class="history-tag" wx:for="{{history}}" wx:key="*this" catchtap="onHistoryTap" data-kw="{{item}}">{{item}}</view>
+      </view>
     </view>
   </view>
 
-  <view class="coupon-card">
+  <!-- 点空白处收起历史面板 -->
+  <view class="history-mask" wx:if="{{showHistory}}" catchtap="closeHistory"></view>
+
+  <!-- 搜索结果：直接展示在首页，无需跳转商城 -->
+  <block wx:if="{{searching}}">
+    <view class="section">
+      <view class="section-head">
+        <view class="section-title">搜索「{{keyword}}」</view>
+        <view class="section-more" bindtap="clearKeyword">取消<t-icon name="close" size="12" color="#3078C0" /></view>
+      </view>
+      <view class="goods-grid">
+        <view class="goods-card" wx:for="{{searchResults}}" wx:key="id" bindtap="goDetail" data-id="{{item.id}}">
+          <view class="goods-img" style="background: {{item.theme}};">
+            <image wx:if="{{item.image}}" class="fill-img" src="{{item.image}}" mode="aspectFill" lazy-load />
+            <t-icon wx:else name="{{item.icon}}" size="30" color="#BFBFBF" />
+          </view>
+          <view class="goods-name ellipsis">{{item.name}}</view>
+          <view class="goods-bottom">
+            <view class="goods-price">
+              <text class="goods-price-now">¥{{item.sale_price || item.price}}</text>
+              <text class="goods-old" wx:if="{{item.sale_price}}">¥{{item.price}}</text>
+            </view>
+            <view class="add-btn" catchtap="addCart" data-id="{{item.id}}">
+              <t-icon name="add" size="12" color="#ffffff" />
+            </view>
+          </view>
+        </view>
+      </view>
+      <view class="search-empty" wx:if="{{!searchResults.length}}">没有找到相关商品</view>
+    </view>
+  </block>
+
+  <!-- 常态内容：福利卡 + 分类 + 热门商品 -->
+  <block wx:else>
+  <!-- 福利卡片：点击箭头/卡片进入商城 -->
+  <view class="coupon-card" bindtap="goAll">
     <view class="coupon-head">
       <view class="coupon-mascot">
         <t-icon name="robot-1" size="20" color="#6B4E1F" />
       </view>
       <view class="coupon-name">零栋铺子</view>
-      <view class="coupon-count">免配送费</view>
     </view>
     <view class="coupon-notice">
       <text class="coupon-notice-tag">热门福利</text>
@@ -28,31 +89,75 @@
     </view>
   </view>
 
-  <view class="section">
-    <view class="section-head">
-      <view class="section-title">零栋铺子</view>
-      <view class="section-more" bindtap="goAll">全部<t-icon name="chevron-right" size="12" color="#3078C0" /></view>
+  <!-- 分类按钮：零售卡通图标，点击直达商城对应分类 -->
+  <view class="cat-bar" wx:if="{{categories.length}}">
+    <view class="cat-item" wx:for="{{categories}}" wx:key="name" bindtap="goCategory" data-name="{{item.name}}">
+      <view class="cat-icon" style="background: {{item.bg}};">
+        <t-icon name="{{item.icon}}" size="26" color="{{item.color}}" />
+      </view>
+      <text class="cat-name">{{item.name}}</text>
     </view>
-    <scroll-view scroll-x class="goods-scroll" enhanced show-scrollbar="{{false}}">
-      <view class="goods-row">
-        <view class="goods-card" wx:for="{{goods}}" wx:key="id" bindtap="goDetail" data-id="{{item.id}}">
-          <view class="goods-img" style="background: {{item.theme}};">
-            <image wx:if="{{item.image}}" class="fill-img" src="{{item.image}}" mode="aspectFill" />
-            <t-icon wx:else name="{{item.icon}}" size="30" color="#BFBFBF" />
+  </view>
+
+  <!-- 热门商品：按分类成排展示 -->
+  <view class="section" wx:for="{{hotGroups}}" wx:key="name" wx:for-item="group">
+    <view class="section-head">
+      <view class="section-title">
+        <t-icon name="{{group.icon}}" size="18" color="{{group.color}}" />
+        <text class="section-title-text">{{group.name}}</text>
+      </view>
+      <view class="section-more" bindtap="goCategory" data-name="{{group.name}}">更多<t-icon name="chevron-right" size="12" color="#3078C0" /></view>
+    </view>
+    <view class="goods-grid">
+      <view class="goods-card" wx:for="{{group.items}}" wx:key="id" bindtap="goDetail" data-id="{{item.id}}">
+        <view class="goods-img" style="background: {{item.theme}};">
+          <image wx:if="{{item.image}}" class="fill-img" src="{{item.image}}" mode="aspectFill" lazy-load />
+          <t-icon wx:else name="{{item.icon}}" size="30" color="#BFBFBF" />
+        </view>
+        <view class="goods-name ellipsis">{{item.name}}</view>
+        <view class="goods-bottom">
+          <view class="goods-price">
+            <text class="goods-price-now">¥{{item.sale_price || item.price}}</text>
+            <text class="goods-old" wx:if="{{item.sale_price}}">¥{{item.price}}</text>
           </view>
-          <view class="goods-name ellipsis">{{item.name}}</view>
-          <view class="goods-bottom">
-            <view class="goods-price">
-              <text class="goods-price-now">¥{{item.price}}</text>
-              <text class="goods-old" wx:if="{{item.original_price}}">¥{{item.original_price}}</text>
-            </view>
-            <view class="add-btn" catchtap="addCart" data-id="{{item.id}}">
-              <t-icon name="add" size="12" color="#ffffff" />
-            </view>
+          <view class="add-btn" catchtap="addCart" data-id="{{item.id}}">
+            <t-icon name="add" size="12" color="#ffffff" />
           </view>
         </view>
       </view>
+    </view>
+  </view>
+  </block>
+
+  <!-- 楼栋选择弹层：列出全部可送达楼栋，已有地址的楼栋显示关联的昵称/手机号 -->
+  <view class="picker-mask" wx:if="{{showPointPicker}}" bindtap="closePointPicker"></view>
+  <view class="picker-panel" wx:if="{{showPointPicker}}">
+    <view class="picker-head">
+      <text class="picker-title">选择配送楼栋</text>
+      <view class="picker-close" bindtap="closePointPicker">
+        <t-icon name="close" size="18" color="#999999" />
+      </view>
+    </view>
+    <scroll-view scroll-y class="picker-list">
+      <view
+        class="picker-item {{pickedPointId === item.id ? 'on' : ''}}"
+        wx:for="{{points}}"
+        wx:key="id"
+        bindtap="onPickPoint"
+        data-index="{{index}}"
+      >
+        <t-icon name="location" size="16" color="{{pickedPointId === item.id ? '#3078C0' : '#BBBBBB'}}" />
+        <view class="picker-item-body">
+          <view class="picker-item-name">{{item.name}}</view>
+          <view class="picker-item-sub" wx:if="{{item.addrName}}">{{item.addrName}} {{item.addrPhone}}</view>
+        </view>
+        <t-icon wx:if="{{pickedPointId === item.id}}" name="check" size="16" color="#3078C0" />
+      </view>
+      <view class="picker-empty" wx:if="{{!points.length}}">暂无可送达楼栋</view>
     </scroll-view>
+    <view class="picker-actions">
+      <view class="picker-reset" bindtap="resetToCampus">恢复默认（川师成龙校区）</view>
+    </view>
   </view>
 
   <view class="cart-bar" wx:if="{{cartCount}}" bindtap="goCart">
