@@ -62,6 +62,29 @@ module.exports = (store, deps) => {
     ok(res, await s.buildAdminState(store, deps))
   })
 
+  // 令牌校验：前端「令牌」输入框提交后验证（对=200，错=401），用于即时反馈正确/错误
+  router.get('/admin/verify', adminGuard, (req, res) => {
+    ok(res, { valid: true, admin: true })
+  })
+
+  // 管理端地图（管理员页总览复用大屏同一份 getMapOverview，adminGuard 鉴权 + 3s 缓存）
+  let adminMapCache = { ts: 0, data: null }
+  router.get('/admin/map', adminGuard, async (req, res) => {
+    if (adminMapCache.data && Date.now() - adminMapCache.ts < 3000) return ok(res, adminMapCache.data)
+    const m = await deps.platform.getMapOverview(store)
+    if (!m.ok) return res.status(502).json({ code: 502, msg: m.msg || '地图获取失败' })
+    adminMapCache = { ts: Date.now(), data: m }
+    ok(res, m)
+  })
+
+  // 批次内订单全量（批次表展开箭头懒加载；不受 history 条数上限影响）
+  router.get('/admin/batch/orders', adminGuard, async (req, res) => {
+    const batchId = Number((req.query || {}).batch_id || 0)
+    const b = q.batchById(store, batchId)
+    if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
+    ok(res, { batch: b, orders: q.batchOrdersAll(store, batchId) })
+  })
+
   // 机器人实时雷达数据（eviz 激光点云 + 代价地图 + 位姿），页面轮询绘制雷达图
   router.get('/admin/radar', adminGuard, async (req, res) => {
     const sn = String((req.query && req.query.device_sn) || '')
@@ -101,6 +124,44 @@ module.exports = (store, deps) => {
   router.post('/admin/drawer', adminGuard, async (req, res) => {
     const { device_sn = '', cmd = 1 } = req.body || {}
     const r = await deps.platform.drawerCtrl(String(device_sn), Number(cmd))
+    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+  })
+
+  // 召唤可选目标点（上货点/充电点/取货点）
+  router.get('/admin/robot/summon-targets', adminGuard, async (req, res) => {
+    const r = await deps.platform.getSummonTargets(store)
+    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+  })
+
+  // 召唤机器人到指定点位（含充电点；召唤会中断正在执行的配送任务）
+  router.post('/admin/robot/summon', adminGuard, async (req, res) => {
+    const { device_sn = '', landmark_id = '' } = req.body || {}
+    if (!landmark_id) return res.status(400).json({ code: 400, msg: '缺少目标点位' })
+    const r = await deps.platform.summonToPoint(store, String(device_sn), String(landmark_id))
+    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+  })
+
+  // 机器人驻停（stopTime 秒后自动恢复）
+  router.post('/admin/robot/stop', adminGuard, async (req, res) => {
+    const { device_sn = '', stop_time = 30 } = req.body || {}
+    if (!device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
+    const r = await deps.platform.stopRobot(String(device_sn), Number(stop_time))
+    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+  })
+
+  // 机器人继续工作（恢复任务）
+  router.post('/admin/robot/recover', adminGuard, async (req, res) => {
+    const { device_sn = '' } = req.body || {}
+    if (!device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
+    const r = await deps.platform.recoverRobot(store, String(device_sn))
+    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+  })
+
+  // 停止并取消正在做的任务（先关闭活跃任务，再驻停）
+  router.post('/admin/robot/stop-cancel', adminGuard, async (req, res) => {
+    const { device_sn = '' } = req.body || {}
+    if (!device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
+    const r = await deps.platform.stopAndCancelTask(store, String(device_sn))
     r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
   })
 
@@ -169,6 +230,82 @@ module.exports = (store, deps) => {
     }
     q.cleanBatch(store, batchId)
     audit(req, 'admin/batch-cancel', 'batch#' + batchId, 'cancelled=' + out.cancelled)
+    ok(res, out)
+  })
+
+  // 批量删除订单（多选 / 右键菜单）：逐单走 order 域统一落账（作废任务+回补库存+摘批次+平台召回关任务），
+  // 保证机器人状态、用户端与商家端同步，避免「订单删了、车还卡在送货」死锁。逐单容错，失败项单独列出。
+  router.post('/admin/orders/bulk-cancel', adminGuard, async (req, res) => {
+    const ids = Array.isArray((req.body || {}).order_ids)
+      ? [...new Set((req.body.order_ids || []).map(Number).filter((n) => n > 0))]
+      : []
+    if (!ids.length) return res.status(400).json({ code: 400, msg: '请选择要删除的订单' })
+    const out = { cancelled: 0, failed: [] }
+    for (const id of ids) {
+      const o = q.orderById(store, id)
+      if (!o) { out.failed.push('订单#' + id + ' 不存在'); continue }
+      try {
+        const r = await deps.order.applyOrderCancelled(store, orderDeps, o, { reason: '管理员批量删除' })
+        if (r.claimed) out.cancelled++
+        else out.failed.push('订单#' + id + ' 已是终态，无需处理')
+      } catch (e) { out.failed.push('订单#' + id + ': ' + e.message) }
+    }
+    audit(req, 'admin/orders-bulk-cancel', ids.join(','), 'cancelled=' + out.cancelled)
+    ok(res, out)
+  })
+
+  // 批量清理批次（多选 / 右键菜单）：逐批释放控制权 + 取消批内活跃订单 + 批次置4
+  router.post('/admin/batches/bulk-cancel', adminGuard, async (req, res) => {
+    const ids = Array.isArray((req.body || {}).batch_ids)
+      ? [...new Set((req.body.batch_ids || []).map(Number).filter((n) => n > 0))]
+      : []
+    if (!ids.length) return res.status(400).json({ code: 400, msg: '请选择要清理的批次' })
+    const out = { cleaned: 0, cancelled: 0, failed: [] }
+    for (const batchId of ids) {
+      const b = q.batchById(store, batchId)
+      if (!b) { out.failed.push('批次#' + batchId + ' 不存在'); continue }
+      try {
+        if (b.ctrl_id) {
+          const rel = await deps.platform.releaseControl(b.device_sn, b.ctrl_id)
+          if (rel.ok) q.clearBatchCtrl(store, batchId)
+          else out.failed.push('批次#' + batchId + ' 释放控制权：' + rel.msg)
+        }
+        const orders = q.batchOrders(store, batchId)
+        for (const o of orders) {
+          try {
+            const r = await deps.order.applyOrderCancelled(store, orderDeps, o, { reason: '管理员批量清理批次' })
+            if (r.claimed) out.cancelled++
+          } catch (e) { out.failed.push('批次#' + batchId + ' 订单#' + o.id + ': ' + e.message) }
+        }
+        q.cleanBatch(store, batchId)
+        out.cleaned++
+      } catch (e) { out.failed.push('批次#' + batchId + ': ' + e.message) }
+    }
+    audit(req, 'admin/batches-bulk-cancel', ids.join(','), 'cleaned=' + out.cleaned + ',cancelled=' + out.cancelled)
+    ok(res, out)
+  })
+
+  // 批量关闭+作废任务（多选 / 右键菜单）：平台关任务 + 本地作废，逐项容错
+  router.post('/admin/tasks/bulk-close-void', adminGuard, async (req, res) => {
+    const ids = Array.isArray((req.body || {}).task_ids)
+      ? [...new Set((req.body.task_ids || []).map(Number).filter((n) => n > 0))]
+      : []
+    if (!ids.length) return res.status(400).json({ code: 400, msg: '请选择要关闭的任务' })
+    const out = { closed: 0, voided: 0, failed: [] }
+    for (const taskId of ids) {
+      const t = q.taskById(store, taskId)
+      if (!t) { out.failed.push('任务#' + taskId + ' 不存在'); continue }
+      try {
+        if (t.device_sn && t.platform_task_id && Number(t.task_status) < 80 && !t.void_at) {
+          const r = await deps.platform.closeTask(t.device_sn, t.platform_task_id, '管理员批量关闭+作废')
+          if (!r.ok) { out.failed.push('任务#' + taskId + ': ' + r.msg); continue }
+          out.closed++
+        }
+        q.voidTask(store, taskId, '管理员批量作废')
+        out.voided++
+      } catch (e) { out.failed.push('任务#' + taskId + ': ' + e.message) }
+    }
+    audit(req, 'admin/tasks-bulk-close-void', ids.join(','), 'closed=' + out.closed + ',voided=' + out.voided)
     ok(res, out)
   })
 
