@@ -4,7 +4,7 @@
 > 仓库根：`C:\Users\82652\Desktop\lingdong-delivery`（git 仓库）。
 > 远端：`git@github.com:VesselPaper/lingdong-delivery-miniprogram.git`，分支 `main`。
 > 本文件记录**本次提交（2026-09-19 当日改动）**的范围、逐文件说明、校验结果与提交步骤。
-> 会话背景见 `agent/agent交接文档/会话交接文档/交接文档1~6.md`。
+> 会话背景见 `agent/agent交接文档/会话交接文档/交接文档1~9.md`。
 
 ---
 
@@ -13,10 +13,10 @@
 | 项 | 值 |
 | --- | --- |
 | 分支 | `main` |
-| 上一个提交 | `89ba395`（商品图进版本库：42 张种子图迁到 `backend/seed_images/`，`/store-img` 托管，DB 前缀迁移） |
-| 上上个提交 | `937eb7e`（商品图采集：216 全覆盖尝试，42 个已填苏宁真实图） |
+| 提交前基线 | `89ba395`（商品图进版本库：42 张种子图迁到 `backend/seed_images/`，`/store-img` 托管，DB 前缀迁移） |
+| 提交后 HEAD | `b0308a0`（= `origin/main`，已推送同步） |
 | 提交人 | hsy `<826526708@qq.com>` |
-| 铁律 | **每次 git 提交前必须先给用户确认框，经同意后才能 add/commit/push**；提交前先 `git pull origin main`，**禁止 `--force`** |
+| 铁律 | **每次 git 提交前必须先给用户确认框，经同意后才能 add/commit/push**；提交前先同步远端，**禁止 `--force`** |
 
 ---
 
@@ -24,7 +24,7 @@
 
 本次为**纯前端（双小程序）+ 文档整理**提交，**不含后端逻辑与数据库改动**。
 
-### 1.1 已暂存（上一轮整理，本次一并提交）
+### 1.1 根目录整理（一并提交）
 
 | 状态 | 文件 | 说明 |
 | --- | --- | --- |
@@ -32,7 +32,9 @@
 | 重命名 | `_nofind.json` → `backend/store_nofind.json` | 174 个无图商品台账，从根目录移入 backend |
 | 重命名 | `_img_review.md` → `doc/商品图采集与抽查清单.md` | 图片抽查清单，从根目录移入 doc |
 
-### 1.2 未暂存（今日代码改动）
+> 远端 `f38f77b` / `790e9c8` 也删除了这三个根目录文件，意图一致；merge 时保留本端的**迁移落位**（见 §6.2）。
+
+### 1.2 今日代码改动（19 个文件）
 
 | 文件 | 增/删 |
 | --- | --- |
@@ -59,7 +61,16 @@
 ### 1.3 目录整理（今日）
 
 `agent/agent交接文档/交接文档1~6.md` → `agent/agent交接文档/会话交接文档/交接文档1~6.md`
-（6 个文件**内容逐字节一致**，纯移动，已比对 HEAD 版本确认 `完全一致=True`。）
+（6 个文件**内容逐字节一致**，纯移动，已比对 HEAD 版本确认 `完全一致=True`，git 识别为 100% rename。）
+
+merge 时远端新增的 `交接文档7/8/9.md` 落在旧扁平路径，已一并 `git mv` 进 `会话交接文档/`。
+最终结构：
+
+```
+agent/agent交接文档/
+├── git交接文档/     git交接文档1.md（本文件）
+└── 会话交接文档/    交接文档1.md ~ 交接文档9.md
+```
 
 ### 1.4 本次新增
 
@@ -193,27 +204,65 @@
 
 ---
 
-## 6. 提交步骤
+## 6. 实际提交结果（已完成，2026-09-19 20:12~20:2x）
+
+### 6.1 提交记录
+
+| 提交 | 说明 |
+| --- | --- |
+| `7e0b8f6` | **本次主体提交**：用户端 UI 打磨（29 files changed, 1045 insertions, 161 deletions） |
+| `b0308a0` | **合并提交**：`Merge origin/main`（合入大屏科技风 + 3D 地图、管理员网页、召唤多单改造文档） |
+| `790e9c8` | （远端）清理：移除一次性商品图临时清单 `_img_review.md` / `_nofind.json` |
+| `f38f77b` | （远端）清理：移除一次性商品图落库脚本 `_apply_images.py` |
+
+- 推送结果：`790e9c8..b0308a0  main -> main`
+- 推送后 `HEAD == origin/main == b0308a0`，工作区**干净**。
+
+### 6.2 执行过程与踩坑
+
+1. `git pull origin main` **失败**（`error: Your local changes ... would be overwritten by merge`）——
+   因为 `用户端/utils/config.js`、`商家端/utils/config.js` 本地已改而远端也改了同一行。
+   **正确顺序是：先 commit 本地，再 merge**（不是先 pull）。
+2. 首次 `git commit -F` 用了 `Out-File -Encoding utf8`，会在提交信息首行写入 **BOM**（`\ufeff`）；
+   已用 `[System.IO.File]::WriteAllText(..., UTF8Encoding($false))` + `git commit --amend -F` 修正。
+   **后续提交务必用 `UTF8Encoding($false)` 写消息文件。**
+3. `git merge origin/main` 产生 4 处冲突，均已解决：
+
+| 冲突 | 类型 | 解决方式 |
+| --- | --- | --- |
+| `用户端/utils/config.js` | content | 保留本机当前可达 IP **`192.168.70.50`**（手机热点），并补一行"换网络后需同步修改"注释 |
+| `商家端/utils/config.js` | content | 同上，`LAN_BASE = 'http://192.168.70.50:3000/api'` |
+| `backend/store_nofind.json` | rename/delete | 远端删除、本端已迁移 → **保留迁移结果**（不回退删除） |
+| `doc/商品图采集与抽查清单.md` | rename/delete | 同上 |
+
+   > 注：远端 `f38f77b`/`790e9c8` 已删除根目录 `_apply_images.py`/`_img_review.md`/`_nofind.json`，
+   > 与本端"迁移而非删除"的意图一致，故保留本端的迁移落位。
+
+4. 远端新增的 `交接文档7/8/9.md` 落在**旧扁平路径** `agent/agent交接文档/`；
+   为与新结构一致，已 `git mv` 到 `agent/agent交接文档/会话交接文档/`。
+
+### 6.3 本次实际纳入的文件
+
+- **代码 19 个**：`用户端/pages/index/{index.js,index.wxml,index.wxss}`、`用户端/pages/order/{confirm.js,confirm.wxml}`、`用户端/pages/goods/{list.js,list.wxml}`、`用户端/pages/address/{edit.js,edit.wxml,list.wxml}`、`用户端/app.js`、`用户端/pages/user/{login.js,profile.js,profile.wxml,settings.wxml,settings.wxss}`、`商家端/pages/delivery/monitor.wxml`、`用户端/utils/config.js`、`商家端/utils/config.js`
+- **文档/整理**：新增 `agent/agent交接文档/git交接文档/git交接文档1.md`；`交接文档1~6.md` 移入 `会话交接文档/`（纯移动，100% rename）；`_apply_images.py` 删除；`_nofind.json` → `backend/store_nofind.json`；`_img_review.md` → `doc/商品图采集与抽查清单.md`
+- **随 merge 一并纳入（远端内容）**：`可视化大屏/`（科技风皮肤 + 3D 地图 + logo/机器人贴图 + 校准数据）、`管理员网页/`（admin-map/leaflet）、`backend/domains/admin/*`、`backend/services/platform.js`、`README.md`、`打开可视化大屏.bat`、`打开管理员网页.bat`、`交接文档7/8/9.md`
+
+### 6.4 复现命令
 
 ```powershell
-# 1) 先拉取，避免分叉
-git pull origin main
-
-# 2) 暂存（含目录移动与删除）
+# 1) 先提交本地（避免 pull 被本地改动阻塞）
 git add -A
+[System.IO.File]::WriteAllText("$env:TEMP\m.txt", $msg, (New-Object System.Text.UTF8Encoding($false)))
+git commit -F "$env:TEMP\m.txt"
 
-# 3) 确认暂存清单无误
-git status --short
+# 2) 再合并远端
+git fetch origin main
+git merge origin/main --no-edit
+#   解决冲突后：git add <冲突文件>
 
-# 4) 提交
-git commit -m "用户端 UI 打磨：首页定位改为全楼栋选择 + 独立搜索 + 分类图标；登录后落首页；退出登录归并到设置"
-
-# 5) 推送（禁止 --force）
+# 3) 推送（禁止 --force）
 git push origin main
 ```
-
-> 注意：`git add -A` 会一并纳入 `agent/agent交接文档/` 的目录移动（删除旧路径 + 新增 `会话交接文档/`）。
-> 若只想提交代码，请改为按 §1.2 逐文件 `git add`。
 
 ---
 
