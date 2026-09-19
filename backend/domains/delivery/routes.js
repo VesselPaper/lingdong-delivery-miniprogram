@@ -296,17 +296,20 @@ module.exports = (store, deps) => {
     const { batch_id } = req.body || {}
     const b = q.batchById(store, batch_id)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
-    // 召唤多单配送：无配送任务，门禁改用通用点位到达判定（robotAtPoint），开舱=召唤到上货点+drawerCtrl(1)
+    // 召唤多单配送：无配送任务，开舱=先召唤到上货点 + 就位门禁(robotAtPoint) + drawerCtrl(1)
     if (deps.runtime.summonDelivery) {
       if (!b.device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号，请先派车定型' })
-      // 机器人被召唤到上货点等待，到点才允许开舱（无任务态可依赖，用通用门禁）
       const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get() || null
-      if (loading && loading.platform_landmark_id) {
-        const gate = await deps.platform.robotAtPoint(store, b.device_sn, loading.platform_landmark_id, loading)
-        if (!gate.ok) return res.status(400).json({ code: 400, msg: gate.msg, reason: 'not_at_loading_point' })
-      }
+      // 先把机器人召唤到上货点（幂等 lightTask，车已在则无害）；召唤成功才算「上货」动作发起
       const summoned = await deps.platform.summonToLoadingPoint(store, b.device_sn)
       if (!summoned.ok) return res.status(502).json({ code: 502, msg: '召唤上货点失败：' + summoned.msg, reason: 'summon_failed' })
+      // 召唤后等它就位再开舱：未到上货点是「等待提示」而非报错（前端展示友好等待，稍后重试开舱）
+      if (!deps.runtime.deviceMock && loading && loading.platform_landmark_id) {
+        const gate = await deps.platform.robotAtPoint(store, b.device_sn, loading.platform_landmark_id, loading)
+        if (!gate.ok) {
+          return res.status(400).json({ code: 400, msg: gate.msg, reason: 'not_at_loading_point', summoned: true })
+        }
+      }
       const opened = await deps.platform.drawerCtrl(b.device_sn, 1)
       if (!opened.ok) return res.status(502).json({ code: 502, msg: '开舱失败：' + opened.msg })
       q.setBatchLoading(store, b.id)
