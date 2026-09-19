@@ -125,23 +125,23 @@ Page({
     // ---- 真实模式（保留，正式接入后启用）----
     wx.showLoading({ title: '开舱中' })
     request.post(api.batchOpenBin, { batch_id: this.data.batch.id }, { silent: true })
-      .then(() => {
+      .then((data) => {
         wx.hideLoading()
-        this.setData({ phase: 'open' })
-        wx.showToast({ title: '舱门已打开，请放货', icon: 'success', duration: 3000 })
-      })
-      .catch((e) => {
-        wx.hideLoading()
-        // 未到上货点是「等待提示」不是「报错」：单独友好展示（停留更久，看完再关）
-        if (e && e.reason === 'not_at_loading_point') {
+        // 车未到上货点：后端返回 200{waiting:true}，属「等待提示」不是错误 —— 不进入开舱态，让商家稍候重试
+        if (data && data.waiting) {
           wx.showModal({
-            title: '还未到达上货点',
-            content: (e.message || '无人车还没有到达上货点') + '，请稍候再试',
+            title: '机器人前往上货点中',
+            content: (data.msg || '机器人还没到达上货点') + '，请稍候再点一次「打开舱门」',
             showCancel: false,
             confirmText: '知道了'
           })
           return
         }
+        this.setData({ phase: 'open' })
+        wx.showToast({ title: '舱门已打开，请放货', icon: 'success', duration: 3000 })
+      })
+      .catch((e) => {
+        wx.hideLoading()
         wx.showToast({ title: (e && e.message) || '开舱失败', icon: 'none', duration: 3000 })
       })
   },

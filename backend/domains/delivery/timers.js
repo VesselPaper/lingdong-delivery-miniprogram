@@ -10,6 +10,7 @@ const s = require('./service')
 
 const BATCH_SCAN_MS = Number(process.env.BATCH_SCAN_MS || 15 * 1000)
 const POLL_MS = Number(process.env.PLATFORM_POLL_MS || 8000)
+const SUMMON_WATCHDOG_MS = Number(process.env.SUMMON_WATCHDOG_MS || 5 * 1000)
 
 function start(store, deps) {
   // ---------- ① 真实模式任务状态轮询兜底 ----------
@@ -70,6 +71,22 @@ function start(store, deps) {
       }
     } catch (e) { console.warn('[batch] 自动派车扫描异常', e.message) }
   }, BATCH_SCAN_MS)
+
+  // ---------- ⑤ 召唤多单配送推进看门狗（SUMMON_DELIVERY=true 时兜底） ----------
+  // 不依赖「取餐事件 → 钩子」这条异步链（真实链路里钩子/定时器可能丢），改为定时扫描：
+  // 对 delivery_mode=summon 且配送中(2)的批次，若当前站订单已全部取走，
+  // 就触发 advanceSummonDelivery（其内部自带 5s 步进 + current_stop 独占 + 防重 Set）。
+  // 即使事件钩子没跑、或服务重启，也能保证「送完本栋 → 必然推进下一栋 / 召回完成」。
+  if (deps.runtime.summonDelivery) {
+    setInterval(async () => {
+      try {
+        const rows = store.prepare("SELECT id FROM delivery_batches WHERE delivery_mode='summon' AND status=2").all()
+        for (const r of rows) {
+          await s.advanceSummonDelivery(store, deps, r.id)
+        }
+      } catch (e) { console.warn('[summon] 推进看门狗异常', e.message) }
+    }, SUMMON_WATCHDOG_MS)
+  }
 }
 
 module.exports = { start, BATCH_SCAN_MS }

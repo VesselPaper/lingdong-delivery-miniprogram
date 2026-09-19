@@ -243,11 +243,15 @@ module.exports = (store, deps) => {
     if (deps.runtime.summonDelivery) {
       const b = order.batch_id ? q.batchById(store, order.batch_id) : null
       if (b && b.device_sn) {
-        const c = await deps.platform.drawerCtrl(b.device_sn, 0)
-        if (!c.ok) return res.status(502).json({ code: 502, msg: '关舱失败：' + c.msg })
+        // 召唤模式关舱是「尽力而为」：用户已取走餐，物理 drawerCtrl(0) 报错不阻断取餐记录与推进。
+        // 否则一旦平台关舱失败就会提前 return，该单停在待取货(3) → 推进器永不触发 → 机器人回充电桩。
+        try {
+          const c = await deps.platform.drawerCtrl(b.device_sn, 0)
+          if (!c.ok) console.warn('[summon] 关舱(尽力而为)未确认 order=' + order.id + ' msg=' + c.msg)
+        } catch (e) { console.warn('[summon] 关舱调用异常 order=' + order.id + ' msg=' + (e && e.message)) }
       }
       store.prepare("UPDATE orders SET picking_up_at=NULL, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
-      const r = deps.order.fulfillOrder(store, deps, order) // 置 4 已完成 + 结算销量 + 批次计数(钩子触发推进)
+      const r = deps.order.fulfillOrder(store, deps, order) // 置 4 已完成 + 结算销量 + 批次计数(钩子/看门狗触发推进)
       if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg })
       return ok(res, { order_id: order.id, status: 4, summon: true })
     }
@@ -303,11 +307,11 @@ module.exports = (store, deps) => {
       // 先把机器人召唤到上货点（幂等 lightTask，车已在则无害）；召唤成功才算「上货」动作发起
       const summoned = await deps.platform.summonToLoadingPoint(store, b.device_sn)
       if (!summoned.ok) return res.status(502).json({ code: 502, msg: '召唤上货点失败：' + summoned.msg, reason: 'summon_failed' })
-      // 召唤后等它就位再开舱：未到上货点是「等待提示」而非报错（前端展示友好等待，稍后重试开舱）
+      // 召唤后等它就位再开舱：未到上货点是「等待提示」而非报错（200 + waiting:true，前端友好提示，稍后重试）
       if (!deps.runtime.deviceMock && loading && loading.platform_landmark_id) {
         const gate = await deps.platform.robotAtPoint(store, b.device_sn, loading.platform_landmark_id, loading)
         if (!gate.ok) {
-          return res.status(400).json({ code: 400, msg: gate.msg, reason: 'not_at_loading_point', summoned: true })
+          return ok(res, { batch_id: b.id, opened: 0, summoned: true, waiting: true, msg: gate.msg || '机器人正在前往上货点，请稍候再次点击开舱' })
         }
       }
       const opened = await deps.platform.drawerCtrl(b.device_sn, 1)
