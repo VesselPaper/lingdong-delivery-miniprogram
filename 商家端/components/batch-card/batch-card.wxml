@@ -5,6 +5,7 @@
       <text class="batch-no-full" wx:if="{{showNo && b.batch_no}}">{{b.batch_no}}</text>
     </view>
     <view class="batch-tags">
+      <text class="tag tag-locked" wx:if="{{b.dispatchMark}}">已锁定·待配送</text>
       <text class="tag {{b.statusTagClass || 'tag-gray'}}" wx:if="{{b.status_text}}">{{b.status_text}}</text>
       <text class="tag tag-dark">{{b.total_orders}} 单</text>
     </view>
@@ -51,7 +52,11 @@
   </view>
 
   <view class="batch-cta" wx:if="{{action === 'select'}}">
-    <view class="btn btn-block" hover-class="btn-hover" catchtap="onSelect">{{selectText}}</view>
+    <view wx:if="{{b.robotBusy}}" class="btn btn-block btn-busy" hover-class="btn-hover">
+      <text wx:if="{{b.dispatchMark}}">已装货 · 待配送（车忙）</text>
+      <text wx:else>{{b.robotBusyLabel || '无人车正在配送中'}}</text>
+    </view>
+    <view wx:else class="btn btn-block" hover-class="btn-hover" catchtap="onSelect">{{selectText}}</view>
   </view>
   <view class="batch-cta" wx:elif="{{action === 'dispatch'}}">
     <view class="btn btn-outline-brand btn-block" hover-class="btn-hover" catchtap="onDispatch">{{b.total_orders ? '派车配送（' + b.total_orders + ' 单）' : '派车配送'}}</view>

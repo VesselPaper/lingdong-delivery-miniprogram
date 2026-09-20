@@ -38,6 +38,7 @@ const api = {
   pickupByScan: '/delivery/pickup-by-scan',
   pickupOpen: '/delivery/pickup-open',
   pickupClose: '/delivery/pickup-close',
+  pickupCloseAll: '/delivery/pickup-close-all',
 
   // 活动
   activityList: '/activity/list',

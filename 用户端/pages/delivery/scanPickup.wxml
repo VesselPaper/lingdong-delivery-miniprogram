@@ -6,7 +6,15 @@
       <view class="pickup-status">扫无人车上的二维码，自动校验您的订单；代取请输取餐码</view>
     </view>
 
-    <view class="card">
+    <!-- 扫码自动校验未匹配到本人订单 → 引导「输入取餐码 / 再次扫码」 -->
+    <view class="card fallback-card" wx:if="{{scanFail && !order}}">
+      <view class="section-title">未匹配到您的订单</view>
+      <view class="text-weak text-sm" style="margin-bottom:16rpx;">可能是代取或订单识别不到，可输入取餐码或重新扫码无人车</view>
+      <view class="btn btn-block" style="margin-bottom:16rpx;" bindtap="scanRobot">再次扫码</view>
+      <view class="btn btn-outline btn-block" bindtap="focusCode">输入取餐码</view>
+    </view>
+
+    <view class="card" wx:else>
       <view class="scan-field" bindtap="scanRobot">
         <view class="scan-field-left">
           <view class="scan-field-title">{{deviceSn ? deviceSn : '点击扫描无人车二维码'}}</view>
@@ -53,6 +61,27 @@
       <view class="info-row text-sub"><text>送达点位</text><text>{{order.landmark_name}}</text></view>
     </view>
 
+    <!-- 同点多单一起取：列出本取货点全部订单+商品图片，打开一次舱门一起拿走，关舱即全部确认取走 -->
+    <view class="card" wx:if="{{order.my_multi}}">
+      <view class="section-title">您在本取货点有 {{order.my_batch_orders.length}} 个订单</view>
+      <view class="text-weak text-sm" style="margin:4rpx 0 16rpx;">请打开舱门，把以下订单的商品<text class="text-strong">一起</text>取走，然后点「关闭舱门」即可一次性确认全部订单取完。</view>
+      <view class="group-order" wx:for="{{order.my_batch_orders}}" wx:key="id">
+        <view class="group-order-head">
+          <text class="batch-order-no">订单 {{item.daily_seq}}</text>
+          <text class="batch-order-lm text-weak text-sm">{{item.landmark_name}}</text>
+          <text class="pickup-code text-sm">{{item.pickup_code}}</text>
+        </view>
+        <view class="group-item" wx:for="{{item.items}}" wx:for-item="it" wx:key="index">
+          <image class="group-item-img" src="{{it.goods_image}}" mode="aspectFill" wx:if="{{it.goods_image}}"/>
+          <view class="group-item-img group-item-placeholder" wx:else></view>
+          <view class="group-item-info">
+            <text class="text-sm">{{it.goods_name}}</text>
+            <text class="text-weak text-sm">¥{{it.price}} × {{it.quantity}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
     <!-- 一车多单诚实化提示：本车同批订单，按订单号核对后取走自己的餐 -->
     <view class="card" wx:if="{{order.batch_order_count > 1}}">
       <view class="section-title">本车共 {{order.batch_order_count}} 单</view>
@@ -75,7 +104,7 @@
 
     <view class="foot-actions">
       <view class="btn btn-block" wx:if="{{phase === 'ready'}}" bindtap="openBin">打开舱门</view>
-      <view class="btn btn-block" wx:if="{{phase === 'open'}}" bindtap="closeBin">关闭舱门</view>
+      <view class="btn btn-block" wx:if="{{phase === 'open'}}" bindtap="{{order.my_multi ? 'closeAllBin' : 'closeBin'}}">关闭舱门</view>
       <view class="btn btn-block" wx:if="{{phase === 'autoClosed'}}" bindtap="reopen">重新打开</view>
       <view class="btn btn-block" wx:if="{{phase === 'done'}}" bindtap="done">完成</view>
     </view>

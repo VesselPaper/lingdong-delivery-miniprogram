@@ -82,6 +82,9 @@ Page({
     const st = Number(b.status)
     if (st === 2 || st === 3 || st === 4) return 'dispatched' // 配送中/已完成/已取消：不再可操作
     if (st === 1) {
+      // 召唤多单配送无 delivery_tasks，orders[].task.statuses 恒为空 → 旧逻辑会退回 scanned（错误显示「打开舱门」）。
+      // 优先用后端落库的 ready_dispatch：已关舱(货已装好) → 直接可「立即配送」。字段缺失则按 false 走旧逻辑。
+      if (b.ready_dispatch === true) return 'loaded'
       const statuses = (b.orders || [])
         .map((o) => o.task && o.task.task_status)
         .filter((v) => v !== undefined && v !== null)

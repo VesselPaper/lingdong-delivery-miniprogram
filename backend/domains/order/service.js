@@ -115,8 +115,10 @@ function maybeAutoAccept(store, deps, order) {
   const cur = store.prepare('SELECT * FROM orders WHERE id=?').get(order.id)
   if (!cur) return false
   try {
-    deps.batch.addOrderToBatch(store, cur)
+    const batch = deps.batch.addOrderToBatch(store, cur)
     console.log('[order] 自动接单 order=' + cur.id + ' ' + cur.order_no + ' → 批次并入')
+    // 事件驱动：有单即触发「车自动去上货点」调度（防抖合并；在送/已在原地则由调度器自行跳过）
+    if (deps.autoLoadHook) { try { setImmediate(() => deps.autoLoadHook(batch)) } catch (e) { /* 调度失败不影响接单 */ } }
     return true
   } catch (e) {
     console.warn('[order] 自动接单并入批次失败', e.message)
@@ -136,6 +138,13 @@ function withinFreeCancelWindow(order) {
 async function applyOrderCancelled(store, deps, order, opts) {
   const o = Object.assign({ reason: '订单取消' }, opts || {})
   const c = deps.orderCancel.cancelLocal(store, order, o)
+  // 「机器人要回去」事件：取消订单后若该批次车无其他待上货订单，则回上货点等 3 分钟释放（不轮询）。
+  if (order && order.batch_id && deps.settleRobot) {
+    try {
+      const bd = store.prepare('SELECT device_sn FROM delivery_batches WHERE id=?').get(order.batch_id)
+      if (bd && bd.device_sn) setImmediate(() => { try { deps.settleRobot(bd.device_sn) } catch (e) { /* 释放失败不影响取消 */ } })
+    } catch (e) { /* 不影响取消 */ }
+  }
   if (!c.claimed || !c.tasks || !c.tasks.length) return c
   for (const t of c.tasks) {
     try {
@@ -310,6 +319,8 @@ async function payOrder(store, deps, order, user) {
   // 试点临时开关：非真实支付档直接标记已支付进入待接单（真实支付代码保持不动）
   if (!deps.runtime.realPay) {
     q.markPaidMock(store, id)
+    // 实时推送：新订单已支付成立（待接单）→ 通知商家端局部刷新（红点/待接单列表）
+    if (deps.push && deps.push.broadcast) { try { deps.push.broadcast({ type: 'order_created', order_id: id }) } catch (e) { /* 推送失败不影响下单 */ } }
     const o2 = store.prepare('SELECT * FROM orders WHERE id=?').get(id)
     if (maybeAutoAccept(store, deps, o2)) {
       return { data: { order_id: id, mock: true, auto_accept: true, msg: '试点模式：模拟支付成功，已自动接单并入配送批次' } }

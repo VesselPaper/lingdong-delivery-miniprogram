@@ -296,6 +296,7 @@ function getBatchDetail(store, batchId) {
     daily_seq: Number(b.daily_seq || b.id),
     device_sn: b.device_sn, total_orders: orders.length, total_items: totalItems, picked_orders: picked,
     delivery_mode: b.delivery_mode || '', current_stop: Number(b.current_stop || 0),
+    loaded_at: b.loaded_at || '', ready_dispatch: !!(Number(b.status) === 1 && b.loaded_at),
     created_at: b.created_at, dispatched_at: b.dispatched_at, completed_at: b.completed_at,
     route: cleanStops, route_text: routeText, route_stops_text: distinctLandmarks.join('、'),
     orders

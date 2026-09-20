@@ -214,6 +214,14 @@ function migrate(db) {
   // delivery_mode：本批次的配送执行模式，'summon'=召唤多单配送 / 空或'task'=一单一单送。
   if (!batchCols.includes('current_stop')) db.exec("ALTER TABLE delivery_batches ADD COLUMN current_stop INTEGER DEFAULT 0")
   if (!batchCols.includes('delivery_mode')) db.exec("ALTER TABLE delivery_batches ADD COLUMN delivery_mode TEXT DEFAULT ''")
+  // delivery_batches：当前召唤任务 id（创建轻任务返回的 data.id）。用于「到达门禁」：
+  //   不再用机器人位置估判，而是按此 id 查询 status=30 arrivedPoint —— 机器人真正抵达的信号。
+  //   开舱（open-bin）门禁用它判断「车已到上货点」，避免 ARRIVE_RADIUS_M/POS_M_PER_UNIT 标定不准导致误判。
+  if (!batchCols.includes('light_task_id')) db.exec("ALTER TABLE delivery_batches ADD COLUMN light_task_id TEXT DEFAULT ''")
+  // delivery_batches：已上货待配送标记（商家关舱落库，退出/重进仍可判断「已锁定待配送」）。
+  // 召唤模式无配送任务，无法用任务状态推断「货已装好」；用它持久化 close-bin 后「已锁定」状态，
+  // 供商家批次详情 inferPhase（问题2）与批次列表标注（问题3）。开始配送/完成/取消时清空。
+  if (!batchCols.includes('loaded_at')) db.exec("ALTER TABLE delivery_batches ADD COLUMN loaded_at TEXT")
   // 历史数据回填：按创建日期逐日累计编号（id 即当日创建顺序）
   db.exec(`UPDATE delivery_batches SET daily_seq=(
     SELECT COUNT(*) FROM delivery_batches b2

@@ -1,6 +1,7 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
 const scan = require('../../utils/scan')
+const push = require('../../utils/push')
 
 // 上货配单（一车多单 · 配送批次列表）
 // 只展示「组单中（可派车） + 待上货（可上货）」两类批次；配送中/待取货请看任务页与配送监控。
@@ -19,6 +20,18 @@ Page({
   },
   rawOpen: [],
   rawReady: [],
+
+  onLoad() {
+    // 收到「新订单」推送 → 配单页(/device/loading)局部重拉批次列表（新单进组单中，需即时出现）
+    this._onPush = (msg) => {
+      if (msg && msg.type === 'order_created') { this.loadPending() }
+    }
+    push.subscribe(this._onPush)
+  },
+
+  onUnload() {
+    push.unsubscribe(this._onPush)
+  },
 
   onShow() {
     this.loadPending()
@@ -55,7 +68,17 @@ Page({
       // 组单中/待上货批次统一走「上货」入口（派车由后端接单后自动完成，商家不再手动派车）
       let action = (kind === 'open' || kind === 'ready') ? 'select' : ''
       if (kind === 'ready' && orders.length && orders.every((o) => Number(o.status) === 6)) action = ''
-      return Object.assign({}, b, { action, index: idx, statusTagClass: BATCH_TAG_CLASS[Number(b.status)] || 'tag-gray', orders })
+      return Object.assign({}, b, {
+        action,
+        index: idx,
+        statusTagClass: BATCH_TAG_CLASS[Number(b.status)] || 'tag-gray',
+        orders,
+        // 问题3：已关舱(货装好)的批次 → 卡片标注「已锁定·待配送」
+        dispatchMark: b.ready_dispatch === true,
+        // 问题3/4：批次指派车是否忙 → 卡面给禁用/忙提示 + 上货入口拦截
+        robotBusy: b.robot_busy === true,
+        robotBusyLabel: b.robot_busy_msg || '无人车正在配送中，请稍后再试'
+      })
     })
   },
 
@@ -91,6 +114,17 @@ Page({
     const item = e.detail || {}
     if (!item || !item.id) return
     const st = Number(item.status)
+    // 问题4：待上货批次指派车正忙（配送/占用）时，禁止进入详情打断配送。
+    // robot_busy 由后端 pending 下发（decorate 已带下来）；字段缺失按可用处理。
+    if (st === 1 && item.robot_busy === true) {
+      wx.showModal({
+        title: '暂无空闲机器人',
+        content: item.robot_busy_msg || '无人车正在配送中，请等其配送完成后再上货',
+        showCancel: false,
+        confirmText: '知道了'
+      })
+      return
+    }
     if (st === 0) {
       wx.showLoading({ title: '创建配送任务' })
       try {

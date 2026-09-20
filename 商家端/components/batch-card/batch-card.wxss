@@ -47,6 +47,21 @@
   color: #3078C0;
 }
 
+/* 「已锁定·待配送」标记（问题3）：货已装好待配送，醒目标注 */
+.batch-head .tag-locked {
+  background: #FF8A00;
+  color: #ffffff;
+  border: 1rpx solid rgba(255, 255, 255, 0.5);
+  font-weight: 600;
+}
+
+/* 机器人忙碌：上货按钮禁用/忙提示（问题3/4） */
+.btn-busy {
+  background: #EEF0F3 !important;
+  color: #AAB0BC !important;
+  box-shadow: none !important;
+}
+
 .batch-line {
   display: flex;
   align-items: baseline;

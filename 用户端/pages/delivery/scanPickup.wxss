@@ -161,3 +161,43 @@
   border-radius: 6rpx;
   padding: 2rpx 12rpx;
 }
+
+/* 同点多单「一起取走」卡片 */
+.text-strong {
+  color: #E5484D;
+  font-weight: 600;
+}
+.group-order {
+  border: 1rpx solid #EDF0F5;
+  border-radius: 12rpx;
+  padding: 16rpx;
+  margin-bottom: 16rpx;
+}
+.group-order-head {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 10rpx;
+}
+.group-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 8rpx 0;
+}
+.group-item-img {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 10rpx;
+  background: #F5F7FA;
+  flex-shrink: 0;
+}
+.group-item-placeholder {
+  background: #EEF1F6;
+}
+.group-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  min-width: 0;
+}

@@ -21,28 +21,97 @@ const SUMMON_STOP_ADVANCE_MS = Number(process.env.SUMMON_STOP_ADVANCE_MS || 5 * 
 // 推进防重：一批次同一时刻只允许「召唤下站/召回」执行一次（双击/并发取餐触发多次 notify 时不重复召唤）
 const summonAdvancing = new Set()
 
+// 「到达上货点后才可开舱」门禁（召唤模式）：
+// 不按机器人位置估判，而是以机器人真正的到达信号为准 —— 查询批次当前召唤任务(song lightTask)的
+// status 是否为 30 arrivedPoint。到(30)才允许开舱；未到给等待提示，绝不当到、也绝不误判已到。
+// 关键：若已存在未终结的召唤任务（前往/等待中），**绝不重复召唤**——重复召唤会新建 lightTask、
+// 重置机器人导航进度，导致永远等不到 30。只有任务已结束(40/50/60)或缺失才重新召唤。
+async function ensureLoadingArrival(store, deps, b) {
+  const existing = b.light_task_id
+  if (existing) {
+    const qr = await deps.platform.queryLightTask(existing)
+    if (qr.ok) {
+      if (qr.arrived) return { arrived: true, status: qr.status, msg: '' }
+      if ([0, 10, 20].includes(qr.status)) {
+        // 还在前往/等待中 → 继续等待，不重复召唤
+        return { arrived: false, waiting: true, status: qr.status, keep: true }
+      }
+      // 40/50/60 已终态 → 落下去重新召唤
+    }
+    // 查询失败：保守处理，重新召唤一次（幂等 lightTask）
+  }
+  const summoned = await deps.platform.summonToLoadingPoint(store, b.device_sn)
+  if (!summoned.ok) return { arrived: false, waiting: false, error: summoned.msg, msg: '召唤上货点失败：' + summoned.msg }
+  if (summoned.light_task_id) q.setBatchLightTask(store, b.id, summoned.light_task_id)
+  return { arrived: false, waiting: true, status: 0, keep: false }
+}
+
 function parseBatchRoute(b) {
   try { return JSON.parse(b.route || '[]') } catch (e) { return [] }
 }
 
-// 到达某站：把该站订单 2→3 置「待取货」，并落库 current_stop
-function markSummonStopArrived(store, deps, b, route, stopIndex) {
-  const stop = route[Number(stopIndex) - 1]
+// 「回上货点且（无单时）有限释放」——事件驱动，不轮询：
+// 由「批次送完 / 取消订单 / 其他车要回去」的事件触发（非定时扫描）。
+//   该车正在配送其他批次 → 不打断，直接返回（等它送完的自然路径）。
+//   有其他待上货订单       → 召唤回上货点，正常窗口待命装货。
+//   无其他待上货订单       → 召唤回上货点，等 RELEASE_WAIT_MIN 分钟；到点任务到期 = 自动释放返程充电。
+function settleRobotAtLoading(store, deps, deviceSn) {
+  if (!deviceSn || !deps.runtime.summonDelivery) return Promise.resolve()
+  // 车正做召唤配送（status=2）→ 不打断投递
+  const delivering = store.prepare("SELECT id FROM delivery_batches WHERE device_sn=? AND delivery_mode='summon' AND status=2 LIMIT 1").get(deviceSn)
+  if (delivering) return Promise.resolve()
+  // 是否有仍待上货的订单（组单中/待上货且含单）
+  const pending = store.prepare("SELECT COUNT(*) c FROM delivery_batches WHERE status IN (0,1) AND total_orders>0").get()
+  const hasPending = Number(pending && pending.c || 0) > 0
+  if (hasPending) {
+    return deps.platform.summonToLoadingPoint(store, deviceSn).catch((e) => { console.warn('[summon] 待命上货点失败 ' + deviceSn + ' ' + e.message) })
+  }
+  const m = Number(process.env.SUMMON_RELEASE_WAIT_MIN || 3)
+  console.log('[summon] 无其他待上货订单，车 ' + deviceSn + ' 回上货点等 ' + m + ' 分钟后释放返程')
+  return deps.platform.summonToLoadingPoint(store, deviceSn, m).catch((e) => { console.warn('[summon] 释放召唤失败 ' + deviceSn + ' ' + e.message) })
+}
+
+// 到达某站：把该站订单 2→3 置「待取货」（幂等：arriveOrder 对已 3/4 直接返回）。
+// 现在只标记订单、不写 current_stop —— current_stop 语义改为「当前在途/正在挂接的站号」，
+// 由 startSummonDelivery/advanceSummonDelivery 在「召唤下一站」时推进，不再在召唤瞬间虚标订单。
+function markStopDelivered(store, deps, stop) {
   if (!stop) return
   const ids = (stop.order_ids || []).map(Number).filter(Boolean)
   for (const oid of ids) {
     const o = store.prepare('SELECT * FROM orders WHERE id=?').get(oid)
     if (o) { try { deps.order.arriveOrder(store, deps, o) } catch (e) { /* 单条失败不阻断 */ } }
   }
-  q.setBatchCurrentStop(store, b.id, Number(stopIndex))
+}
+
+// 「真到站」标记：查询当前在途站(route[current_stop-1])的召唤任务是否真到达（lightTask status=30），
+// 才把该站订单置「待取货」。修复 issue：机器人才被召唤去下一站、尚未开到时，订单被虚标为待取货。
+// 与加载点 open-bin 门禁(ensureLoadingArrival)同源，都以机器人真实到达信号为准。
+async function ensureStopArrival(store, deps, b) {
+  const route = parseBatchRoute(b)
+  if (!route || !route.length) return null
+  const target = Math.max(1, Number(b.current_stop || 1))
+  if (target > route.length) return null
+  const stop = route[target - 1]
+  if (!stop || !b.light_task_id) return null
+  const qr = await deps.platform.queryLightTask(b.light_task_id)
+  if (qr && qr.ok && qr.arrived) {
+    markStopDelivered(store, deps, stop)
+    console.log('[summon] 批次 ' + b.batch_no + ' 真到达第 ' + target + ' 站=' + (stop.landmark_name || stop.landmark_id) + ' → 该站订单置待取货')
+    return stop
+  }
+  return null
 }
 
 // 「立即配送」：巫师批次开始召唤多单配送，召唤到首站并置该站订单待取货。
 async function startSummonDelivery(store, deps, batchId) {
   const b = q.batchById(store, batchId)
   if (!b) throw new Error('批次不存在')
-  if (b.delivery_mode === 'summon' && Number(b.status) === 2) {
-    return deps.batch.getBatchDetail(store, b.id) // 已开始，幂等返回
+  // 已在配送推进中（current_stop>=1，已召唤/在途到某站）→ 幂等返回，绝不重复召唤/重标。
+  // 注意：仅当 status=2 且 current_stop>=1 才早退。若 status=2 但 current_stop=0（上次召唤首站失败抛错、
+  // 或崩溃于「召唤成功但 future_stop 未落库」），用户端订单仍停在「配送中」需补召唤——首站订单的「待取货」
+  // 由 ensureStopArrival 在机器人真到达后置位，故这里只需重新召唤并落 current_stop。
+  if (b.delivery_mode === 'summon' && Number(b.status) === 2 && Number(b.current_stop || 0) >= 1) {
+    return deps.batch.getBatchDetail(store, b.id)
   }
   const orders = store.prepare('SELECT * FROM orders WHERE batch_id=? AND status IN (1,2)').all(b.id)
   if (!orders.length) throw new Error('批次内没有待配送订单')
@@ -52,30 +121,43 @@ async function startSummonDelivery(store, deps, batchId) {
     if (!route.length) throw new Error('无可规划的配送点位')
     q.setBatchRoute(store, b.id, JSON.stringify(route))
   }
-  // 批次置配送中
-  store.prepare("UPDATE delivery_batches SET status=2, status_text='配送中', delivery_mode='summon', updated_at=datetime('now','localtime') WHERE id=?").run(b.id)
   const first = route[0]
+  // 先把首站召唤成功，成功后再落「配送中」+ current_stop=1。
+  // 若召唤失败直接抛错：批次保持待上货(1)/组单，不留「已配送中但首站没召唤」的半启动状态
+  // （否则机器人空跑、用户端订单永久停在「配送中」）。首站订单「待取货」由真到站后置位。
   if (b.device_sn) {
     const r = await deps.platform.summonDeliveryToStop(store, b, first)
     if (!r.ok) throw new Error('召唤到首个配送点失败：' + r.msg)
+    if (r.light_task_id) q.setBatchLightTask(store, b.id, r.light_task_id)
   }
-  markSummonStopArrived(store, deps, b, route, 1)
+  // 批次置配送中：
+  if (Number(b.status) !== 2 || b.delivery_mode !== 'summon') {
+    store.prepare("UPDATE delivery_batches SET status=2, status_text='配送中', delivery_mode='summon', updated_at=datetime('now','localtime') WHERE id=?").run(b.id)
+  }
+  // 开始配送 → 货已发出，清「已上货待配送」标记；current_stop=1 表示在途第 1 站。
+  // 首站订单「待取货」不在此标记：由 ensureStopArrival 在机器人真到达首站(lightTask 30)后置为待取货。
+  q.clearBatchLoadedAt(store, b.id)
+  q.setBatchCurrentStop(store, b.id, 1)
   console.log('[summon] 批次 ' + b.batch_no + ' 开始召唤配送，首站=' + (first.landmark_name || first.landmark_id) + ' 订单=' + (first.order_ids || []).length)
   return deps.batch.getBatchDetail(store, b.id)
 }
 
-// 推进：当前站是否全取完 → 停 SUMMON_STOP_ADVANCE_MS → 召唤下一站（或全部送完召回上货点完成批次）。
-// 由「批次取走计数钩子（countPicked → batch.registerSummonAdvance）」在每一次取饭后触发。
+// 推进：当前在途站真到达(置该站待取货) → 该站是否全取完 → 停 SUMMON_STOP_ADVANCE_MS → 召唤下一站
+// （或全部送完召回上货点完成批次）。由「批次取走计数钩子（countPicked → batch.registerSummonAdvance）」
+// 在每一次取饭后触发；⑤ 看门狗每 5s 兜底触发。
 async function advanceSummonDelivery(store, deps, batchId) {
   const b = q.batchById(store, batchId)
   if (!b || b.delivery_mode !== 'summon') return
   const st = Number(b.status)
-  // 只允许在「配送中(2)」推进下一站；「已完成(3)」可能是最后一单刚由 maybeCompleteBatch 标记，
+  // 只允许在「配送中(2)」推进；「已完成(3)」可能是最后一单刚由 maybeCompleteBatch 标记，
   // 仍应进入完成收尾路径（召回上货点 + current_stop 归零）。
   if (st !== 2 && st !== 3) return
+  // 真到站标记：在途站 lightTask 到 30 → 该站订单置待取货（不虚标「召唤即送达」；未到保持配送中）
+  try { await ensureStopArrival(store, deps, b) } catch (e) { /* 查询失败本轮不标记 */ }
   const route = parseBatchRoute(b)
   if (!route.length) return
-  const cur = Math.max(1, Number(b.current_stop || 0)) // 当前正在送第 cur 站
+  const cur = Math.max(1, Number(b.current_stop || 1)) // 当前在途站号（含已到站）
+  if (cur > route.length) return
   const stop = route[cur - 1]
   if (stop) {
     const ids = (stop.order_ids || []).map(Number).filter(Boolean)
@@ -94,22 +176,25 @@ async function advanceSummonDelivery(store, deps, batchId) {
       if (!bb || bb.delivery_mode !== 'summon') return
       const r2 = parseBatchRoute(bb)
       if (!r2.length) return
-      const curIdx = Math.max(1, Number(bb.current_stop || 0))
+      const curIdx = Math.max(1, Number(bb.current_stop || 1)) // 当前在途站号
       if (Number(curIdx) !== cur) return // 已被其它路径推进过，放弃本次
-      if (curIdx < r2.length && Number(bb.status) === 2) {
+      if (curIdx < r2.length) {
+        // 还有下一站：召唤过去并推进 current_stop；该站订单由 ensureStopArrival 真到站后再置待取货
         const next = r2[curIdx]
         if (bb.device_sn) {
           const rr = await deps.platform.summonDeliveryToStop(store, bb, next)
           if (!rr.ok) { console.warn('[summon] 推进下站失败 batch=' + batchId + ' msg=' + rr.msg); return }
+          if (rr.light_task_id) q.setBatchLightTask(store, batchId, rr.light_task_id)
         }
-        markSummonStopArrived(store, deps, bb, r2, curIdx + 1)
+        q.setBatchCurrentStop(store, batchId, curIdx + 1)
         console.log('[summon] 批次 ' + bb.batch_no + ' 推进到下一站=' + (next.landmark_name || next.landmark_id))
-      } else if (curIdx >= r2.length) {
-        // 全部站取完 → 召回上货点 + 批次完成收尾
-        if (bb.device_sn) { try { await deps.platform.summonToLoadingPoint(store, bb.device_sn) } catch (e) { /* 召回失败不阻断完成 */ } }
-        q.setBatchCompleted(store, batchId, bb.picked_orders || 0)
+      } else {
+        // 全部站已送达且最后一站取完 → 回上货点并结算批次。有单则待命；无单则等 RELEASE_WAIT_MIN 分钟后释放返程。
+        // 先置批次已完成(3)（settleRobotAtLoading 会据此判定「该车未在配送」，才把车召回上货点）。
+        q.setBatchCompleted(store, batchId, Number(bb.picked_orders || 0))
+        await settleRobotAtLoading(store, deps, bb.device_sn)
         q.setBatchCurrentStop(store, batchId, 0)
-        console.log('[summon] 批次 ' + bb.batch_no + ' 全部取完，召唤召回上货点 → 已完成')
+        console.log('[summon] 批次 ' + bb.batch_no + ' 全部取完，召回上货点 → 已完成')
       }
     } catch (e) {
       console.warn('[summon] 推进异常 batch=' + batchId + ' msg=' + e.message)
@@ -130,13 +215,36 @@ function pickupContext(store, order) {
     batchOrders = store.prepare('SELECT id, order_no, daily_seq, landmark_name FROM orders WHERE batch_id=? AND status IN (2,3) ORDER BY id ASC').all(order.batch_id)
     batchOrderCount = batchOrders.length
   }
+  // issue1：该用户在本批次、本取货点、当前真到站(已送达待取)的订单 —— 同点多单「一起取走」。
+  // 过滤到同一 landmark：只列用户当前所在点的待取订单，避免把另一取货点已到/在途的订单混进来。
+  // 每单附商品明细+图片，供取餐页把全部订单连同商品一起展示。
+  let myBatchOrders = []
+  const curLm = String(order.landmark_id || '')
+  if (order.batch_id) {
+    const lmFilter = curLm ? ' AND landmark_id=?' : ''
+    const params = curLm ? [order.batch_id, order.user_id, curLm] : [order.batch_id, order.user_id]
+    myBatchOrders = store.prepare(`SELECT id, order_no, daily_seq, landmark_id, landmark_name, pickup_code, status, picked_up_at
+      FROM orders WHERE batch_id=? AND user_id=? AND status=3${lmFilter} ORDER BY id ASC`)
+      .all(...params)
+      .map((r) => {
+        const items = store.prepare('SELECT goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?').all(r.id)
+          .map((it) => ({ goods_name: it.goods_name, goods_image: it.goods_image, price: Number(it.price || 0), quantity: Number(it.quantity || 0) }))
+        return Object.assign({}, r, { picked_up: !!r.picked_up_at, items })
+      })
+  }
+  const myTotalItems = myBatchOrders.reduce((s, o) => s + (o.items || []).reduce((x, it) => x + it.quantity, 0), 0)
   return {
     order_id: order.id,
+    batch_id: order.batch_id,
     order_no: order.order_no,
     pickup_code: order.pickup_code,
+    landmark_id: order.landmark_id,
     landmark_name: order.landmark_name,
     batch_order_count: batchOrderCount,
     batch_orders: batchOrders,
+    my_batch_orders: myBatchOrders,
+    my_multi: myBatchOrders.length > 1,
+    my_total_items: myTotalItems,
     task: task ? { task_id: task.id, platform_task_id: task.platform_task_id, device_sn: task.device_sn, task_status: task.task_status, status_text: task.status_text } : null
   }
 }
@@ -501,5 +609,6 @@ module.exports = {
   getLoadingTask, reconcileBatchState,
   moveStopToEnd, revisitUnpickedOrder, rejectUnpickedOrder,
   scanPickupTimeouts, scanStuckDeliveries, processMockArrivals,
-  startSummonDelivery, advanceSummonDelivery
+  startSummonDelivery, advanceSummonDelivery, ensureLoadingArrival, settleRobotAtLoading,
+  ensureStopArrival
 }

@@ -61,6 +61,8 @@ module.exports = (store, deps) => {
       const up = q.markPaidNotify(store, order.id, info.transaction_id)
       q.payNotifyInsert(store, { eventId: body.id, outTradeNo: info.out_trade_no, tradeState: info.trade_state, amountTotal: info.amount ? info.amount.total : 0 })
       if (up.changes === 1) {
+        // 实时推送：单笔订单支付成功 → 商家端红点/列表局部刷新
+        if (deps.push && deps.push.broadcast) { try { deps.push.broadcast({ type: 'order_created', order_id: order.id }) } catch (e) { /* 推送失败不影响回调 */ } }
         const o2 = store.prepare('SELECT * FROM orders WHERE id=?').get(order.id)
         if (o2) s.maybeAutoAccept(store, deps, o2)
       }

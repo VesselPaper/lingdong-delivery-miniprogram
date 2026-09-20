@@ -54,6 +54,9 @@ module.exports = {
     WHERE id=? AND status=0`).run(Number(id)),
   setBatchCurrentStop: (store, id, stop) => store.prepare("UPDATE delivery_batches SET current_stop=?, updated_at=datetime('now','localtime') WHERE id=?").run(Number(stop || 0), Number(id)),
   setBatchDeliveryMode: (store, id, mode) => store.prepare("UPDATE delivery_batches SET delivery_mode=?, updated_at=datetime('now','localtime') WHERE id=?").run(String(mode || ''), Number(id)),
+  setBatchLightTask: (store, id, lightTaskId) => store.prepare("UPDATE delivery_batches SET light_task_id=?, updated_at=datetime('now','localtime') WHERE id=?").run(String(lightTaskId || ''), Number(id)),
+  setBatchLoadedAt: (store, id) => store.prepare("UPDATE delivery_batches SET loaded_at=datetime('now','localtime'), updated_at=datetime('now','localtime') WHERE id=?").run(Number(id)),
+  clearBatchLoadedAt: (store, id) => store.prepare("UPDATE delivery_batches SET loaded_at=NULL, updated_at=datetime('now','localtime') WHERE id=?").run(Number(id)),
   revertDispatch: (store, id) => store.prepare("UPDATE delivery_batches SET status=0, status_text='组单中', device_sn='', route='', dispatched_at=NULL, updated_at=datetime('now','localtime') WHERE id=?")
     .run(Number(id)),
   revertDispatchNoRoute: (store, id) => store.prepare("UPDATE delivery_batches SET status=0, status_text='组单中', dispatched_at=NULL, updated_at=datetime('now','localtime') WHERE id=?")
