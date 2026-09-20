@@ -1,6 +1,7 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
 const shopState = require('../../utils/shopState')
+const push = require('../../utils/push')
 
 // 下单时间展示（后端为本地时间 YYYY-MM-DD HH:MM:SS，去掉秒即可，避免时区解析差异）
 function formatTime(t) {
@@ -50,6 +51,15 @@ Page({
     } else if (options && options.tab !== undefined && options.tab !== '') {
       this.setData({ statusFilter: String(options.tab), active: '' })
     }
+    // 收到「新订单」推送 → 局部重拉当前列表 + 右上角红点（不整页重载）
+    this._onPush = (msg) => {
+      if (msg && msg.type === 'order_created') { this.load(); this.loadPendingCount() }
+    }
+    push.subscribe(this._onPush)
+  },
+
+  onUnload() {
+    push.unsubscribe(this._onPush)
   },
 
   onStage(e) {

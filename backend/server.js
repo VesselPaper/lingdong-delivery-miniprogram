@@ -38,7 +38,7 @@ const orderCancel = require('./services/orderCancel')
 const invite = require('./services/merchantInvite')
 
 // 分层域（domains/）：按数据项拆分的路由工厂 (store, deps) => router；URL 与原先内联路由完全一致
-const { createShared } = require('./domains/_shared')
+const { createShared, ADMIN_TOKEN } = require('./domains/_shared')
 const userRoutes = require('./domains/user/routes')
 const userService = require('./domains/user/service')
 const goodsRoutes = require('./domains/goods/routes')
@@ -46,8 +46,14 @@ const goodsService = require('./domains/goods/service')
 const orderRoutes = require('./domains/order/routes')
 const orderService = require('./domains/order/service')
 const deliveryRoutes = require('./domains/delivery/routes')
+const deliveryService = require('./domains/delivery/service')
 const deliveryTimers = require('./domains/delivery/timers')
 const adminRoutes = require('./domains/admin/routes')
+const adminLive = require('./domains/admin/live')
+// 实时推送（WebSocket，供商家端收到「新订单」事件自动局部刷新红点/列表）
+const push = require('./services/push')
+// 有单自动去上货点调度器（事件驱动）
+const autoLoad = require('./services/autoLoad')
 
 // 派车告警以注入方式挂到平台适配层，避免 platform.js 反向依赖 runtime.js 形成环
 platform.setDispatchHook(runtime.warnIfUnsafeDispatch)
@@ -101,17 +107,31 @@ const { auth, merchantGuard, adminGuard, audit, ok, maskPhone, toStock } = creat
 app.use('/api', userRoutes(store, { runtime, goods: goodsService }))
 app.use('/api', goodsRoutes(store, { runtime }))
 app.use('/api', orderRoutes(store, {
-  runtime, wxpay, batch, platform, orderCancel,
-  goods: goodsService, user: userService
+  runtime, wxpay, batch, platform, orderCancel, push,
+  goods: goodsService, user: userService,
+  autoLoadHook: (batch) => autoLoad.schedule(store, { runtime, platform }),
+  // 「机器人要回去」事件钩子（取消订单等）：查是否还有其他待上货订单，无则等 3 分钟释放返程（不轮询）
+  settleRobot: (deviceSn) => deliveryService.settleRobotAtLoading(store, { runtime, platform, batch }, deviceSn)
 }))
 app.use('/api', deliveryRoutes(store, {
   runtime, platform, batch, orderCancel,
   goods: goodsService, order: orderService
 }))
+// 召唤多单配送推进钩子：批次内任一订单被取走（order.fulfillOrder→batch.countPicked→notify），
+// 由 delivery 域判断「当前楼栋是否全取完 → 停 5s → 召唤下一栋 / 全部送完召回完成」。
+// 捕获 store + deps，符合 batch.js 钩子签名 fn(batchId)（batch 域不持有 deps，避免循环依赖）。
+const deliveryHookDeps = { runtime, platform, batch, orderCancel, goods: goodsService, order: orderService }
+batch.registerSummonAdvance((batchId) => {
+  deliveryService.advanceSummonDelivery(store, deliveryHookDeps, batchId).catch((e) => {
+    console.warn('[summon] 批次推进后台失败 batch=' + batchId + ' msg=' + e.message)
+  })
+})
 app.use('/api', adminRoutes(store, {
   runtime, platform, orderCancel,
   goods: goodsService, order: orderService
 }))
+// 管理员实时推送泵（事件驱动替代前端轮询；无订阅者自动跳过，零开销）
+adminLive.start(store, { runtime, platform })
 
 // delivery 域 4 个后台定时器统一装配：①轮询兜底 ②超时未接单 ③取餐超时两段式 ④批次自动派车（domains/delivery/timers.js）
 deliveryTimers.start(store, {
@@ -119,7 +139,7 @@ deliveryTimers.start(store, {
   goods: goodsService, order: orderService
 })
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   const d = runtime.describe()
   console.log(`[lingdong-backend] listening on http://127.0.0.1:${PORT}`)
   console.log(`[lingdong-backend] 运行模式 RUN_MODE=${d.run_mode}`)
@@ -134,7 +154,25 @@ app.listen(PORT, () => {
     console.log('[lingdong-backend]   配送：本地 Mock 状态机（PLATFORM_MOCK=true）')
   }
   console.log(`[lingdong-backend]   设备控制：${d.device_mock ? '本地模拟（开舱/关舱/派发均为假成功）' : '真实分支（调用平台设备控制接口）'}`)
+  console.log(`[lingdong-backend]   召唤多单配送：${d.summon_delivery ? '开启（summonToPoint + drawerCtrl 逐点推进，不建越凡配送任务）' : '关闭（沿用一单一单送）'}  路线单数权重 α=${d.route_count_weight}  到达半径 ${d.arrive_radius_m}m`)
   // 邀请码状态：以 merchant_invites 表的有效条数 + 旧单一码 env 为准（按商家一条、首绑、可吊销）
   const invCount = invite.configuredCount(store)
   console.log('[lingdong-backend]   商家邀请码已启用：' + invCount + ' 个有效' + (invCount ? '' : ' → 尚未配置，商家端登录将被拒绝'))
+})
+
+// WebSocket 实时推送：挂在 /ws 路径。校验登录 token 或管理员令牌（管理员页用 ADMIN_TOKEN）；
+// 新订单支付成功时 order 域调用 push.broadcast（送达全部客户端）。
+push.attach(server, {
+  validateToken: (token) => {
+    if (!token) return false
+    // 管理员令牌（默认 '123456'，env ADMIN_TOKEN 可覆盖）
+    try {
+      const crypto = require('crypto')
+      const a = crypto.createHash('sha256').update(String(token)).digest()
+      const b = crypto.createHash('sha256').update(ADMIN_TOKEN).digest()
+      if (crypto.timingSafeEqual(a, b)) return true
+    } catch (e) { /* 长度不一致会抛异常，视为非管理员令牌 */ }
+    // 普通登录 token（用户/商家小程序）
+    try { return !!store.prepare('SELECT 1 FROM users WHERE openid=?').get(String(token)) } catch (e) { return false }
+  }
 })

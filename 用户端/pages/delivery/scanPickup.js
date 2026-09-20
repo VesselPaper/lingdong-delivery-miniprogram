@@ -11,6 +11,7 @@ Page({
     order: null,
     phase: 'scan',   // scan=待扫码输码 | ready=已定位可取餐 | open=已开舱 | autoClosed | done
     countdown: 0,
+    scanFail: false, // 扫码自动校验未匹配到本人订单 → 展示「输入取餐码 / 再次扫码」回退
     demo: false // 演示档（登录为 demo 时提供「模拟扫码」测试入口，按钮带「演示」标注）
   },
   timer: null,
@@ -36,7 +37,7 @@ Page({
       success: (r) => {
         const sn = scan.parseDeviceSn(r.result)
         if (!sn) { wx.showToast({ title: '二维码无效，请扫无人车上的二维码', icon: 'none' }); return }
-        this.setData({ deviceSn: sn })
+        this.setData({ deviceSn: sn, scanFail: false })
         // 先按登录账号自动匹配：匹配到直接可取餐；匹配不到保留取餐码输入（代取场景）
         this.matchByScan()
       },
@@ -47,23 +48,27 @@ Page({
   // 自动校验：当前登录账号在该无人车上是否有待取餐订单
   async matchByScan() {
     const sn = String(this.data.deviceSn).trim()
-    if (!sn) return
+    if (!sn) { this.setData({ scanFail: true }); return }
     wx.showLoading({ title: '自动校验中' })
     try {
       const data = await request.post(api.pickupByScan, { device_sn: sn })
       wx.hideLoading()
       if (data && data.auto_matched && data.order_id) {
-        this.setData({ order: data, phase: 'ready', autoMatched: true })
+        this.setData({ order: data, phase: 'ready', autoMatched: true, scanFail: false })
         wx.showToast({ title: '已自动匹配您的订单，点击开舱取餐', icon: 'none', duration: 2000 })
       } else {
-        // 未匹配到本人订单：回退到输入取餐码（代取）
-        wx.showToast({ title: '未匹配到您的订单，请输入取餐码取餐', icon: 'none', duration: 2500 })
+        // 未匹配到本人订单：回退到「输入取餐码 / 再次扫码」
+        this.setData({ scanFail: true })
       }
     } catch (e) {
       wx.hideLoading()
-      // 后端异常时不阻断：保留取餐码输入流程
-      wx.showToast({ title: '自动校验失败，请手动输入取餐码', icon: 'none', duration: 2500 })
+      this.setData({ scanFail: true })
     }
+  },
+
+  // 「输入取餐码」回退：隐藏未匹配提示，展示取餐码输入区
+  focusCode() {
+    this.setData({ scanFail: false })
   },
 
   // 演示档测试入口：直接填入测试设备号（按钮已标注「演示」）
@@ -86,7 +91,7 @@ Page({
     try {
       const order = await request.post(api.pickupByCode, { device_sn: sn, pickup_code: code })
       wx.hideLoading()
-      this.setData({ order, phase: 'ready' })
+      this.setData({ order, phase: 'ready', scanFail: false })
     } catch (e) {
       wx.hideLoading()
       wx.showToast({ title: (e && e.message) || '校验失败', icon: 'none' })
@@ -109,6 +114,7 @@ Page({
     }
   },
 
+  // 单订单关舱取走（非多单：只关当前这一单，标记该单已完成）
   async closeBin() {
     const orderId = this.data.order.order_id
     wx.showLoading({ title: '关舱中' })
@@ -121,6 +127,22 @@ Page({
     } catch (e) {
       wx.hideLoading()
       wx.showToast({ title: (e && e.message) || '关舱失败', icon: 'none', duration: 3000 })
+    }
+  },
+
+  // 【同点多单一起取】一次关舱 = 确认本取货点全部订单都已取走（后端批量置已完成）
+  async closeAllBin() {
+    const { batch_id, landmark_id } = this.data.order
+    wx.showLoading({ title: '确认取走' })
+    try {
+      const r = await request.post(api.pickupCloseAll, { batch_id, landmark_id })
+      wx.hideLoading()
+      this.clearTimer()
+      this.setData({ phase: 'done', countdown: 0 })
+      wx.showToast({ title: (r && r.count) ? ('已确认，' + r.count + ' 单全部取走') : '已确认取走', icon: 'success', duration: 3000 })
+    } catch (e) {
+      wx.hideLoading()
+      wx.showToast({ title: (e && e.message) || '取走确认失败', icon: 'none', duration: 3000 })
     }
   },
 

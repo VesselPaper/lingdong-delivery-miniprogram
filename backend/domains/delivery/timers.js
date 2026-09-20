@@ -10,6 +10,12 @@ const s = require('./service')
 
 const BATCH_SCAN_MS = Number(process.env.BATCH_SCAN_MS || 15 * 1000)
 const POLL_MS = Number(process.env.PLATFORM_POLL_MS || 8000)
+const SUMMON_WATCHDOG_MS = Number(process.env.SUMMON_WATCHDOG_MS || 5 * 1000)
+const healAt = new Map()
+// 上货点「有单就守着」：车最后一次成功召唤上货点的时间(device_sn->ts)，到点前续一次，车物理不离开。
+const keepAt = new Map()
+// 召唤节流(device_sn->ts)：机器人离线/召唤失败时至少 30s 再试，避免刷爆平台。
+const keepTryAt = new Map()
 
 function start(store, deps) {
   // ---------- ① 真实模式任务状态轮询兜底 ----------
@@ -70,6 +76,77 @@ function start(store, deps) {
       }
     } catch (e) { console.warn('[batch] 自动派车扫描异常', e.message) }
   }, BATCH_SCAN_MS)
+
+  // ---------- ⑤ 召唤多单配送推进看门狗（SUMMON_DELIVERY=true 时兜底） ----------
+  // 不依赖「取餐事件 → 钩子」这条异步链（真实链路里钩子/定时器可能丢），改为定时扫描：
+  // 对 delivery_mode=summon 且配送中(2)的批次，若当前站订单已全部取走，
+  // 就触发 advanceSummonDelivery（其内部自带 5s 步进 + current_stop 独占 + 防重 Set）。
+  // 即使事件钩子没跑、或服务重启，也能保证「送完本栋 → 必然推进下一栋 / 召回完成」。
+  if (deps.runtime.summonDelivery) {
+    setInterval(async () => {
+      try {
+        // ③ 上货点「有单就守着」：有「组单中/待上货」批次且该车不在配送时，保持它的召唤上货点任务
+        //    （默认每 4 分钟在 5 分钟窗口到期前续一次），车物理一直停在上货点，不会到期返程。
+        //    无待上货批次 → 本轮不续（由「释放事件」settleRobot 走 3 分钟释放返程）。
+        //    商家点「立即配送」后批次转配送中(2)，本循环不再续，车由新召唤正常出发送货。
+        //    注意：这不是"轮询是否有新单来派车"，而是"守住已指派/该待的上货点"，与「不轮询查单来释放」并存。
+        const keepMs = Number(process.env.SUMMON_LOADING_KEEP_MS || 4 * 60 * 1000)
+        const loadables = store.prepare(`
+          SELECT id, device_sn, light_task_id FROM delivery_batches
+          WHERE status IN (0,1) AND total_orders>0 AND device_sn!='' ORDER BY id ASC`).all()
+        const byDev = new Map()
+        for (const lb of loadables) {
+          if (!byDev.has(lb.device_sn)) byDev.set(lb.device_sn, [])
+          byDev.get(lb.device_sn).push(lb)
+        }
+        for (const [sn, batches] of byDev) {
+          try {
+            const delivering = store.prepare("SELECT id FROM delivery_batches WHERE device_sn=? AND delivery_mode='summon' AND status=2 LIMIT 1").get(sn)
+            if (delivering) continue
+            let lid = ''
+            for (const b of batches) if (b.light_task_id) lid = b.light_task_id
+            const lastTs = keepAt.get(sn) || 0
+            let need = false
+            if (!lid) need = true
+            else {
+              const qr = await deps.platform.queryLightTask(lid)
+              if (!qr.ok) need = true
+              else if ([40, 50, 60].includes(qr.status)) need = true
+              else if (!lastTs) keepAt.set(sn, Date.now()) // 任务活着且首次见到→采纳为新鲜
+              else if (Date.now() - lastTs >= keepMs) need = true // 到点前续一次
+            }
+            if (need) {
+              if (Date.now() - (keepTryAt.get(sn) || 0) < 30 * 1000) continue
+              keepTryAt.set(sn, Date.now())
+              const r2 = await deps.platform.summonToLoadingPoint(store, sn)
+              if (r2.ok) {
+                keepAt.set(sn, Date.now())
+                const newest = batches[batches.length - 1]
+                if (r2.light_task_id && newest) store.prepare("UPDATE delivery_batches SET light_task_id=?, updated_at=datetime('now','localtime') WHERE id=?").run(r2.light_task_id, newest.id)
+                console.log('[summon] 车 ' + sn + ' 保持在上货点（有待上货批次#' + (newest && newest.id) + '，续一次）')
+              }
+            }
+          } catch (e) { /* 单台不影响 */ }
+        }
+        // ① 正常推进：当前站全取走 → 推下一站/召回完成
+        const rows = store.prepare("SELECT id FROM delivery_batches WHERE delivery_mode='summon' AND status=2").all()
+        for (const r of rows) {
+          await s.advanceSummonDelivery(store, deps, r.id)
+        }
+        // ② 自愈「半启动」批次：status=2 且 current_stop=0（上次召唤首站失败抛错，批次已推进到配送中、
+        //    但首站订单没置待取货 → 用户端卡死在配送中）。重跑 startSummonDelivery 补召唤+补标。
+        //    节流到每 START_HEAL_MS 至多一次，避免机器人/平台被连续失败的召唤刷爆。
+        const healMs = Number(process.env.SUMMON_START_HEAL_MS || 25 * 1000)
+        const stuck = store.prepare("SELECT id FROM delivery_batches WHERE delivery_mode='summon' AND status=2 AND (current_stop IS NULL OR current_stop=0)").all()
+        for (const r2 of stuck) {
+          const prev = healAt.get(r2.id) || 0
+          if (Date.now() - prev < healMs) continue
+          healAt.set(r2.id, Date.now())
+          try { await s.startSummonDelivery(store, deps, r2.id) } catch (e) { /* 该批次暂无法召唤，等下轮 */ }
+        }
+      } catch (e) { console.warn('[summon] 推进看门狗异常', e.message) }
+    }, SUMMON_WATCHDOG_MS)
+  }
 }
 
 module.exports = { start, BATCH_SCAN_MS }

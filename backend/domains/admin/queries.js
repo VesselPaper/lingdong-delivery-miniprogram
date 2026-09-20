@@ -2,8 +2,8 @@
 
 module.exports = {
   // ---------- 状态总览聚合（只读，跨表例外） ----------
-  activeBatches: (store) => store.prepare('SELECT id,batch_no,status,status_text,device_sn,ctrl_id,total_orders,total_items,created_at,dispatched_at FROM delivery_batches WHERE status IN (0,1,2) ORDER BY id DESC LIMIT 50').all(),
-  historyBatches: (store) => store.prepare('SELECT id,batch_no,status,status_text,device_sn,ctrl_id,total_orders,total_items,created_at,dispatched_at FROM delivery_batches WHERE status NOT IN (0,1,2) ORDER BY id DESC LIMIT 100').all(),
+  activeBatches: (store) => store.prepare('SELECT id,batch_no,status,status_text,device_sn,ctrl_id,total_orders,picked_orders,total_items,delivery_mode,current_stop,route,created_at,dispatched_at FROM delivery_batches WHERE status IN (0,1,2) ORDER BY id DESC LIMIT 50').all(),
+  historyBatches: (store) => store.prepare('SELECT id,batch_no,status,status_text,device_sn,ctrl_id,total_orders,picked_orders,total_items,delivery_mode,current_stop,route,created_at,dispatched_at FROM delivery_batches WHERE status NOT IN (0,1,2) ORDER BY id DESC LIMIT 100').all(),
   activeOrders: (store) => store.prepare('SELECT id,order_no,status,batch_id,delivery_task_id,landmark_name,total_amount,created_at FROM orders WHERE status IN (2,3,6) ORDER BY id DESC LIMIT 50').all(),
   historyOrders: (store) => store.prepare('SELECT id,order_no,status,batch_id,delivery_task_id,landmark_name,total_amount,created_at FROM orders WHERE status NOT IN (2,3,6) ORDER BY id DESC LIMIT 100').all(),
   activeTasks: (store) => store.prepare("SELECT id,order_id,batch_id,platform_task_id,device_sn,task_status,status_text,void_at,updated_at FROM delivery_tasks WHERE void_at IS NULL AND task_status < 80 ORDER BY id DESC LIMIT 50").all(),

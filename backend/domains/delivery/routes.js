@@ -166,9 +166,12 @@ module.exports = (store, deps) => {
     if (!device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
     if (!String(pickup_code).trim()) return res.status(400).json({ code: 400, msg: '请输入取餐码' })
     const order = store.prepare(`
-      SELECT o.* FROM orders o JOIN delivery_tasks d ON d.order_id = o.id
-      WHERE o.user_id=? AND o.status=3 AND o.pickup_code=? AND d.device_sn=? AND d.void_at IS NULL
-      ORDER BY o.id DESC LIMIT 1`).get(req.user.id, String(pickup_code).trim(), device_sn)
+      SELECT o.* FROM orders o
+      LEFT JOIN delivery_batches b ON b.id = o.batch_id
+      WHERE o.user_id=? AND o.status=3 AND o.pickup_code=?
+        AND (EXISTS(SELECT 1 FROM delivery_tasks d WHERE d.order_id=o.id AND d.void_at IS NULL AND d.device_sn=?)
+             OR (b.device_sn=? AND b.device_sn<>''))
+      ORDER BY o.id DESC LIMIT 1`).get(req.user.id, String(pickup_code).trim(), device_sn, device_sn)
     if (!order) return res.status(400).json({ code: 400, msg: '取餐码不正确或无人车不匹配' })
     ok(res, s.pickupContext(store, order))
   })
@@ -179,9 +182,12 @@ module.exports = (store, deps) => {
     const { device_sn = '' } = req.body || {}
     if (!device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
     const order = store.prepare(`
-      SELECT o.* FROM orders o JOIN delivery_tasks d ON d.order_id = o.id
-      WHERE o.user_id=? AND o.status=3 AND d.device_sn=? AND d.void_at IS NULL
-      ORDER BY o.id DESC LIMIT 1`).get(req.user.id, device_sn)
+      SELECT o.* FROM orders o
+      LEFT JOIN delivery_batches b ON b.id = o.batch_id
+      WHERE o.user_id=? AND o.status=3
+        AND (EXISTS(SELECT 1 FROM delivery_tasks d WHERE d.order_id=o.id AND d.void_at IS NULL AND d.device_sn=?)
+             OR (b.device_sn=? AND b.device_sn<>''))
+      ORDER BY o.id DESC LIMIT 1`).get(req.user.id, device_sn, device_sn)
     if (order) {
       ok(res, Object.assign({ auto_matched: true }, s.pickupContext(store, order)))
     } else {
@@ -214,6 +220,15 @@ module.exports = (store, deps) => {
         updated_at=datetime('now','localtime')
       WHERE id=? AND status IN (3,4) AND pickup_open_count < ?`).run(order.id, PICKUP.MAX_PICKUP_OPEN)
     if (claim.changes !== 1) return res.status(400).json({ code: 400, msg: '重新开舱次数已达上限，请联系商家处理' })
+    // 取餐开舱：召唤模式无配送任务，直接 drawerCtrl(1) 开舱；否则走 unloadingVerify（任务态）
+    if (deps.runtime.summonDelivery) {
+      const b = order.batch_id ? q.batchById(store, order.batch_id) : null
+      if (b && b.device_sn) {
+        const r = await deps.platform.drawerCtrl(b.device_sn, 1)
+        if (!r.ok) return res.status(502).json({ code: 502, msg: '开舱失败：' + r.msg })
+        return ok(res, { order_id: order.id, status: Number(order.status), opened_at: order.pickup_opened_at, summon: true })
+      }
+    }
     const task = order.delivery_task_id ? q.taskById(store, order.delivery_task_id) : null
     const ready = !!(task && task.device_sn && task.platform_task_id)
     if (ready) {
@@ -230,6 +245,22 @@ module.exports = (store, deps) => {
     const order = store.prepare('SELECT * FROM orders WHERE id=? AND user_id=?').get(Number((req.body || {}).order_id), req.user.id)
     if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
     if (![3, 4].includes(Number(order.status))) return res.status(400).json({ code: 400, msg: '订单状态不允许关舱' })
+    // 召唤模式：关舱 = drawerCtrl(0)，取走动作收口到 order.fulfillOrder（写 order+结算，批次推进经钩子）
+    if (deps.runtime.summonDelivery) {
+      const b = order.batch_id ? q.batchById(store, order.batch_id) : null
+      if (b && b.device_sn) {
+        // 召唤模式关舱是「尽力而为」：用户已取走餐，物理 drawerCtrl(0) 报错不阻断取餐记录与推进。
+        // 否则一旦平台关舱失败就会提前 return，该单停在待取货(3) → 推进器永不触发 → 机器人回充电桩。
+        try {
+          const c = await deps.platform.drawerCtrl(b.device_sn, 0)
+          if (!c.ok) console.warn('[summon] 关舱(尽力而为)未确认 order=' + order.id + ' msg=' + c.msg)
+        } catch (e) { console.warn('[summon] 关舱调用异常 order=' + order.id + ' msg=' + (e && e.message)) }
+      }
+      store.prepare("UPDATE orders SET picking_up_at=NULL, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
+      const r = deps.order.fulfillOrder(store, deps, order) // 置 4 已完成 + 结算销量 + 批次计数(钩子/看门狗触发推进)
+      if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg })
+      return ok(res, { order_id: order.id, status: 4, summon: true })
+    }
     const task = order.delivery_task_id ? q.taskById(store, order.delivery_task_id) : null
     const ready = !!(task && task.device_sn && task.platform_task_id)
     if (ready) {
@@ -240,6 +271,32 @@ module.exports = (store, deps) => {
     store.prepare("UPDATE orders SET picking_up_at=NULL, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
     deps.batch.markOrderPicked(store, order)
     ok(res, { order_id: order.id, status: 4, test: !ready })
+  })
+
+  // 【同点多单一起取】关闭舱门 = 一次确认「该用户本批次本取货点所有订单」都取走：
+  // 用户在点位把舱内全部自己的餐一起拿走，关舱即把该用户在本批次该点位全部待取(3)订单置已完成(4)。
+  // 订单状态写走 order 域 fulfillOrder（含结算+批次计数→推进下一站/完成）；召唤模式顺带 drawerCtrl(0) 关舱。
+  router.post('/delivery/pickup-close-all', auth, async (req, res) => {
+    const batchId = Number((req.body || {}).batch_id)
+    const landmarkId = String((req.body || {}).landmark_id || '')
+    if (!batchId) return res.status(400).json({ code: 400, msg: '缺少批次号' })
+    const b = q.batchById(store, batchId)
+    if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
+    // 在该用户能找到的订单里，本批次该点位的待取(3)订单
+    const rows = landmarkId
+      ? store.prepare('SELECT * FROM orders WHERE batch_id=? AND user_id=? AND status=3 AND landmark_id=?').all(batchId, req.user.id, landmarkId)
+      : store.prepare('SELECT * FROM orders WHERE batch_id=? AND user_id=? AND status=3').all(batchId, req.user.id)
+    if (!rows.length) return ok(res, { batch_id: batchId, landmark_id: landmarkId, count: 0, msg: '该点位没有待取订单' })
+    let cnt = 0
+    for (const o of rows) {
+      try { if (deps.order.fulfillOrder(store, deps, o).ok) cnt++ } catch (e) { console.warn('[pickup] close-all 单条失败 order=' + o.id + ' ' + e.message) }
+    }
+    // 召唤模式：关舱 drawerCtrl(0)（尽力而为）+ 清「正在取餐」
+    if (deps.runtime.summonDelivery && b.device_sn) {
+      try { const c = await deps.platform.drawerCtrl(b.device_sn, 0); if (!c.ok) console.warn('[summon] 关舱(close-all)未确认 batch=' + b.id + ' msg=' + c.msg) } catch (e) { console.warn('[summon] 关舱(close-all)异常 batch=' + b.id + ' msg=' + (e && e.message)) }
+    }
+    store.prepare("UPDATE orders SET picking_up_at=NULL, updated_at=datetime('now','localtime') WHERE batch_id=? AND user_id=? AND status=4").run(batchId, req.user.id)
+    return ok(res, { batch_id: batchId, landmark_id: landmarkId, count: cnt })
   })
 
   // ---------- 一车多单：配送批次 ----------
@@ -275,6 +332,31 @@ module.exports = (store, deps) => {
     const { batch_id } = req.body || {}
     const b = q.batchById(store, batch_id)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
+    // 召唤多单配送：无配送任务，开舱=先召唤到上货点 + 到达门禁(lightTask status=30) + drawerCtrl(1)
+    if (deps.runtime.summonDelivery) {
+      if (!b.device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号，请先派车定型' })
+      // 问题4门禁兜底：若该车正在做召唤配送（别的批次/本批已在投递），不打断它回上货点，直接提示暂无空闲机器人。
+      if (!deps.runtime.deviceMock) {
+        const busyGuard = await deps.platform.isRobotBusy(store, b.device_sn)
+        if (busyGuard.busy) return res.status(400).json({ code: 400, msg: '暂无空闲机器人：' + (busyGuard.msg || '无人车正在配送中，请等其配送完成后再上货') })
+      }
+      // 到达门禁按「机器人真实到达信号」判断（召唤任务 status=30 arrivedPoint），不再用位置测距估判。
+      // 车未到 → 返回 200 {waiting:true}，前端给友好等待提示，稍后重试（已存在的召唤不重复创建，避免进度重置）。
+      if (!deps.runtime.deviceMock) {
+        const gate = await s.ensureLoadingArrival(store, deps, b)
+        if (!gate.waiting && !gate.arrived && gate.error) {
+          return res.status(502).json({ code: 502, msg: gate.msg, reason: 'summon_failed' })
+        }
+        if (!gate.arrived) {
+          return ok(res, { batch_id: b.id, opened: 0, summoned: true, waiting: true, msg: '机器人正在前往上货点，请稍候再次点击打开舱门', lighttask_status: gate.status })
+        }
+      }
+      const opened = await deps.platform.drawerCtrl(b.device_sn, 1)
+      if (!opened.ok) return res.status(502).json({ code: 502, msg: '开舱失败：' + opened.msg })
+      q.setBatchLoading(store, b.id)
+      audit(req, 'device/batch-open', 'batch#' + b.id, '召唤开舱 device_sn=' + b.device_sn)
+      return ok(res, { batch_id: b.id, opened: b.total_orders, summoned: true })
+    }
     // 需求3门禁：无人车必须已到达上货点才能开舱上货（真实档校验；演示档恒通过）
     const gate = await deps.platform.robotAtLoadingPoint(store, b.device_sn)
     if (!gate.ok) {
@@ -317,6 +399,9 @@ module.exports = (store, deps) => {
     if (!b.device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号，请先扫码' })
     const r = await deps.platform.drawerCtrl(b.device_sn, 0)
     if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg })
+    // 关舱 = 货已装好，但可能先不回「立即配送」页（稍后/退出）。落 loaded_at 持久化「已上货待配送」，
+    // 供商家重进 batchDetail 时 inferPhase 恢复「立即配送」，以及批次列表标注「已上货待配送」。
+    q.setBatchLoadedAt(store, b.id)
     audit(req, 'device/batch-close', 'batch#' + b.id, 'device_sn=' + b.device_sn)
     ok(res)
   })
@@ -326,6 +411,16 @@ module.exports = (store, deps) => {
     const { batch_id } = req.body || {}
     const b = q.batchById(store, batch_id)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
+    // 召唤多单配送：立即配送 = 按单数加权路线规划 + 召唤到首站 + 该站订单置待取货（不创建越凡配送任务）
+    if (deps.runtime.summonDelivery) {
+      try {
+        const detail = await s.startSummonDelivery(store, deps, b.id)
+        audit(req, 'device/batch-dispatch', 'batch#' + b.id, '召唤配送 device_sn=' + b.device_sn)
+        return ok(res, { batch_id: b.id, summoned: true, detail })
+      } catch (e) {
+        return res.status(400).json({ code: 400, msg: e.message })
+      }
+    }
     // 开始配送前（商家已上货并关舱）规划路线：按收餐点位分组 + 最近邻，写入 batch.route 供逐点配送/地图展示。
     // 路线规划失败不阻断配送（每个任务自带收餐点位，仍会逐点送达）。
     try {
@@ -469,13 +564,27 @@ module.exports = (store, deps) => {
   })
 
   // 待上货批次列表：组单中(可派车) / 待上货(已派车，任务排队中/去上货点/上货中) / 配送中
-  router.get('/merchant/device/pending', merchantGuard, (req, res) => {
+  router.get('/merchant/device/pending', merchantGuard, async (req, res) => {
     const openBatches = q.batchesByStatus(store, 0, 5)
     const readyBatches = q.batchesByStatus(store, 1, 10)
     const activeBatches = q.batchesByStatus(store, 2, 10)
     const wrap = (list) => list.map((b) => deps.batch.getBatchDetail(store, b.id)).filter(Boolean)
     const open = wrap(openBatches)
     const ready = wrap(readyBatches)
+    // 问题4门禁：给每个「待上货」批次标注其设备是否被占用（正在配送/使用中）。
+    // 商家按「上货」前据此提示「暂无空闲机器人」，否则不中断正在配送的车、不去强召上货点。
+    for (const b of ready) {
+      let avail = true, busymsg = ''
+      if (b.device_sn) {
+        try {
+          const bb = await deps.platform.isRobotBusy(store, b.device_sn)
+          if (bb && bb.busy) { avail = false; busymsg = bb.msg || '机器人正在配送中，暂不能上货' }
+        } catch (e) { /* 查询失败按可用处理，不误拦 */ }
+      }
+      b.robot_available = avail
+      b.robot_busy = !avail
+      b.robot_busy_msg = busymsg
+    }
     // 待配单订单数（配单上货红点）：组单中 + 待上货批次内的订单总数（按订单计，非批次数）
     const pendingOrders = open.reduce((s, b) => s + (b.orders || []).length, 0)
       + ready.reduce((s, b) => s + (b.orders || []).length, 0)

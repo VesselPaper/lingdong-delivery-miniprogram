@@ -1,12 +1,25 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
 const shopState = require('../../utils/shopState')
+const push = require('../../utils/push')
 
 Page({
   data: {
     stats: { pending: 0, ready_load: 0, delivering: 0, pickup: 0, exception: 0, aftersale: 0, cancel_requests: 0 },
     shopOpen: true,
     pendingBatchCount: 0
+  },
+
+  onLoad() {
+    // 收到「新订单」推送 → 局部刷新（不整页重载）
+    this._onPush = (msg) => {
+      if (msg && msg.type === 'order_created') { this.load(); this.loadPendingBatches() }
+    }
+    push.subscribe(this._onPush)
+  },
+
+  onUnload() {
+    push.unsubscribe(this._onPush)
   },
 
   async onShow() {

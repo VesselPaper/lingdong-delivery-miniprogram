@@ -1,0 +1,85 @@
+/* ---------- 实时地图 ---------- */
+.map-stage { position: relative; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: var(--radius-m); overflow: hidden; background: #f9f9f9; }
+.leaflet-container { background: #f9f9f9 !important; }
+.map-box { position: absolute; inset: 0; z-index: 1; }
+.map-mask {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  background: rgba(255, 255, 255, .72); color: var(--ink-3); font-size: 13px;
+}
+.map-mask[hidden] { display: none; }
+.spinner {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 3px solid var(--line-strong); border-top-color: var(--red);
+  animation: spin .9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.map-legend { display: flex; align-items: center; gap: 14px; margin-left: 6px; font-size: 11.5px; color: var(--ink-3); }
+.map-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.map-legend .lg-ico { flex: none; width: 13px; height: auto; }
+.map-legend .lg-ico + span, .map-legend span { vertical-align: middle; }
+.map-foot { margin-top: 8px; font-size: 11.5px; color: var(--ink-3); }
+/* 地图覆盖层（Leaflet） */
+.leaflet-container { font-family: var(--sans); }
+.carWrap { display: flex; flex-direction: column; align-items: center; line-height: 1; }
+.carSvg {
+  display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35));
+  transform-origin: 50% 50%; /* 车头朝上，随航向旋转整个车身图标 */
+}
+.carName {
+  margin-top: 1px; font: 700 9px var(--mono); color: #fff;
+  background: #111114; padding: 1px 4px; border-radius: 3px; letter-spacing: .02em;
+  box-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+.stopWrap { position: relative; }
+.stopIco {
+  display: block; filter: drop-shadow(0 1.5px 2px rgba(0,0,0,.3));
+  transform-origin: 50% 50%;
+}
+.stopWrap.focusStop .stopIco { transform: scale(1.4); }
+.stopWrap.focusStop { z-index: 1000; }
+/* 批次行：路线列 + 「地图」按钮 */
+.route-cell { max-width: 230px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn.mapgo svg { width: 12px; height: 12px; margin-right: 2px; vertical-align: -1px; }
+.lmTip { font-family: var(--sans); }
+/* 取货点常驻名称标签（区别于悬停白泡泡） */
+.lmTip.lmPermanent {
+  background: rgba(255,255,255,.94); color: #22305a;
+  font: 600 11px var(--sans); padding: 1px 6px; border-radius: 4px;
+  border: 1px solid rgba(29,91,214,.3); box-shadow: 0 1px 2px rgba(0,0,0,.15);
+  white-space: nowrap;
+}
+/* 地图点位「色点 + 常驻名字」divIcon 标签（取货/上货/充电点，名必然可见） */
+.lmWrap {
+  display: inline-flex; align-items: flex-start; cursor: default; pointer-events: none;
+  line-height: 1;
+}
+.lmWrap .lmDot {
+  box-sizing: border-box; flex: 0 0 auto;
+  width: 12px; height: 12px; margin: 0 4px 0 0; border-radius: 50%;
+  border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.25), 0 1px 2px rgba(0,0,0,.2);
+}
+.lmWrap .lmName {
+  font: 600 11px var(--sans); color: #22305a; background: rgba(255,255,255,.92);
+  padding: 1px 5px; border-radius: 4px; white-space: nowrap; box-shadow: 0 1px 2px rgba(0,0,0,.15);
+}
+/* 地图底栏「实时位置」脉动指示灯（每次 live 事件刷新） */
+.live-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
+  background: #2f9e44; vertical-align: -1px;
+  animation: livePulse 1.6s ease-out infinite;
+}
+@keyframes livePulse {
+  0% { box-shadow: 0 0 0 0 rgba(47,158,68,.55); }
+  70% { box-shadow: 0 0 0 6px rgba(47,158,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(47,158,68,0); }
+}
+/* 地图右上角「跟随小车」开关：开启后放大并居中到小车，1米级小位移也可看清 */
+.followBtn {
+  position: absolute; top: 12px; right: 12px; z-index: 1000;
+  font: 600 12px var(--sans); color: var(--ink); background: rgba(255,255,255,.95);
+  border: 1px solid var(--line); border-radius: 20px; padding: 6px 14px; cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18); transition: all .15s ease;
+}
+.followBtn:hover { border-color: #2f9e44; }
+.followBtn.on { background: #2f9e44; border-color: #2f9e44; color: #fff; }

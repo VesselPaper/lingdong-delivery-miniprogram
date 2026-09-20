@@ -313,6 +313,20 @@ async function getMapOverview(store) {
       })
     }
   }
+  // 充电点（充电桩）：只存在于地图 mapDetailInfo.landmarks（type=chargePoint，pose 数组），
+  // 不在本地 landmarks / landmarkInfo 接口里。追加进点位集，让地图（车当前位置旁）能显示充电点位置。
+  // 地图里同一充电点可能以多个 key 重复收录（name+坐标相同），去重只留一份。
+  const chargeSeen = new Set()
+  for (const k of Object.keys(pts)) {
+    const p = pts[k]
+    if (!p || p.type !== 'chargePoint' || !Array.isArray(p.pose) || p.pose.length < 2) continue
+    const name = p.name || '充电点'
+    const cx = Number(p.pose[0]), cy = Number(p.pose[1])
+    const uniq = name + '|' + cx + '|' + cy
+    if (chargeSeen.has(uniq)) continue
+    chargeSeen.add(uniq)
+    landmarks.push({ id: p.id || k, name, type: 'chargePoint', x: cx, y: cy })
+  }
   // 路网（固定路径 graph）
   const graph = { nodes: [], edges: [] }
   const line = pts['固定路径'] || Object.values(pts).find((p) => p && p.graph)
@@ -349,21 +363,23 @@ async function getMapOverview(store) {
       }).filter((s) => !isNaN(s.x) || !isNaN(s.y))
       if (stops.length) routes.push({ batch_id: rb.id, batch_no: detailB.batch_no, daily_seq: detailB.daily_seq, stops })
     }
-    // 机器人实时位置（配送中任务设备，去重）
+    // 机器人实时位置（按设备列表直取，兼容召唤多单配送：无配送任务也能显示车的位置）
     const robots = []
-    const seen = new Set()
-    const taskRows = store.prepare(`
-      SELECT d.id, d.device_sn FROM delivery_tasks d JOIN orders o ON o.id=d.order_id
-      WHERE d.device_sn != '' AND d.task_status BETWEEN 50 AND 79 GROUP BY d.device_sn`).all()
-    for (const t of taskRows) {
-      if (seen.has(t.device_sn)) continue
-      seen.add(t.device_sn)
-      const pos = await getDevicePosition(store, t.id)
-      if (pos && !isNaN(pos.x) && !isNaN(pos.y)) {
-        robots.push({ device_sn: t.device_sn, x: Number(pos.x), y: Number(pos.y), theta: Number(pos.theta || 0), text: pos.text || '' })
+    try {
+      const devList = await getDeviceList()
+      if (devList.ok && Array.isArray(devList.robots)) {
+        for (const dev of devList.robots) {
+          if (!dev.online || !dev.device_sn) continue
+          const pos = await getDevicePositionBySn(store, dev.device_sn, dev.machine_text || '')
+          const ax = pos && !isNaN(pos.ax) ? Number(pos.ax) : (pos && !isNaN(pos.x) ? Number(pos.x) : NaN)
+          const ay = pos && !isNaN(pos.ay) ? Number(pos.ay) : (pos && !isNaN(pos.y) ? Number(pos.y) : NaN)
+          if (!isNaN(ax) && !isNaN(ay)) {
+            robots.push({ device_sn: dev.device_sn, x: ax, y: ay, theta: Number(pos.theta || 0), text: pos.text || '', raw: pos.raw })
+          }
+        }
       }
-    }
-    return { ok: true, map_url: mapUrl, barrier_url: barrierUrl, bbox, meta, landmarks, graph, robots, routes }
+    } catch (e) { /* 机器人位置采集失败不影响地图其余部分 */ }
+    return { ok: true, map_url: mapUrl, barrier_url: barrierUrl, bbox, meta, landmarks, graph, robots, routes, admin_calib: adminCalibStatus() }
 }
 
 // ---------------- 地图底图字节（由后端代理下载） ----------------
@@ -723,14 +739,17 @@ function formatLocalDt(ts) {
     + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds())
 }
 
-// preferredSn：待上货(1)批次已定型指派的车，优先召唤该车（扫描对 status IN (0,1) 批次都召唤时传入）
-async function summonToLoadingPoint(store, preferredSn) {
+// preferredSn：待上货(1)批次已定型指派的车，优先召唤该车（扫描对 status IN (0,1) 批次都召唤时传入）。
+// optExpireMin：召唤任务有效期分钟。默认 5（组队待组装车）;「释放返程」时传 3(见 settleRobotAtLoading)。
+// 到达/等待窗口同样取 optExpireMin：任务到点自动返程 =「等 optExpireMin 分钟无单则释放」的自然实现。
+async function summonToLoadingPoint(store, preferredSn, optExpireMin) {
   if (MOCK) return { ok: true, msg: '模拟召唤成功' }
   if (!platformReady()) return { ok: false, msg: '未配置平台凭据' }
   const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
   if (!loading || !loading.platform_landmark_id || !loading.platform_map_id || !loading.platform_building_id) {
     return { ok: false, msg: '上货点未配置平台映射' }
   }
+  const expireMin = Number(optExpireMin) > 0 ? Number(optExpireMin) : 5
   const r = await getDeviceList()
   if (!r.ok || !r.robots || !r.robots.length) return { ok: false, msg: '无机器人可召唤' }
   // 优先指定设备（已定型批次指派的车），其次空闲/充电/待机/返程/召唤中的车，最后任意在线车
@@ -748,19 +767,22 @@ async function summonToLoadingPoint(store, preferredSn) {
       buildingId: loading.platform_building_id,
       // expireTime 必须是 "yyyy-MM-dd HH:mm:ss" 日期时间字符串（Apifox 规格；传毫秒时间戳字符串会被平台拒绝
       // 「expireTime字段类型错误」——2026-09-16 真机实测确认，此前召唤一直因此失败）。
-      // 窗口设为 5 分钟：召唤的 lightTask 没有取消接口，创建后只能等它到期；
+      // 窗口默认 5 分钟：召唤的 lightTask 没有取消接口，创建后只能等它到期；
       // 若窗口太长（10 分钟），「开始配送」后车会被 lightTask 挡住最多 10 分钟才启动配送任务（2026-09-17 实测）。
-      expireTime: formatLocalDt(Date.now() + 5 * 60 * 1000), // 5 分钟失效，之后自动返程
+      // optExpireMin>0 时按传入值（如释放场景传 3：车在上货点等 3 分钟无单则自动返程释放）。
+      expireTime: formatLocalDt(Date.now() + expireMin * 60 * 1000),
       remark: '组单中批次待上货，召唤至商铺上货点',
       // action 必须带 type:"wait"（Apifox 示例）；缺 type 平台报「请求发生异常」
-      action: { type: 'wait', waitTime: 300 },
+      action: { type: 'wait', waitTime: expireMin * 60 },
       // extInfo 必须显式给出（空对象即可）：缺它同样报「请求发生异常」——2026-09-16 受控对比实测确认
       extInfo: {}
     }
     const resp = await requestPlatform('POST', '/open-api/v1/lightTask', body)
     if (resp && (resp.code === 'COMM_200' || resp.success === true)) {
       // 召唤成功不打印（扫描每 15s 一轮，避免刷屏；机器人是否就位由上货页实时展示）
-      return { ok: true, device_sn: robot.device_sn }
+      // data.id = 创建轻任务返回的任务 id，用于后续按 id 查它的到达状态（status=30 arrivedPoint）。
+      const lightTaskId = (resp.data && (resp.data.id || resp.data.taskId)) ? String(resp.data.id || resp.data.taskId) : ''
+      return { ok: true, device_sn: robot.device_sn, light_task_id: lightTaskId }
     }
     return { ok: false, msg: (resp && resp.msg) || '召唤失败' }
   } catch (e) {
@@ -792,7 +814,9 @@ async function getSummonTargets(store) {
 }
 
 // 召唤指定机器人到指定点位（lightTask 轻任务；召唤会中断正在执行的配送任务，调用前须确认）
-async function summonToPoint(store, deviceSn, landmarkId) {
+// optExpireMin：lightTask 失效分钟数（到期自动返程）。默认 5（管理员手动召唤/返程沿用）；
+// 配送停靠站（summonDeliveryToStop）传更长窗口，避免「车在取餐点等单，5 分钟一到就跑回充电点」。
+async function summonToPoint(store, deviceSn, landmarkId, optExpireMin) {
   if (MOCK) return { ok: true, msg: '模拟召唤成功' }
   if (!platformReady()) return { ok: false, msg: '未配置平台凭据' }
   const base = store.prepare("SELECT platform_building_id, platform_map_id FROM landmarks WHERE platform_building_id != '' LIMIT 1").get()
@@ -831,19 +855,64 @@ async function summonToPoint(store, deviceSn, landmarkId) {
       landmarkId: lm.platform_landmark_id,
       mapId: lm.platform_map_id || '',
       buildingId: lm.platform_building_id || base.platform_building_id,
-      expireTime: formatLocalDt(Date.now() + 5 * 60 * 1000),
-      remark: '管理员召唤至 ' + (targetName || '点位'),
-      action: { type: 'wait', waitTime: 300 },
+      expireTime: formatLocalDt(Date.now() + (Number(optExpireMin) > 0 ? Number(optExpireMin) : 5) * 60 * 1000),
+      remark: '召唤至 ' + (targetName || '点位'),
+      // waitTime 必须与 expireTime 匹配：expire 是 20 分钟而 waitTime 固定 300 秒时，
+      // 车到达后只等 5 分钟任务就结束返程（issue2：等一会儿就回充电）。统一按 optExpireMin 走。
+      action: { type: 'wait', waitTime: (Number(optExpireMin) > 0 ? Number(optExpireMin) : 5) * 60 },
       extInfo: {}
     }
     const resp = await requestPlatform('POST', '/open-api/v1/lightTask', body)
     if (resp && (resp.code === 'COMM_200' || resp.success === true)) {
-      return { ok: true, device_sn: robot.device_sn, landmark: targetName || '' }
+      const lightTaskId = (resp.data && (resp.data.id || resp.data.taskId)) ? String(resp.data.id || resp.data.taskId) : ''
+      return { ok: true, device_sn: robot.device_sn, landmark: targetName || '', light_task_id: lightTaskId }
     }
     return { ok: false, msg: (resp && resp.msg) || '召唤失败' }
   } catch (e) {
     return { ok: false, msg: '召唤异常：' + e.message }
   }
+}
+
+// 召唤任务的到达状态枚举（对应 open-api 轻任务状态）：
+//   0 unconfirmed(排队未下发) / 10 accepted(已接受) / 20 goingtoPoint(前往中)
+//   30 arrivedPoint(到达目标点) / 40 finished(完成) / 50 failed(失败) / 60 closed(被删除)
+// 到达判断以「机器人真实到达信号(30)」为准，不再用 getDevicePosition 测距估判。
+// 用途：商家的 open-bin 门禁 —— 批次召唤到上货点后，按召唤任务 id 查询是否已到，到才能开舱。
+async function queryLightTask(id) {
+  if (MOCK) return { ok: true, status: 30, arrived: true, msg: '模拟已到达' }
+  if (!platformReady() || !id) return { ok: false, status: -1, arrived: false, msg: '未配置平台凭据或缺少召唤任务id' }
+  try {
+    const r = await requestPlatform('GET', '/open-api/v1/lightTask/' + encodeURIComponent(id) + '?principalId=' + encodeURIComponent(PRINCIPAL_ID))
+    if (r && (r.code === 'COMM_200' || r.success === true) && r.data) {
+      const status = Number(r.data.status)
+      return { ok: true, status, arrived: status === 30, msg: '' }
+    }
+    return { ok: false, status: -1, arrived: false, msg: (r && r.msg) || '查询召唤任务失败' }
+  } catch (e) {
+    return { ok: false, status: -1, arrived: false, msg: '查询召唤任务异常：' + e.message }
+  }
+}
+
+// 召唤模式点位到达门禁（open-bin 用）：按批次当前召唤任务判断车是否已到上货点。
+// taskId 为空/查询失败按未到处理 —— 由 route 决定是否重新召唤，绝不误判为已到。
+async function lightTaskArrived(store, batch) {
+  const id = batch && batch.light_task_id
+  const r = await queryLightTask(id)
+  return { ok: r.ok && r.arrived, arrived: r.arrived, status: r.status, msg: r.msg, light_task_id: id || '' }
+}
+
+// 召唤多单配送：把指定机器人召唤到 route 里的某停靠点（stop.landmark_id → 平台点位）。
+// 内部复用 summonToPoint；stop.landmark_id 是本地 landmarks 表主键（DB id，非平台 id），
+// summonToPoint 会按 platform_landmark_id 反查平台 landmark，故这里传本地 landmark 的 platform_landmark_id。
+async function summonDeliveryToStop(store, batch, stop) {
+  if (!store || !batch || !batch.device_sn || !stop) return { ok: false, msg: '参数不完整' }
+  const lm = store.prepare('SELECT * FROM landmarks WHERE id=?').get(String(stop.landmark_id))
+  if (!lm || !lm.platform_landmark_id) {
+    return { ok: false, msg: '点位「' + (stop.landmark_name || stop.landmark_id) + '」未配置平台映射，无法召唤' }
+  }
+  const r = await summonToPoint(store, batch.device_sn, lm.platform_landmark_id, Number(process.env.SUMMON_STOP_EXPIRE_MIN || 20))
+  if (!r.ok) return { ok: false, msg: '召唤到点位失败：' + r.msg, device_sn: batch.device_sn }
+  return { ok: true, device_sn: r.device_sn, stop: Number(stop.stop || 0), landmark_id: stop.landmark_id, landmark_name: stop.landmark_name, light_task_id: r.light_task_id || '' }
 }
 
 // ---------------- 管理员手动控制：驻停 / 恢复 / 停止并取消任务 ----------------
@@ -1184,6 +1253,95 @@ function robotposeToMeters(rx, ry) {
   }
 }
 
+// ================= 管理页自动标定（robotpose 网格 → 地图米制），免手动跑车 =================
+// 背景：robotpose 是 SLAM 网格帧（大数，如 1025,2725）；地图点位/landmark 是米制帧（小值，如
+// 商铺上货 17.566,6.515），陆地底图用 ROS metadata.pgm（origin[-37,-137] res0.05, 5786x5406）。
+// 二者差一个相似变换，旧 POS_CAL 已对当前地图失效。
+// 方案：不专门跑车标定——机器人**正常配送/召唤**每到已知点位（robotAtPoint 判定到达）时，
+// 自动把「robotpose 原始网格, landmark 米」记一对；攒到 ≥2 个相距够远的锚点就解相似变换并持久化，
+// 管理页显示用它把 robotpose 换成地图帧。**全局 POS_CAL / 配送到达判定完全不碰**（只读观测）。
+// 开关：ADMIN_AUTO_CALIB=false 关闭；ADMIN_CALIB_RANGE_M 为两锚点间最小米距（默认 8m，保证 scale 可靠）。
+const fs = require('fs')
+const path = require('path')
+const ADMIN_CALIB_ENABLED = process.env.ADMIN_AUTO_CALIB !== 'false'
+const ADMIN_CALIB_RANGE_M = Number(process.env.ADMIN_CALIB_RANGE_M || 8.0)
+const CALIB_FILE = path.join(__dirname, '..', 'data', 'admin-calib.json')
+let autoCalibState = null
+function loadAutoCalib() {
+  if (autoCalibState) return autoCalibState
+  autoCalibState = { enabled: ADMIN_CALIB_ENABLED, pairs: [], calib: null, message: '' }
+  try {
+    const j = JSON.parse(fs.readFileSync(CALIB_FILE, 'utf8'))
+    autoCalibState.pairs = Array.isArray(j && j.pairs) ? j.pairs : []
+    autoCalibState.calib = (j && j.calib) || null
+    autoCalibState.message = (j && j.message) || ''
+  } catch (e) { /* 首次运行尚无文件 */ }
+  return autoCalibState
+}
+function saveAutoCalib() {
+  const s = autoCalibState
+  try { fs.writeFileSync(CALIB_FILE, JSON.stringify({ pairs: s.pairs, calib: s.calib, message: s.message })) } catch (e) { /* 写失败可忽略 */ }
+}
+// 到达判定通过后由调用方传入（robotpose 原始网格, landmark 米）。只追加观测，线性去重，不影响业务。
+function recordCalibPosePair(deviceSn, rx, ry, lmx, lmy) {
+  const s = loadAutoCalib()
+  if (!s.enabled) return
+  if (![rx, ry, lmx, lmy].every(Number.isFinite)) return
+  // 与已存锚点在米制帧相距 < 4m 则略过（保证锚点尽量分散）
+  const near = s.pairs.some((p) => Math.hypot(p.lmx - lmx, p.lmy - lmy) < 4)
+  if (near) return
+  s.pairs.push({ sn: deviceSn, rx: Math.round(rx), ry: Math.round(ry), lmx, lmy, ts: Date.now() })
+  if (s.pairs.length > 64) s.pairs = s.pairs.slice(-64)
+  const cal = solveCalibSimilarity(s.pairs)
+  if (cal) { s.calib = cal; s.message = 'ok ' + new Date().toISOString() }
+  saveAutoCalib()
+}
+// 从锚点对解相似变换 grid = s*R*lm + t（R=[cos,-sin;sin,cos]），返回 {s,cos,sin,tx,ty}。
+function solveCalibSimilarity(pairs) {
+  if (pairs.length < 2) return null
+  const A = pairs[0]
+  let B = pairs[1], best = -1
+  for (const p of pairs) {
+    const d = Math.hypot(p.lmx - A.lmx, p.lmy - A.lmy)
+    if (d > best) { best = d; B = p }
+  }
+  if (best < ADMIN_CALIB_RANGE_M) return null // 两锚点太近(<8m)不足以定 scale
+  const vgx = B.rx - A.rx, vgy = B.ry - A.ry
+  const vmx = B.lmx - A.lmx, vmy = B.lmy - A.lmy
+  const s = Math.hypot(vgx, vgy) / Math.hypot(vmx, vmy)
+  if (!Number.isFinite(s) || s <= 0) return null
+  const th = Math.atan2(vgy, vgx) - Math.atan2(vmy, vmx)
+  const cos = Math.cos(th), sin = Math.sin(th)
+  const tx = A.rx - s * (cos * A.lmx - sin * A.lmy)
+  const ty = A.ry - s * (sin * A.lmx + cos * A.lmy)
+  return { s: Math.round(s * 1000) / 1000, cos: Math.round(cos * 1e5) / 1e5, sin: Math.round(sin * 1e5) / 1e5, tx: Math.round(tx), ty: Math.round(ty) }
+}
+// 管理页显示：用自动标定把 robotpose → 地图米制；未锁定前回退全局 POS_CAL（保持现状，不突变）。
+function robotposeToMetersForAdmin(rx, ry) {
+  const cal = loadAutoCalib().calib
+  if (cal) {
+    const px = rx - cal.tx, py = ry - cal.ty
+    return { x: (cal.cos * px + cal.sin * py) / cal.s, y: (-cal.sin * px + cal.cos * py) / cal.s }
+  }
+  return robotposeToMeters(rx, ry)
+}
+// 暴露给接口/日志查看自动标定状态（观测用）
+function adminCalibStatus() {
+  const s = loadAutoCalib()
+  return { enabled: s.enabled, pairs: s.pairs.length, locked: !!s.calib, message: s.message }
+}
+
+// —— 历史参考：2026-09-16 手工标定的管理页变换（实验性、已不再用作显示）——
+const ADMIN_POS_CAL = { s: 90.056, cos: -0.11298, sin: -0.99360, tx: 620.762, ty: 4363.085 }
+function robotposeToMetersAdmin(rx, ry) {
+  const px = rx - ADMIN_POS_CAL.tx
+  const py = ry - ADMIN_POS_CAL.ty
+  return {
+    x: (ADMIN_POS_CAL.cos * px + ADMIN_POS_CAL.sin * py) / ADMIN_POS_CAL.s,
+    y: (-ADMIN_POS_CAL.sin * px + ADMIN_POS_CAL.cos * py) / ADMIN_POS_CAL.s
+  }
+}
+
 async function getDevicePosition(store, taskId) {
   const t = store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(taskId)
   if (!t) return null
@@ -1218,6 +1376,42 @@ async function getDevicePosition(store, taskId) {
         text: STATUS_TEXT[t.task_status] || ''
       }
       posCache.set(taskId, { ts: Date.now(), pos })
+      return pos
+    }
+  } catch (e) { /* 位置获取失败，回退缓存 */ }
+  return hit ? hit.pos : null
+}
+
+// 按设备编号直接取实时位置（不依赖 delivery_tasks —— 召唤多单配送无配送任务，
+// 地图/到达门禁需要用 deviceSn 而非 taskId 取位）。mock 档无真实坐标，返回 null。
+const posCacheBySn = new Map() // deviceSn -> { ts, pos }
+async function getDevicePositionBySn(store, deviceSn, hintText) {
+  if (!deviceSn) return null
+  if (MOCK) return null
+  const hit = posCacheBySn.get(deviceSn)
+  if (hit && Date.now() - hit.ts < 3000) return hit.pos
+  try {
+    const r = await requestPlatform('GET', '/open-api/v1/iotGatewayProxy/' + encodeURIComponent(deviceSn) + '/buildingManager/om-api/EvizServer')
+    const d = r && r.data
+    let inner = d
+    if (typeof d === 'string') {
+      try { inner = JSON.parse(d) } catch (e) { inner = null }
+    }
+    if (inner && Array.isArray(inner.robotpose) && inner.robotpose.length >= 2) {
+      const m = robotposeToMeters(Number(inner.robotpose[0]), Number(inner.robotpose[1]))
+      const ma = robotposeToMetersForAdmin(Number(inner.robotpose[0]), Number(inner.robotpose[1]))
+      const pos = {
+        x: m.x,       // 全局坐标系（配送到达仍用它，不动）
+        y: m.y,
+        ax: ma.x,     // 管理页坐标系（自动标定；未锁定前回退全局 → 等同 x/y）
+        ay: ma.y,
+        raw: Array.isArray(inner.robotpose) ? inner.robotpose.slice(0, 2).map(Number) : null,
+        theta: inner.robotpose[2],
+        timestamp: inner.timestamp,
+        locQuality: inner.locQuality,
+        text: hintText || ''
+      }
+      posCacheBySn.set(deviceSn, { ts: Date.now(), pos })
       return pos
     }
   } catch (e) { /* 位置获取失败，回退缓存 */ }
@@ -1385,6 +1579,10 @@ async function loadingConfirm(deviceSn, platformTaskId, strategies) {
 // 辅以机器状态预检（充电/返程/回待机 → 明确提示等车到位）。
 // MOCK 档恒 ok（demo 冒烟不受影响）；拿不到任务状态 → 保守拒绝，宁可挡住不可假装。
 const LOADING_RADIUS_M = Number(process.env.LOADING_POINT_RADIUS_M || 1.5)
+// 召唤模式点位到达门禁半径（米）与定位标定系数：robotAtPoint 用 getDevicePosition 测距判定到点。
+// 真机标定 ARRIVE_RADIUS_M（距目标点 ≤ 该值判为已到）与 POS_M_PER_UNIT（SLAM 网格坐标→局部米）。
+const ARRIVE_RADIUS_M = Number(process.env.ARRIVE_RADIUS_M || 2.0)
+const POS_M_PER_UNIT = Number(process.env.POS_M_PER_UNIT || 1.0)
 
 async function robotAtLoadingPoint(store, deviceSn) {
   if (MOCK) return { ok: true, at_loading_point: true, distance_m: 0 }
@@ -1420,6 +1618,55 @@ async function robotAtLoadingPoint(store, deviceSn) {
   }
 }
 
+// 召唤模式点位到达门禁：判定指定机器人是否已到达某 landmarks 点位（robotAtPoint）。
+// 与 robotAtLoadingPoint 的区别：召唤多单配送下**没有配送任务**可依赖，故不用任务状态，
+// 改用机器状态预检 + getDevicePosition 测距到目标 landmark 坐标（≤ ARRIVE_RADIUS_M 判为已到）。
+// 软信号辅助：machine_status==='lightTask'（车正被召唤停在该点待命）。
+// MOCK 档恒 ok；定位数据拿不到则保守拒绝（宁可挡，不假装）。
+async function robotAtPoint(store, deviceSn, landmarkId, landmark) {
+  if (MOCK) return { ok: true, at_point: true, distance_m: 0 }
+  if (!deviceSn) return { ok: false, msg: '缺少设备编号', at_point: false, distance_m: null }
+  // 机器状态预检：充电/返程/回待机 = 不在目标点，直接拒绝
+  const dev = await getDeviceList()
+  if (dev.ok && dev.robots && dev.robots.length) {
+    const me = dev.robots.find((x) => x.device_sn === deviceSn)
+    if (me && ['charging', 'returnChargingPile', 'returnStandby'].includes(me.machine_status)) {
+      return { ok: false, msg: '无人车还在' + (me.machine_text || me.machine_status) + '，请等待其到达后再开舱', at_point: false, distance_m: null }
+    }
+  }
+  // 解析目标点坐标：优先入参 landmark，其次按 id 查本地 landmarks
+  let lm = landmark
+  if (!lm && landmarkId) lm = store.prepare('SELECT * FROM landmarks WHERE platform_landmark_id=? OR id=?').get(String(landmarkId), String(landmarkId))
+  const tx = lm ? Number(lm.pos_x || 0) : 0
+  const ty = lm ? Number(lm.pos_y || 0) : 0
+  if (!tx && !ty) return { ok: false, msg: '目标点位无坐标，无法判定到达', at_point: false, distance_m: null }
+  try {
+    const pos = await getDevicePosition(store, deviceSn)
+    const px = pos ? Number(pos.position_x != null ? pos.position_x : pos.x) : null
+    const py = pos ? Number(pos.position_y != null ? pos.position_y : pos.y) : null
+    if (px === null || py === null || isNaN(px) || isNaN(py)) {
+      return { ok: false, msg: '无法获取机器人当前位置', at_point: false, distance_m: null }
+    }
+    const dx = (px - tx) * POS_M_PER_UNIT
+    const dy = (py - ty) * POS_M_PER_UNIT
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    if (dist <= ARRIVE_RADIUS_M) {
+      // 自动标定观测（只读，只追加采样，绝不影响到达判定结果）：
+      // 车此刻已确定到位 → 记 (robotpose 原始网格, landmark 米)。
+      try {
+        const pr = await getDevicePositionBySn(store, deviceSn, '')
+        if (pr && Array.isArray(pr.raw) && pr.raw.length >= 2) {
+          recordCalibPosePair(deviceSn, Number(pr.raw[0]), Number(pr.raw[1]), tx, ty)
+        }
+      } catch (_e) { /* 采样失败不阻断 */ }
+      return { ok: true, at_point: true, distance_m: dist }
+    }
+    return { ok: false, msg: '机器人尚未到达点位（距目标 ' + dist.toFixed(1) + 'm）', at_point: false, distance_m: dist }
+  } catch (e) {
+    return { ok: false, msg: '判断到达异常：' + e.message, at_point: false, distance_m: null }
+  }
+}
+
 // 无人车是否空闲可接单（派车门禁用）：
 // 存在 50-79 活跃任务（配送中/待取餐）算忙；设备列表状态为配送/巡逻/异常/离线/运维/升级算忙；
 // 设备列表查不到该车 → 保守拒绝。MOCK 档恒空闲。
@@ -1430,6 +1677,14 @@ async function isRobotBusy(store, deviceSn) {
     SELECT COUNT(*) c FROM delivery_tasks d JOIN orders o ON o.id = d.order_id
     WHERE d.device_sn=? AND d.void_at IS NULL AND d.task_status BETWEEN 50 AND 79`).get(deviceSn)
   if (active && Number(active.c) > 0) return { ok: false, busy: true, msg: '无人车正在配送中，请等其返回后再派车' }
+  // 召唤多单配送：车正被逐点推进投递（delivery_mode='summon' 且配送中(2) 且已下发召唤任务）→ 也算忙。
+  // 否则车停在取餐点等待时是 lightTask 态，会被下方 machine_status 判定为「空闲」，商家可强行「上货」
+  // 打断正在投递的车召回上货点（问题4）。正在投递/待命于上货点(status=1/2)的分界线就是这个 active summon 批次。
+  const summonBatch = store.prepare(`
+    SELECT id FROM delivery_batches
+    WHERE device_sn=? AND delivery_mode='summon' AND status=2 AND light_task_id IS NOT NULL AND light_task_id!=''
+    LIMIT 1`).get(deviceSn)
+  if (summonBatch) return { ok: false, busy: true, msg: '无人车正在配送中，请等其配送完成后再上货' }
   const r = await getDeviceList()
   if (r.ok && r.robots && r.robots.length) {
     const me = r.robots.find((x) => x.device_sn === deviceSn)
@@ -1520,4 +1775,4 @@ async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, createTasksForBatch, createDirectTask, preCreateTask, deletePreCreateTask, listPlatformTasks, recreatePickupTask, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, getRobotRadar, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, getMapImageBytes, applyStatus, platformReady, getDeviceList, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, isRobotBusy, summonToLoadingPoint, getSummonTargets, summonToPoint, stopRobot, recoverRobot, stopAndCancelTask }
+module.exports = { createQueueTask, createTasksForBatch, createDirectTask, preCreateTask, deletePreCreateTask, listPlatformTasks, recreatePickupTask, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, getRobotRadar, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, getMapImageBytes, applyStatus, platformReady, getDeviceList, getDevicePositionBySn, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, robotAtPoint, isRobotBusy, summonToLoadingPoint, getSummonTargets, summonToPoint, summonDeliveryToStop, queryLightTask, lightTaskArrived, stopRobot, recoverRobot, stopAndCancelTask, adminCalibStatus }
