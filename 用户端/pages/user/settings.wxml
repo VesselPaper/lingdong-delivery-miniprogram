@@ -18,8 +18,10 @@
 
   <!-- 账号：退出登录唯一入口（我的页已移除重复入口） -->
   <view class="card">
-    <view class="cell logout-cell" bindtap="logout">
-      <view class="logout-label">退出登录</view>
+    <view class="section-title">账号</view>
+    <view class="cell cell-danger" bindtap="logout">
+      <view class="cell-label danger-text">退出登录</view>
+      <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
   </view>
 </view>

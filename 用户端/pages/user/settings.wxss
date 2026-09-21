@@ -15,13 +15,7 @@
   line-height: 1.6;
 }
 
-/* 退出登录：红色醒目，与普通设置项区分 */
-.logout-cell {
-  justify-content: center;
-}
-
-.logout-label {
-  color: #E34D59;
-  font-size: 30rpx;
-  font-weight: 600;
+/* 退出登录属危险操作，用红色文字与普通设置项区分 */
+.cell-danger .danger-text {
+  color: #E64340;
 }
