@@ -39,8 +39,7 @@
     </view>
     <view class="field">
       <view class="field-label">库存</view>
-      <input class="field-input" type="number" placeholder="99" value="{{form.stock}}" bind:change="onField" data-field="stock" />
-      <view class="field-hint text-weak text-sm">库存为 0 时用户端显示「售罄」且无法下单</view>
+      <input class="field-input" type="number" placeholder="不填默认 99" value="{{form.stock}}" bind:change="onField" data-field="stock" />
     </view>
     <view class="field">
       <view class="field-label">条码</view>

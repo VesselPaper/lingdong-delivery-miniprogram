@@ -3,14 +3,16 @@ const shopState = require('../../utils/shopState')
 Page({
   data: {
     business: 'open',
-    autoAccept: false
+    autoAccept: false,
+    deliveryFee: '1.00'
   },
 
   async onLoad() {
     await shopState.loadShop()
     this.setData({
       business: shopState.getBusiness(),
-      autoAccept: shopState.getAutoAccept()
+      autoAccept: shopState.getAutoAccept(),
+      deliveryFee: shopState.getDeliveryFee().toFixed(2)
     })
   },
 
@@ -30,6 +32,25 @@ Page({
     await shopState.setAutoAccept(val)
     this.setData({ autoAccept: shopState.getAutoAccept() })
     wx.showToast({ title: val ? '已开启自动接单' : '已关闭自动接单', icon: 'none' })
+  },
+
+  onFeeInput(e) {
+    this.setData({ deliveryFee: e.detail.value })
+  },
+
+  // 失焦时才提交：避免边输边请求；非法值回退到后端当前值
+  async onFeeBlur(e) {
+    const raw = e.detail && e.detail.value !== undefined ? e.detail.value : this.data.deliveryFee
+    const n = Number(raw)
+    if (String(raw).trim() === '' || isNaN(n) || n < 0 || n > 999) {
+      wx.showToast({ title: '请输入 0~999 的金额', icon: 'none' })
+      this.setData({ deliveryFee: shopState.getDeliveryFee().toFixed(2) })
+      return
+    }
+    await shopState.setDeliveryFee(n)
+    const saved = shopState.getDeliveryFee().toFixed(2)
+    this.setData({ deliveryFee: saved })
+    wx.showToast({ title: '配送费已更新为 ¥' + saved, icon: 'none' })
   },
 
   goMonitor() {

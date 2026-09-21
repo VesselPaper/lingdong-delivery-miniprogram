@@ -1,8 +1,10 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
-const config = require('../../utils/config')
 
-const ORIGIN = config.baseUrl.replace(/\/api$/, '')
+// 上传接口现返回完整 URL，保存时还原为相对路径入库（去掉任意协议+主机[:端口]，不绑定特定 host）
+function toRel(u) {
+  return String(u || '').replace(/^https?:\/\/[^/]+/, '')
+}
 
 const DEFAULT = {
   name: '', category: '热卤', price: '', original_price: '', stock: '99', description: '', image: '',
@@ -113,7 +115,8 @@ Page({
 
   previewImage() {
     if (!this.data.form.image) return
-    wx.previewImage({ urls: [request.normalize(this.data.form.image)] })
+    // 上传接口已返回完整 URL，直接预览即可
+    wx.previewImage({ urls: [this.data.form.image] })
   },
 
   async save() {
@@ -127,7 +130,7 @@ Page({
       original_price: Number(form.original_price || 0),
       stock: Number(form.stock || 99),
       description: form.description || '',
-      image: (form.image || '').replace(ORIGIN, ''),
+      image: toRel(form.image),
       barcode: (form.barcode || '').trim(),
       unit: (form.unit || '').trim()
     }

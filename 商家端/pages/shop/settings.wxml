@@ -15,7 +15,16 @@
       <view class="seg-label"><text>自动接单</text></view>
       <switch checked="{{autoAccept}}" color="#3078C0" bindchange="onAutoAccept" />
     </view>
-    <view class="settings-hint text-weak text-sm">歇业期间暂停接单，已接订单正常配送；自动接单开启后扫码将直接接单</view>
+    <!-- 配送费：用户端下单时按此金额收取（整单一次），改价不影响已产生的历史订单 -->
+    <view class="seg-row">
+      <view class="seg-label"><text>配送费</text></view>
+      <view class="fee-input-wrap">
+        <text class="fee-unit">¥</text>
+        <input class="fee-input" type="digit" value="{{deliveryFee}}" bind:input="onFeeInput" bind:blur="onFeeBlur" placeholder="1.00" placeholder-class="field-placeholder" />
+        <text class="fee-unit">/单</text>
+      </view>
+    </view>
+    <view class="settings-hint text-weak text-sm">歇业期间暂停接单，已接订单正常配送；自动接单开启后扫码将直接接单；配送费按整单收取一次，不随件数增加。</view>
   </view>
 
   <view class="card">

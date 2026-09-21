@@ -33,6 +33,30 @@
   line-height: 1.6;
 }
 
+/* 配送费输入：右对齐数字 + ¥ /单 单位，避免与开关行风格割裂 */
+.fee-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.fee-unit {
+  font-size: 26rpx;
+  color: #666666;
+}
+
+.fee-input {
+  width: 170rpx;
+  height: 62rpx;
+  padding: 0 16rpx;
+  font-size: 28rpx;
+  color: #111111;
+  text-align: right;
+  background: #F7F8FA;
+  border-radius: 8rpx;
+  box-sizing: border-box;
+}
+
 .cell-full {
   flex: 1;
 }

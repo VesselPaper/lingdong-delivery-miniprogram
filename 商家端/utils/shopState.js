@@ -36,6 +36,12 @@ function getAutoAccept() {
   return !!cached().auto_accept
 }
 
+// 配送费（元/单）：后端为真源，本地仅缓存；非法值回退 1 元
+function getDeliveryFee() {
+  const f = Number(cached().delivery_fee)
+  return isNaN(f) || f < 0 ? 1 : f
+}
+
 async function setBusiness(val) {
   const business_status = val === 'closed' ? 'closed' : 'open'
   try {
@@ -60,4 +66,18 @@ async function setAutoAccept(val) {
   }
 }
 
-module.exports = { loadShop, getBusiness, isOpen, setBusiness, getAutoAccept, setAutoAccept }
+// 设置配送费：限制在 0~999 元并保留两位小数，与后端校验保持一致
+async function setDeliveryFee(val) {
+  const n = Number(val)
+  const delivery_fee = isNaN(n) ? 0 : Math.max(0, Math.min(999, Math.round(n * 100) / 100))
+  try {
+    const shop = await request.put(api.shop, { delivery_fee })
+    return cacheShop(shop)
+  } catch (e) {
+    const s = cached()
+    s.delivery_fee = delivery_fee
+    return cacheShop(s)
+  }
+}
+
+module.exports = { loadShop, getBusiness, isOpen, setBusiness, getAutoAccept, setAutoAccept, getDeliveryFee, setDeliveryFee }

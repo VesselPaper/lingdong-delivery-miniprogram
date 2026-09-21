@@ -1,20 +1,9 @@
 // 网络请求封装
 const config = require('./config')
 
-// 相对资源路径统一转成完整地址（后端上传的 /uploads/xxx、种子图 /store-img/xxx）
-function normalize(v) {
-  if (typeof v === 'string') {
-    if (v.indexOf('/uploads/') === 0 || v.indexOf('/store-img/') === 0) return config.baseUrl.replace(/\/api$/, '') + v
-    return v
-  }
-  if (Array.isArray(v)) return v.map(normalize)
-  if (v && typeof v === 'object') {
-    const o = {}
-    for (const k in v) o[k] = normalize(v[k])
-    return o
-  }
-  return v
-}
+// 图片地址已由后端统一返回完整 URL（/uploads、/store-img 已拼好主机），商家端不再拼接。
+// normalize 保留为恒等导出，避免历史引用因删除而崩溃；新代码无需再调用。
+function normalize(v) { return v }
 
 function request(options) {
   const { url, method = 'GET', data = {}, needAuth = true, silent = false } = options
@@ -39,7 +28,7 @@ function request(options) {
       header,
       success(res) {
         if (res.statusCode === 200 && res.data && res.data.code === 0) {
-          resolve(normalize(res.data.data))
+          resolve(res.data.data)
         } else if (res.statusCode === 401) {
           // 登录失效：清除本地登录态并跳转登录页（不再反复弹提示）
           wx.removeStorageSync('token')

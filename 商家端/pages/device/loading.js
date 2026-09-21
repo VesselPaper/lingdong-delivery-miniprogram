@@ -167,15 +167,14 @@ Page({
       wx.hideLoading()
       const msg = (e && e.message) || ''
       if (msg.indexOf('cancel') > -1) return
-      if (msg.indexOf('没有待上货') > -1 || msg.indexOf('先派车') > -1) {
-        wx.showModal({
-          title: '该无人车暂无待上货批次',
-          content: '请先在商家端「接单」，接单后机器人会自动前往上货点；待其到达后再扫码上货。',
-          showCancel: false
-        })
-      } else {
-        wx.showToast({ title: msg || '扫码失败', icon: 'none' })
-      }
+      // 扫码是商家的主动动作，失败原因需要看清才能据此操作（车离线 / 车忙 / 无单可上 / 批次已派给别的车），
+      // 统一用弹窗展示后端下发的可操作提示，不用一闪而过的 toast。
+      wx.showModal({
+        title: '暂时无法上货',
+        content: msg || '扫码失败，请稍后重试',
+        showCancel: false,
+        confirmText: '知道了'
+      })
     }
   }
 })
