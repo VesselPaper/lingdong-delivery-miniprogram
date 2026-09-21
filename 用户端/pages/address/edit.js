@@ -4,7 +4,7 @@ const request = require('../../utils/request')
 Page({
   data: {
     id: null,
-    form: { contact_name: '', contact_phone: '', landmark_id: '', landmark_name: '', detail: '', is_default: false },
+    form: { contact_name: '', contact_phone: '', landmark_id: '', landmark_name: '', is_default: false },
     points: [],
     showPicker: false
   },
@@ -57,7 +57,8 @@ Page({
     if (!/^1\d{10}$/.test(form.contact_phone)) return wx.showToast({ title: '请填写正确的手机号', icon: 'none' })
     if (!form.landmark_name) return wx.showToast({ title: '请选择送达点位', icon: 'none' })
     try {
-      await request.post(api.addressSave, Object.assign({}, form, { is_default: form.is_default ? 1 : 0, id }))
+      // 详细地址已下线：统一提交空串，避免旧数据残留
+      await request.post(api.addressSave, Object.assign({}, form, { detail: '', is_default: form.is_default ? 1 : 0, id }))
       wx.showToast({ title: '已保存', icon: 'success' })
       setTimeout(() => wx.navigateBack(), 500)
     } catch (e) { /* handled */ }

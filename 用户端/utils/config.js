@@ -4,8 +4,9 @@
 
 const ENV = {
   dev: {
-    // 真机预览用电脑局域网 IP（手机与电脑需同一 WiFi）；模拟器用 localhost 亦可
-    baseUrl: 'http://10.6.64.124:3000/api'
+    // 真机预览用电脑局域网 IP（手机与电脑需同一 WiFi/热点）；模拟器用 localhost 亦可
+    // 换网络后需同步修改：命令行 ipconfig 查看 WLAN IPv4 地址
+    baseUrl: 'http://192.168.70.50:3000/api'
   },
   prod: {
     baseUrl: 'http://localhost:3000/api'
