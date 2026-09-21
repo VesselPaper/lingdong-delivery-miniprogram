@@ -1,6 +1,6 @@
 // 加购飞入动画（首页 / 商城共用，保证两处手感完全一致）
 //
-// 一次点击给三层反馈：轻震动 → 小球从点到的「+」沿弧线飞进购物车图标 → 购物车图标弹跳 + 角标跳动。
+// 一次点击给两层反馈：小球从点到的「+」沿弧线飞进购物车图标 → 购物车图标弹跳 + 角标跳动。
 //
 // 小球用两层 view 实现弧线：外层走 X（linear）、内层走 Y（ease-in）。两条时间曲线不同，
 // 合成出来的路径就是一条「先横向甩出去、再加速下坠」的弧线；比在 @keyframes 里塞动态值
@@ -26,13 +26,6 @@ function tapPoint(e) {
   const d = ev.detail || {}
   if (typeof d.x === 'number' && typeof d.y === 'number') return { x: d.x, y: d.y }
   return null
-}
-
-// 轻震动：部分机型与开发者工具不支持，失败不能影响加购本身
-function vibrate() {
-  try {
-    if (wx.vibrateShort) wx.vibrateShort({ type: 'light' })
-  } catch (e) { /* 忽略 */ }
 }
 
 // 购物车图标弹跳 + 角标跳动。
@@ -78,7 +71,6 @@ function launch(page, from) {
 // 所以落点要等视图更新之后再量。
 function flyAfter(page, e, afterRender) {
   const from = tapPoint(e)
-  vibrate()
   if (typeof afterRender === 'function') afterRender()
   if (!from) return
   wx.nextTick(() => launch(page, from))

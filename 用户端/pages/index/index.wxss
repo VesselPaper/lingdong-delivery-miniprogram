@@ -1,11 +1,12 @@
 .home {
   min-height: 100vh;
-  padding-bottom: 340rpx;
+  /* 底部留白：盖过悬浮购物车栏（116rpx 起，高 120rpx）+ 通栏 tabBar，并跟随安全区 */
+  padding-bottom: calc(280rpx + env(safe-area-inset-bottom));
 }
 
-/* 首页是 tab 页，结算栏需抬高到 tabBar 之上 */
+/* 首页是 tab 页，结算栏紧贴通栏 tabBar 上沿（tabBar 高 100rpx + 16rpx 间隙） */
 .home .cart-bar {
-  bottom: calc(178rpx + env(safe-area-inset-bottom));
+  bottom: calc(116rpx + env(safe-area-inset-bottom));
 }
 
 .home-top {

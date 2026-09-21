@@ -205,13 +205,14 @@ page {
 .empty-icon { font-size: 72rpx; color: #D8D8D8; }
 .empty-text { margin-top: 20rpx; font-size: 26rpx; color: #999999; }
 
-/* 步进器（与商家端一致：方形灰底；保留 plus/disabled 变体兼容旧页面） */
+/* 步进器（与商家端一致：圆形；保留 plus/disabled 变体兼容旧页面） */
 .stepper { display: flex; align-items: center; }
 .stepper-btn {
   width: 56rpx; height: 56rpx;
   display: flex; align-items: center; justify-content: center;
   background: #F5F5F5; color: #111111; font-size: 32rpx;
   border: none;
+  border-radius: 50%;
   box-sizing: border-box;
 }
 .stepper-btn.plus { background: #3078C0; color: #ffffff; }

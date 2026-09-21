@@ -19,17 +19,19 @@
   background: #FAFAFA;
 }
 
-/* 头像按钮：<button> 自带边框/内边距/背景，这里全部抹掉，只借用它的 chooseAvatar 能力 */
+/* 头像按钮：<button> 自带边框/内边距/背景/居中 margin，这里全部抹掉，只借用它的 chooseAvatar 能力。
+   注意 flex: 0 0 auto —— 微信 <button> 默认会参与 flex 拉伸（flex-grow:1），
+   在卡面这种横向 flex 里会把按钮撑宽、把昵称/手机号顶到最右边并截断，必须显式关掉。 */
 .id-avatar-btn {
   position: relative;
-  width: 128rpx;
+  flex: 0 0 auto !important;
+  width: 128rpx !important;
   height: 128rpx;
-  padding: 0;
-  margin: 0 28rpx 0 0;
-  background: transparent;
-  border: none;
-  line-height: 1;
-  flex-shrink: 0;
+  padding: 0 !important;
+  margin: 0 28rpx 0 0 !important;
+  background: transparent !important;
+  border: none !important;
+  line-height: 1 !important;
   overflow: visible;
 }
 

@@ -1,16 +1,14 @@
-/* 底部导航栏 · 风格统一：12rpx 圆角 + 1rpx 描边（对齐商家端卡片范式） */
+/* 底部导航栏 · 通栏贴底（覆盖安全区，不留缝隙）：顶部 1rpx 描边，与全站卡片描边范式一致 */
 .tabbar {
   position: fixed;
-  left: 24rpx;
-  right: 24rpx;
-  bottom: calc(16rpx + env(safe-area-inset-bottom));
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: #ffffff;
-  border: 1rpx solid #EBEBEB;
-  border-radius: 12rpx;
-  box-shadow: 0 4rpx 12rpx rgba(17, 17, 17, 0.08);
+  border-top: 1rpx solid #EBEBEB;
   display: flex;
   align-items: center;
-  padding: 12rpx 16rpx;
+  padding: 12rpx 16rpx calc(12rpx + env(safe-area-inset-bottom));
   z-index: 99;
   box-sizing: border-box;
 }

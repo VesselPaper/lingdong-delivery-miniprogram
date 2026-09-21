@@ -164,7 +164,7 @@ page {
   padding: 0 24rpx;
   /* 底部滚动余量：购物车栏是悬浮在列表之上的覆盖层，
      给最后一件商品留出可滚到栏上方的空间（无栏时不产生固定空白） */
-  padding-bottom: calc(200rpx + env(safe-area-inset-bottom));
+  padding-bottom: calc(260rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 
@@ -319,7 +319,7 @@ page {
   color: #E64340;
 }
 
-/* 紧凑步进器（比全局小一号，- 白底蓝描边 / + 蓝底白字） */
+/* 紧凑步进器（比全局小一号，- 白底蓝描边 / + 蓝底白字，圆形） */
 .stepper-btn {
   width: 44rpx;
   height: 44rpx;
@@ -328,6 +328,7 @@ page {
   justify-content: center;
   background: #ffffff;
   border: 1rpx solid var(--brand);
+  border-radius: 50%;
   color: var(--brand);
   font-size: 26rpx;
   line-height: 1;
@@ -373,7 +374,7 @@ page {
   align-items: center;
 }
 
-/* 商城是 tab 页，底部有自定义 tabBar，购物车栏需抬高到 tabBar 之上（与首页一致） */
+/* 商城是 tab 页，购物车栏紧贴通栏 tabBar 上沿（与首页同高） */
 .glist .cart-bar {
-  bottom: calc(178rpx + env(safe-area-inset-bottom));
+  bottom: calc(116rpx + env(safe-area-inset-bottom));
 }
