@@ -26,11 +26,11 @@
       </view>
       <view class="store-sub">
         <text>起送 ¥0</text>
-        <text class="store-free">免配送费</text>
+        <text class="store-fee">配送费 ¥{{deliveryFee}}</text>
       </view>
       <view class="store-hours">
         <t-icon name="time" size="12" color="#999999" />
-        <text>11:00-13:00 / 17:00-19:00</text>
+        <text>08:00-20:00</text>
       </view>
     </view>
   </view>
@@ -84,11 +84,15 @@
                     <view class="p-name">{{item.name}}</view>
                     <text class="p-soldout" wx:if="{{item.sold_out}}">售罄</text>
                   </view>
+                  <!-- 库存与销量：让用户下单前就知道还剩多少、卖得怎么样 -->
+                  <view class="p-stats">
+                    <text class="p-stock {{item.sold_out ? 'out' : ''}}">{{item.stock_text}}</text>
+                    <text class="p-sales">{{item.sales_text}}</text>
+                  </view>
                   <view class="p-bottom">
                     <view class="p-price">
-                      <text class="p-price-now">¥{{item.sale_price || item.price}}</text>
-                      <text class="p-old" wx:if="{{item.sale_price}}">¥{{item.price}}</text>
-                      <text class="p-tag" wx:if="{{item.sale_price}}">折</text>
+                      <text class="p-price-now">¥{{item.has_promo ? item.sale_price : item.price}}</text>
+                      <text class="p-old" wx:if="{{item.has_promo}}">¥{{item.price}}</text>
                     </view>
                     <block wx:if="{{item.sold_out}}">
                       <view wx:if="{{item.qty > 0}}" class="stepper">
@@ -102,14 +106,19 @@
                     </block>
                     <block wx:else>
                       <view wx:if="{{item.qty > 0}}" class="stepper">
-                        <view class="stepper-btn" catchtap="onStep" data-id="{{item.id}}" data-delta="-1">-</view>
+                        <view class="stepper-btn" catchtap="onStep" data-id="{{item.id}}" data-delta="-1" hover-class="add-btn-hover" hover-stay-time="80">-</view>
                         <view class="stepper-num">{{item.qty}}</view>
-                        <view class="stepper-btn plus" catchtap="onStep" data-id="{{item.id}}" data-delta="1">+</view>
+                        <view class="stepper-btn plus" catchtap="onStep" data-id="{{item.id}}" data-delta="1" hover-class="add-btn-hover" hover-stay-time="80">+</view>
                       </view>
-                      <view wx:else class="add-btn" catchtap="onStep" data-id="{{item.id}}" data-delta="1">
+                      <view wx:else class="add-btn" catchtap="onStep" data-id="{{item.id}}" data-delta="1" hover-class="add-btn-hover" hover-stay-time="80">
                         <t-icon name="add" size="14" color="#ffffff" />
                       </view>
                     </block>
+                  </view>
+                  <!-- 活动展示：折扣力度与省下金额分开成标签，比单独一个红色「折」字更直观 -->
+                  <view class="p-promo" wx:if="{{item.has_promo}}">
+                    <text class="p-promo-tag">{{item.discount_label}}</text>
+                    <text class="p-promo-save">已省 ¥{{item.save_amount}}</text>
                   </view>
                 </view>
               </view>
@@ -121,14 +130,23 @@
   </view>
 
   <view class="cart-bar" wx:if="{{cartCount}}" bindtap="goCart">
-    <view class="cart-bar-icon">
+    <view class="cart-bar-icon {{cartBounceCls}}" id="cart-bar-icon">
       <t-icon name="robot-1" size="24" color="#3078C0" />
-      <view class="cart-bar-badge">{{cartCount}}</view>
+      <view class="cart-bar-badge {{cartBadgeCls}}">{{cartCount}}</view>
     </view>
     <view class="cart-bar-info">
       <view class="cart-bar-price">¥{{cartTotal}}</view>
-      <view class="cart-bar-fee">配送费 ¥0 · 明细</view>
+      <view class="cart-bar-fee">配送费 ¥{{deliveryFee}} · 明细</view>
     </view>
     <view class="go-cart">去结算</view>
+  </view>
+
+  <!-- 加购飞入的小球（与首页同一套样式和时长，见 app.wxss / utils/flyCart.js） -->
+  <view class="fly-layer" wx:if="{{flyBall.show}}">
+    <view class="fly-x" style="left:{{flyBall.x}}px; top:{{flyBall.y}}px; transform: translateX({{flyBall.move ? flyBall.dx : 0}}px);">
+      <view class="fly-y" style="transform: translateY({{flyBall.move ? flyBall.dy : 0}}px);">
+        <view class="fly-ball"></view>
+      </view>
+    </view>
   </view>
 </view>

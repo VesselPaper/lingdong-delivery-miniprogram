@@ -4,7 +4,7 @@
     <view class="brand-row">
       <view class="brand-loc" bindtap="openPointPicker">
         <t-icon name="location" size="16" color="#3078C0" />
-        <text class="brand-name">{{location}}</text>
+        <text class="brand-name {{pointUnset ? 'unset' : ''}}">{{location}}</text>
         <t-icon name="chevron-down" size="14" color="#999999" />
       </view>
     </view>
@@ -62,7 +62,7 @@
               <text class="goods-price-now">¥{{item.sale_price || item.price}}</text>
               <text class="goods-old" wx:if="{{item.sale_price}}">¥{{item.price}}</text>
             </view>
-            <view class="add-btn" catchtap="addCart" data-id="{{item.id}}">
+            <view class="add-btn" catchtap="addCart" data-id="{{item.id}}" hover-class="add-btn-hover" hover-stay-time="80">
               <t-icon name="add" size="12" color="#ffffff" />
             </view>
           </view>
@@ -120,7 +120,7 @@
             <text class="goods-price-now">¥{{item.sale_price || item.price}}</text>
             <text class="goods-old" wx:if="{{item.sale_price}}">¥{{item.price}}</text>
           </view>
-          <view class="add-btn" catchtap="addCart" data-id="{{item.id}}">
+          <view class="add-btn" catchtap="addCart" data-id="{{item.id}}" hover-class="add-btn-hover" hover-stay-time="80">
             <t-icon name="add" size="12" color="#ffffff" />
           </view>
         </view>
@@ -156,19 +156,28 @@
       <view class="picker-empty" wx:if="{{!points.length}}">暂无可送达楼栋</view>
     </scroll-view>
     <view class="picker-actions">
-      <view class="picker-reset" bindtap="resetToCampus">恢复默认（川师成龙校区）</view>
+      <view class="picker-reset" bindtap="clearPoint">清除选择（未填写）</view>
     </view>
   </view>
 
   <view class="cart-bar" wx:if="{{cartCount}}" bindtap="goCart">
-    <view class="cart-bar-icon">
+    <view class="cart-bar-icon {{cartBounceCls}}" id="cart-bar-icon">
       <t-icon name="robot-1" size="24" color="#3078C0" />
-      <view class="cart-bar-badge">{{cartCount}}</view>
+      <view class="cart-bar-badge {{cartBadgeCls}}">{{cartCount}}</view>
     </view>
     <view class="cart-bar-info">
       <view class="cart-bar-price">¥{{cartTotal}}</view>
-      <view class="cart-bar-fee">配送费 ¥0 · 明细</view>
+      <view class="cart-bar-fee">配送费 ¥{{deliveryFee}} · 明细</view>
     </view>
     <view class="go-cart">去结算</view>
+  </view>
+
+  <!-- 加购飞入的小球（与商城页同一套样式和时长，见 app.wxss / utils/flyCart.js） -->
+  <view class="fly-layer" wx:if="{{flyBall.show}}">
+    <view class="fly-x" style="left:{{flyBall.x}}px; top:{{flyBall.y}}px; transform: translateX({{flyBall.move ? flyBall.dx : 0}}px);">
+      <view class="fly-y" style="transform: translateY({{flyBall.move ? flyBall.dy : 0}}px);">
+        <view class="fly-ball"></view>
+      </view>
+    </view>
   </view>
 </view>

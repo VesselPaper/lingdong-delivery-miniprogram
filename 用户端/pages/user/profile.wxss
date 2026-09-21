@@ -1,54 +1,149 @@
 .profile-page {
   min-height: 100vh;
-  padding: 32rpx 32rpx 240rpx;
+  padding: 28rpx 32rpx 240rpx;
   box-sizing: border-box;
 }
 
-.user-row {
+/* 身份卡：白底 + 1rpx 描边 + 12rpx 圆角，与全站卡片同一套 token */
+.id-card {
   display: flex;
   align-items: center;
-  padding: 24rpx 8rpx 40rpx;
+  background: #ffffff;
+  border: 1rpx solid var(--line);
+  border-radius: 12rpx;
+  padding: 32rpx;
+  margin-bottom: 20rpx;
 }
 
-.avatar {
-  width: 112rpx;
-  height: 112rpx;
+.id-card-hover {
+  background: #FAFAFA;
+}
+
+/* 头像按钮：<button> 自带边框/内边距/背景，这里全部抹掉，只借用它的 chooseAvatar 能力 */
+.id-avatar-btn {
+  position: relative;
+  width: 128rpx;
+  height: 128rpx;
+  padding: 0;
+  margin: 0 28rpx 0 0;
+  background: transparent;
+  border: none;
+  line-height: 1;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.id-avatar-btn::after {
+  border: none;
+}
+
+/* 头像：品牌蓝实心圆 + 昵称首字；有微信头像时换成图片 */
+.id-avatar {
+  width: 128rpx;
+  height: 128rpx;
+  box-sizing: border-box;
   border-radius: 50%;
-  background: #DCE9F8;
-  border: 4rpx solid rgba(255, 255, 255, 0.8);
+  background: var(--brand);
+  border: 6rpx solid rgba(255, 255, 255, 0.2);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-right: 24rpx;
-  flex-shrink: 0;
+  overflow: hidden;
 }
 
-.user-info {
+.id-avatar-off {
+  background: var(--fill);
+  border-width: 2rpx;
+  border-color: var(--line);
+}
+
+.id-avatar-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.id-avatar-text {
+  color: #ffffff;
+  font-size: 52rpx;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* 右下角相机角标：告诉用户「头像点一下能换」 */
+.id-avatar-edit {
+  position: absolute;
+  right: -4rpx;
+  bottom: -4rpx;
+  width: 40rpx;
+  height: 40rpx;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--brand-deep);
+  border: 3rpx solid #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.id-body {
   flex: 1;
   min-width: 0;
 }
 
-.user-name {
-  font-size: 34rpx;
+.id-name {
+  font-size: 40rpx;
   font-weight: 600;
-  color: #111111;
+  color: var(--text-main);
+  line-height: 1.25;
 }
 
-.user-phone {
-  margin-top: 8rpx;
-  font-size: 24rpx;
+.id-meta {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-top: 14rpx;
+  min-width: 0;
 }
 
-.login-link {
+.id-role {
   display: inline-flex;
   align-items: center;
-  gap: 4rpx;
-  margin-top: 12rpx;
-  padding: 6rpx 20rpx;
-  background: #ffffff;
-  border-radius: 8rpx;
+  padding: 2rpx 12rpx;
+  border-radius: 4rpx;
+  background: #EAF3FF;
+  color: var(--brand);
+  font-size: 22rpx;
+  line-height: 1.6;
+  flex-shrink: 0;
+}
+
+/* 手机号按 3-4-4 分组，数字串读起来更清楚 */
+.id-phone {
+  font-size: 26rpx;
+  color: var(--text-sub);
+  letter-spacing: 1rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.id-sub {
   font-size: 24rpx;
-  color: #3078C0;
+  color: var(--text-weak);
+}
+
+.id-action {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  margin-left: 20rpx;
+  flex-shrink: 0;
+}
+
+.id-action-text {
+  font-size: 26rpx;
+  color: var(--text-weak);
 }
 
 /* 我的订单 */
@@ -132,11 +227,4 @@
   margin-top: 48rpx;
 }
 
-.user-row.row-hover {
-  opacity: 0.85;
-}
 
-.edit-hint {
-  margin-top: 8rpx;
-  color: #3078C0;
-}

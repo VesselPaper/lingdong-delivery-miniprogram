@@ -1,4 +1,5 @@
 <view class="settings-page">
+  <!-- 个人信息：保存按钮就近放在卡片内，不再用底部悬浮栏，减少一层视觉噪音 -->
   <view class="card">
     <view class="section-title">个人信息</view>
     <view class="field">
@@ -9,17 +10,18 @@
       <view class="field-label">手机号</view>
       <input class="field-input" type="number" placeholder="请输入手机号" placeholder-class="field-placeholder" value="{{form.phone}}" bind:input="onField" data-field="phone" />
     </view>
+    <view class="save-wrap">
+      <view class="btn btn-block" bindtap="save">保存修改</view>
+    </view>
+    <view class="hint text-weak text-sm">昵称与手机号用于配送时联系你，请填写真实信息。</view>
   </view>
 
+  <!-- 账号：退出登录唯一入口（我的页已移除重复入口） -->
   <view class="card">
-    <view class="cell" bindtap="logout">
-      <view class="cell-label">退出登录</view>
-      <view class="cell-value"></view>
+    <view class="section-title">账号</view>
+    <view class="cell cell-danger" bindtap="logout">
+      <view class="cell-label danger-text">退出登录</view>
       <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
-  </view>
-
-  <view class="bottom-bar safe-bottom">
-    <view class="btn btn-block" bindtap="save">保存</view>
   </view>
 </view>

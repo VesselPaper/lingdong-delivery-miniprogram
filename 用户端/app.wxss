@@ -350,3 +350,58 @@ page {
 .grad-banner {
   background: linear-gradient(180deg, #9CCDF2 0%, #6FB2E7 40%, #EAF2FA 100%);
 }
+
+/* ===== 加购飞入动画（首页 / 商城共用，两处手感必须一致） =====
+   小球：外层走 X（linear）+ 内层走 Y（ease-in），两条时间曲线不同 → 合成一条下坠弧线。
+   时长必须与 utils/flyCart.js 的 DURATION 保持一致。 */
+.fly-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 99;
+}
+.fly-x {
+  position: absolute;
+  transition: transform 520ms linear;
+  will-change: transform;
+}
+.fly-y {
+  transition: transform 520ms cubic-bezier(0.55, 0, 1, 0.45);
+  will-change: transform;
+}
+.fly-ball {
+  width: 32rpx;
+  height: 32rpx;
+  margin: -16rpx 0 0 -16rpx;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 4rpx 12rpx rgba(48, 120, 192, 0.45);
+}
+
+/* 落点反馈：购物车图标弹跳 + 角标跳动。
+   两组类名交替（a/b），连点时类名变了动画才会重新播放。 */
+.cart-bar-icon.bounce-a,
+.cart-bar-icon.bounce-b {
+  animation: cart-bounce 520ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.cart-bar-badge.badge-pop-a,
+.cart-bar-badge.badge-pop-b {
+  animation: badge-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes cart-bounce {
+  0% { transform: scale(1); }
+  35% { transform: scale(0.86); }
+  70% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+@keyframes badge-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.45); }
+  100% { transform: scale(1); }
+}
+
+/* 「+」按下反馈：两个页面共用同一个 hover 类 */
+.add-btn-hover {
+  transform: scale(0.86);
+  opacity: 0.9;
+}

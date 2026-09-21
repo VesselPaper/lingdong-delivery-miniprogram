@@ -79,8 +79,8 @@ page {
   color: #666666;
 }
 
-.store-free {
-  color: var(--brand);
+.store-fee {
+  color: #E64340;
 }
 
 .store-hours {
@@ -276,15 +276,47 @@ page {
   text-decoration: line-through;
 }
 
-.p-tag {
+/* 库存 + 销量：名称下方一行弱化信息，下单前可判断是否抢手 */
+.p-stats {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  color: #999999;
+}
+
+.p-stock {
+  color: #5C9E6E;
+}
+
+.p-stock.out {
   color: #E64340;
+}
+
+.p-sales {
+  color: #999999;
+}
+
+/* 活动标签：折扣力度（如「8.5折」）+ 省下金额，替代原来单个红色「折」字 */
+.p-promo {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-top: 10rpx;
+}
+
+.p-promo-tag {
   font-size: 18rpx;
-  font-weight: 600;
-  border: 1rpx solid #E64340;
+  color: #ffffff;
+  background: #E64340;
   border-radius: 4rpx;
-  padding: 0 6rpx;
-  margin-left: 6rpx;
-  vertical-align: middle;
+  padding: 2rpx 8rpx;
+}
+
+.p-promo-save {
+  font-size: 20rpx;
+  color: #E64340;
 }
 
 /* 紧凑步进器（比全局小一号，- 白底蓝描边 / + 蓝底白字） */
@@ -300,6 +332,7 @@ page {
   font-size: 26rpx;
   line-height: 1;
   box-sizing: border-box;
+  transition: transform 120ms ease;
 }
 
 .stepper-btn.plus {
@@ -325,6 +358,7 @@ page {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: transform 120ms ease;
 }
 
 .go-cart {

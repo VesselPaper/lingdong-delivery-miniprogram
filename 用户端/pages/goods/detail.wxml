@@ -1,8 +1,8 @@
 <view class="detail-page">
+  <!-- 商品图：点击可全屏放大（支持双指缩放、长按保存） -->
   <view class="hero" style="background: {{theme}};">
-    <image wx:if="{{goods.image}}" class="hero-pic" src="{{goods.image}}" mode="aspectFill" />
+    <image wx:if="{{goods.image}}" class="hero-pic" src="{{goods.image}}" mode="aspectFill" bindtap="previewImage" />
     <t-icon wx:else name="{{icon}}" size="120" color="#BFBFBF" />
-    <view class="hero-badge">商品图</view>
   </view>
 
   <view class="info card">
@@ -12,11 +12,13 @@
           <view class="name">{{goods.name}}</view>
           <view class="soldout-badge" wx:if="{{!inStock}}">售罄</view>
         </view>
+        <!-- 价格拆开写：现价 / 原价划线 / 折扣标签 / 省了多少，各自独立一眼看清 -->
         <view class="price-row">
-          <text class="price-now">¥{{goods.sale_price || goods.price}}</text>
-          <text class="price-old" wx:if="{{goods.sale_price}}">¥{{goods.price}}</text>
-          <view class="price-tag" wx:if="{{goods.sale_price}}">活动价</view>
+          <text class="price-now">¥{{hasPromo ? goods.sale_price : goods.price}}</text>
+          <text class="price-old" wx:if="{{hasPromo}}">原价 ¥{{goods.price}}</text>
+          <view class="price-tag" wx:if="{{hasPromo}}">{{discountLabel}}</view>
         </view>
+        <view class="save-line" wx:if="{{hasPromo}}">已省 ¥{{saveAmount}}</view>
         <view class="stock-line text-weak text-sm" wx:if="{{!inStock}}">库存为 0，暂不可下单</view>
       </view>
       <view class="stepper">
@@ -31,8 +33,7 @@
     <view class="section-title">配送说明</view>
     <view class="notice-lines">
       <view class="notice-line"><text class="nl-label">送达方式</text><text>无人车配送至所选点位</text></view>
-      <view class="notice-line"><text class="nl-label">配送时段</text><text>11:00-13:00 / 17:00-19:00</text></view>
-      <view class="notice-line"><text class="nl-label">取餐凭证</text><text>取餐码（下单后自动生成）</text></view>
+      <view class="notice-line"><text class="nl-label">配送时段</text><text>08:00-20:00</text></view>
       <view class="notice-line"><text class="nl-label">超时处理</text><text>机器人到达后停留 15 分钟</text></view>
     </view>
   </view>
@@ -42,12 +43,34 @@
     <view class="disclaimer-text">本小程序根据用户需求提供代买跑腿服务；商品质量与食品安全问题由商家负责；请确认所在楼宇是否有机器人入驻，入驻楼宇订单将无法送达；订单确认页展示的送达时间为平均理想值，若因商家备货时间延长或取货超时，则以具体送达时间为准。</view>
   </view>
 
+  <!-- 费用明细：默认收起，点底部「明细」展开，把原价/优惠/配送费逐项列清楚 -->
+  <view class="fee-mask" wx:if="{{showFeeDetail}}" bindtap="toggleFeeDetail"></view>
+  <view class="fee-panel" wx:if="{{showFeeDetail}}">
+    <view class="fee-panel-head">
+      <text class="fee-panel-title">费用明细</text>
+      <view class="fee-panel-close" bindtap="toggleFeeDetail">
+        <t-icon name="close" size="16" color="#999999" />
+      </view>
+    </view>
+    <view class="fee-line"><text class="fee-k">商品原价</text><text class="fee-v">¥{{goods.price}}</text></view>
+    <view class="fee-line" wx:if="{{hasPromo}}">
+      <text class="fee-k">活动优惠（{{discountLabel}}）</text>
+      <text class="fee-v fee-cut">- ¥{{saveAmount}}</text>
+    </view>
+    <view class="fee-line"><text class="fee-k">配送费</text><text class="fee-v">¥{{deliveryFee}}</text></view>
+    <view class="fee-line fee-line-total">
+      <text class="fee-k">单件到手价</text>
+      <text class="fee-v fee-total">¥{{unitPayable}}</text>
+    </view>
+    <view class="fee-note text-weak text-sm">配送费按整单收取一次，不随件数增加；活动优惠仅作用于商品金额。</view>
+  </view>
+
   <view class="bottom-bar safe-bottom">
     <view class="bar-price">
-      <view class="bar-price-main">¥{{goods.sale_price || goods.price}}</view>
-      <text class="bar-price-old" wx:if="{{goods.sale_price}}">¥{{goods.price}}</text>
+      <view class="bar-price-main">¥{{hasPromo ? goods.sale_price : goods.price}}</view>
+      <text class="bar-price-old" wx:if="{{hasPromo}}">¥{{goods.price}}</text>
     </view>
-    <view class="bar-fee text-weak">配送费 ¥0 · 明细</view>
+    <view class="bar-fee text-weak" bindtap="toggleFeeDetail">配送费 ¥{{deliveryFee}} · {{showFeeDetail ? '收起' : '明细'}}</view>
     <view class="go-cart {{!inStock ? 'disabled' : ''}}" bindtap="goCart">{{inStock ? '去结算' : '已售罄'}}</view>
   </view>
 </view>

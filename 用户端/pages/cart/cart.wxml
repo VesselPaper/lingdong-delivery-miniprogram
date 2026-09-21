@@ -50,7 +50,7 @@
       <text>全选</text>
     </view>
     <view class="total">
-      <text class="text-sub">合计</text>
+      <text class="text-sub">商品合计</text>
       <view class="price"><text class="price-symbol">¥</text><text class="price-num">{{total}}</text></view>
     </view>
     <view class="go-btn" bindtap="checkout">去结算({{selectCount}})</view>

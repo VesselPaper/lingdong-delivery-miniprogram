@@ -230,6 +230,11 @@
   font-weight: 600;
 }
 
+/* 优惠金额用红色，与正价区分（「省了多少」一眼可见） */
+.fee-val.fee-cut {
+  color: #E64340;
+}
+
 .discount-row {
   display: flex;
   align-items: center;

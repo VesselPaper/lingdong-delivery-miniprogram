@@ -8,6 +8,8 @@ const THEMES = {
   '套餐': { bg: '#F5F5F5', icon: 'app' }
 }
 const DEFAULT_THEME = { bg: '#F5F5F5', icon: 'shop' }
+// 配送费兜底值：正常从 /shop/status 取（商家端可配置），接口异常时不至于把费用显示成 0
+const FALLBACK_FEE = 1
 
 Page({
   data: {
@@ -16,7 +18,14 @@ Page({
     theme: DEFAULT_THEME.bg,
     icon: DEFAULT_THEME.icon,
     inStock: true,
-    cartQty: 0
+    cartQty: 0,
+    // 价格构成：原价 / 活动价 / 省了多少 / 配送费 分开呈现，让用户看清钱花在哪、省在哪
+    hasPromo: false,
+    discountLabel: '',
+    saveAmount: '0.00',
+    deliveryFee: FALLBACK_FEE.toFixed(2),
+    unitPayable: '0.00',
+    showFeeDetail: false
   },
 
   cartItem: null,
@@ -40,8 +49,50 @@ Page({
         icon: t.icon,
         inStock: goods.stock > 0
       })
+      this.applyPrice(goods)
       wx.setNavigationBarTitle({ title: goods.name })
     } catch (e) { /* handled */ }
+  },
+
+  // 配送费取店铺当前配置；失败用兜底值，不阻塞商品展示
+  async fetchFee() {
+    try {
+      const shop = await request.get(api.shopStatus, {}, { needAuth: false })
+      const f = Number(shop && shop.delivery_fee)
+      return isNaN(f) || f < 0 ? FALLBACK_FEE : f
+    } catch (e) {
+      return FALLBACK_FEE
+    }
+  },
+
+  // 拆分价格：活动价与配送费各自独立，避免"活动价里含没含配送费"看不明白
+  async applyPrice(goods) {
+    const fee = await this.fetchFee()
+    const price = Number(goods.price || 0)
+    const raw = goods.sale_price
+    const sale = raw === null || raw === undefined || raw === '' ? null : Number(raw)
+    const hasPromo = sale !== null && !isNaN(sale) && sale < price
+    const info = goods.discount_info || {}
+    const d = Number(info.discount || 0)
+    const now = hasPromo ? sale : price
+    this.setData({
+      hasPromo,
+      discountLabel: d > 0 && d < 1 ? (Math.round(d * 1000) / 10) + ' 折' : '活动价',
+      saveAmount: (hasPromo ? price - sale : 0).toFixed(2),
+      deliveryFee: fee.toFixed(2),
+      unitPayable: (now + fee).toFixed(2)
+    })
+  },
+
+  // 商品图点击放大（支持双指缩放与保存）
+  previewImage() {
+    const url = this.data.goods.image
+    if (!url) return
+    wx.previewImage({ current: url, urls: [url] })
+  },
+
+  toggleFeeDetail() {
+    this.setData({ showFeeDetail: !this.data.showFeeDetail })
   },
 
   async loadCartQty() {

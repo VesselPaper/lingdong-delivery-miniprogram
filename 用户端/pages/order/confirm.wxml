@@ -71,6 +71,15 @@
         <view class="o-price-old" wx:if="{{item.price_now < item.price}}">¥{{item.orig}}</view>
       </view>
     </view>
+    <!-- 费用明细：商品金额 / 活动优惠 / 打包费 / 配送费 逐项列出，再给合计 -->
+    <view class="fee-row">
+      <text class="fee-label">商品金额</text>
+      <text class="fee-val">¥{{subtotal}}</text>
+    </view>
+    <view class="fee-row" wx:if="{{promoBanner}}">
+      <text class="fee-label">活动优惠</text>
+      <text class="fee-val fee-cut">- ¥{{promoBanner.reduce}}</text>
+    </view>
     <view class="fee-row">
       <text class="fee-label">打包费</text>
       <t-icon name="info-circle" size="12" color="#C0C0C0" />
@@ -79,17 +88,13 @@
     <view class="fee-row">
       <text class="fee-label">配送费</text>
       <t-icon name="info-circle" size="12" color="#C0C0C0" />
-      <text class="fee-val">¥0</text>
-    </view>
-    <view class="discount-row" wx:if="{{promoBanner}}">
-      <text class="discount-label">总优惠</text>
-      <text class="discount-val oring" wx:if="{{promoBanner.reduce}}">¥{{promoBanner.reduce}}</text>
+      <text class="fee-val">¥{{deliveryFee}}</text>
     </view>
     <view class="discount-row total-row">
       <text class="discount-label">合计：</text>
       <view class="total-right">
-        <text class="orig-total" wx:if="{{promoBanner}}">¥{{promoBanner.origin}}</text>
-        <text class="discount-total">¥{{promoBanner ? promoPayable : total}}</text>
+        <text class="orig-total" wx:if="{{promoBanner}}">¥{{origTotal}}</text>
+        <text class="discount-total">¥{{payableTotal}}</text>
       </view>
     </view>
     <view class="remark-row">
@@ -110,7 +115,7 @@
     </view>
     <view class="pay-total">
       <text class="text-sub">共计</text>
-      <text class="pay-price">¥{{promoBanner ? promoPayable : total}}</text>
+      <text class="pay-price">¥{{payableTotal}}</text>
     </view>
     <view class="btn {{submitting || shopClosed ? 'btn-disabled' : ''}}" bindtap="submit" style="flex-shrink:0; margin-left:24rpx; padding:0 64rpx;">
       {{shopClosed ? '店铺歇业' : (submitting ? '提交中...' : (payMock ? '模拟支付' : '支付'))}}

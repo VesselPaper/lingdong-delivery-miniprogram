@@ -6,6 +6,8 @@ const api = {
   login: '/auth/login',
   getProfile: '/user/profile',
   updateProfile: '/user/profile',
+  // 头像上传：微信 chooseAvatar 的本地临时图读成 base64 后 POST，后端存盘并写入 users.avatar
+  userAvatar: '/user/avatar',
 
   // 商品
   goodsCategories: '/goods/categories',
@@ -47,6 +49,10 @@ const api = {
   addressList: '/address/list',
   addressSave: '/address/save',
   addressDelete: '/address/delete',
+
+  // 当前配送楼栋：首页顶部「选择楼栋」/ 我的页「收货地址」/ 结算页「送达楼栋」
+  // 三处读写的是同一份后端数据，任一处修改另外两处都会同步
+  userPoint: '/user/point',
 
   // 售后（退款/投诉）
   refundApply: '/refund/apply',

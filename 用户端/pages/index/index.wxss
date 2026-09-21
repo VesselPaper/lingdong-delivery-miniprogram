@@ -34,6 +34,12 @@
   color: #111111;
 }
 
+/* 未选择楼栋：弱化显示并提示未填写，避免被误读成已定位到校区 */
+.brand-name.unset {
+  font-weight: 400;
+  color: #999999;
+}
+
 .search-box {
   display: flex;
   align-items: center;
@@ -334,6 +340,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: transform 120ms ease;
 }
 
 /* 底部浮动结算栏 */

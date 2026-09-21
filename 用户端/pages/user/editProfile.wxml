@@ -1,6 +1,16 @@
 <view class="edit-page">
   <view class="card">
     <view class="field">
+      <view class="field-label">头像</view>
+      <button class="avatar-btn" open-type="chooseAvatar" bind:chooseavatar="onChooseAvatar">
+        <view class="avatar-circle">
+          <image wx:if="{{avatarUrl}}" class="avatar-img" src="{{avatarUrl}}" mode="aspectFill" />
+          <t-icon wx:else name="user" size="20" color="#9AA6B2" />
+          <view class="avatar-edit"><t-icon name="camera" size="10" color="#ffffff" /></view>
+        </view>
+      </button>
+    </view>
+    <view class="field">
       <view class="field-label">昵称</view>
       <input
         class="field-input"
@@ -26,7 +36,7 @@
     </view>
   </view>
 
-  <view class="tip text-weak text-sm">昵称与手机号将展示给商家，用于配送联系；保存后立即生效。</view>
+  <view class="tip text-weak text-sm">昵称与手机号将展示给商家，用于配送联系；保存后立即生效。头像点击即可更换（默认取你的微信头像）。</view>
 
   <view class="foot-actions">
     <view class="btn btn-block {{saving ? 'btn-disabled' : ''}}" bindtap="save">保存</view>

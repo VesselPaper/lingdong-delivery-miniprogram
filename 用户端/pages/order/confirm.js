@@ -30,7 +30,11 @@ Page({
     timeOptions: [],               // 指定时间候选（依据当前真实时间向后递增生成）
     showTimeSheet: false,
     shopClosed: false,
-    payMock: false                 // 运行时标注：结算按钮显示「模拟支付」
+    payMock: false,                // 运行时标注：结算按钮显示「模拟支付」
+    deliveryFee: '1.00',           // 配送费（商家端可配置，默认 1 元）
+    goodsPayable: '0.00',          // 商品实付（原价合计 - 活动优惠）
+    origTotal: '0.00',             // 原价合计 + 配送费（用于划线的「原价」对照）
+    payableTotal: '0.00'           // 最终应付 = 商品实付 + 配送费
   },
 
   async onLoad(options) {
@@ -69,7 +73,9 @@ Page({
     await this.loadPromo()
     // 先加载点位与已存收货地址，再回填收餐信息
     await Promise.all([this.loadPoints(), this.loadAddresses()])
-    this.loadUser()
+    await this.loadUser()
+    // 后端记录的「当前配送楼栋」优先级最高：首页顶部与我的页收货地址维护的正是它
+    await this.loadCurrentPoint()
     this.loadShopStatus()
     this.buildTimeOptions()
     this.ready = true
@@ -155,11 +161,11 @@ Page({
       promoBanner: banner,
       promoReduce: banner.reduce,
       promoPayable: banner.payable
-    })
+    }, () => this.recomputeTotal())
   },
 
   clearPromo(subtotal) {
-    this.setData({ promoBanner: null, promoReduce: '0.00', promoPayable: this.data.total })
+    this.setData({ promoBanner: null, promoReduce: '0.00', promoPayable: this.data.total }, () => this.recomputeTotal())
   },
 
   // 兼容：仅折扣（活动接口无满减命中）时直出折扣横幅
@@ -173,15 +179,31 @@ Page({
       promoBanner: banner,
       promoReduce: banner ? banner.reduce : '0.00',
       promoPayable: banner ? banner.payable : this.data.total
-    })
+    }, () => this.recomputeTotal())
   },
 
-  // 读取店铺营业状态：歇业时禁止下单、结算按钮置灰
+  // 读取店铺营业状态 + 配送费：歇业时禁止下单；配送费由商家端配置
   async loadShopStatus() {
     try {
       const shop = await request.get(api.shopStatus)
-      this.setData({ shopClosed: shop.business_status === 'closed' })
-    } catch (e) { /* 默认按营业处理 */ }
+      const f = Number(shop && shop.delivery_fee)
+      this.setData({
+        shopClosed: shop.business_status === 'closed',
+        deliveryFee: (isNaN(f) || f < 0 ? 1 : f).toFixed(2)
+      }, () => this.recomputeTotal())
+    } catch (e) { this.recomputeTotal() }
+  },
+
+  // 统一重算「商品实付 / 原价对照 / 最终应付」：配送费只在最后加一次，不参与活动折扣
+  recomputeTotal() {
+    const fee = Number(this.data.deliveryFee || 0)
+    const subtotal = Number(this.data.subtotal || 0)
+    const goodsPayable = this.data.promoBanner ? Number(this.data.promoBanner.payable) : Number(this.data.total || 0)
+    this.setData({
+      goodsPayable: goodsPayable.toFixed(2),
+      origTotal: (subtotal + fee).toFixed(2),
+      payableTotal: (goodsPayable + fee).toFixed(2)
+    })
   },
 
   // 从地址管理页新增/编辑返回时刷新地址
@@ -261,9 +283,23 @@ Page({
 
   noop() {},
 
-  // 选择送达楼栋：仅更换送达点位，收餐人/详细地址仍沿用默认地址信息
-  choosePoint(e) {
-    this.setData({ selectedPoint: e.currentTarget.dataset.item, showPicker: false })
+  // 选择送达楼栋：同时写回后端，让首页顶部与我的页收货地址跟着变
+  async choosePoint(e) {
+    const point = e.currentTarget.dataset.item
+    this.setData({ selectedPoint: point, showPicker: false })
+    try {
+      await request.put(api.userPoint, { landmark_id: String(point.id) })
+    } catch (err) { /* 网络异常不阻塞本单，后端仍会按提交的 landmark_id 校验 */ }
+  },
+
+  // 读取后端记录的当前楼栋（与首页/我的页共用），覆盖地址簿推断出来的点位
+  async loadCurrentPoint() {
+    try {
+      const p = await request.get(api.userPoint)
+      if (!p || !p.landmark_id) return
+      const hit = this.data.points.find((x) => Number(x.id) === Number(p.landmark_id))
+      if (hit) this.setData({ selectedPoint: hit })
+    } catch (e) { /* handled */ }
   },
 
   openTimeSheet() {
@@ -275,17 +311,21 @@ Page({
   },
 
   // 依据当前真实时间向后生成送达时间：默认「尽快送达」（约 30 分钟后），
-  // 指定时间从当前时刻起每 30 分钟一档依次递增（不再展示全部时段）
+  // 指定时间从当前时刻起每 30 分钟一档依次递增；只保留落在配送时段 08:00-20:00 内的档位
   buildTimeOptions() {
     const pad = (n) => String(n).padStart(2, '0')
     const fmt = (d) => pad(d.getHours()) + ':' + pad(d.getMinutes())
     const now = new Date()
     const base = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), now.getMinutes(), 0, 0)
     const asap = new Date(base.getTime() + 30 * 60000)
+    const OPEN = 8 * 60      // 08:00
+    const CLOSE = 20 * 60    // 20:00
+    const inWindow = (d) => { const m = d.getHours() * 60 + d.getMinutes(); return m >= OPEN && m <= CLOSE }
     const options = []
     for (let i = 1; i <= 6; i++) {
       const start = new Date(base.getTime() + i * 30 * 60000)
       const end = new Date(start.getTime() + 20 * 60000)
+      if (!inWindow(start) || !inWindow(end)) continue
       options.push({ value: fmt(start) + '-' + fmt(end) })
     }
     this.setData({ deliveryMode: 'asap', asapEta: fmt(asap), scheduledTime: '', timeOptions: options })

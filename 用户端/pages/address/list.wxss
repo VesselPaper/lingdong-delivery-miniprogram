@@ -49,3 +49,23 @@
   font-size: 24rpx;
   color: #3078C0;
 }
+
+/* 「当前送达」标记：让用户一眼看出首页/结算页正在用的楼栋是哪一条 */
+.tag-cur {
+  color: #ffffff;
+  background: #3078C0;
+  border-color: #3078C0;
+}
+
+.addr-actions {
+  display: flex;
+  align-items: center;
+  gap: 32rpx;
+}
+
+.addr-set-point {
+  display: inline-block;
+  margin-top: 16rpx;
+  font-size: 24rpx;
+  color: #E64340;
+}

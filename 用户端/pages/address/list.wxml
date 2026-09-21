@@ -6,12 +6,17 @@
           <text class="addr-name">{{item.contact_name}}</text>
           <text class="addr-phone text-sub">{{item.contact_phone}}</text>
           <view class="tag" wx:if="{{item.is_default}}">默认</view>
+          <view class="tag tag-cur" wx:if="{{pointId == item.landmark_id}}">当前送达</view>
         </view>
         <view class="addr-line2 text-sub text-sm">
           <t-icon name="location" size="14" color="#3078C0" />
           <text>{{item.landmark_name}} {{item.detail}}</text>
         </view>
-        <view class="addr-set-default" wx:if="{{!item.is_default}}" catchtap="setDefault" data-id="{{item.id}}">设为默认</view>
+        <view class="addr-actions">
+          <view class="addr-set-default" wx:if="{{!item.is_default}}" catchtap="setDefault" data-id="{{item.id}}">设为默认</view>
+          <!-- 送到这里 = 把当前配送楼栋切成这条地址的楼栋（与首页/结算页共用） -->
+          <view class="addr-set-point" wx:if="{{pointId != item.landmark_id}}" catchtap="setPoint" data-id="{{item.id}}">送到这里</view>
+        </view>
       </view>
       <view class="addr-del" catchtap="del" data-id="{{item.id}}">
         <t-icon name="delete" size="20" color="#999999" />

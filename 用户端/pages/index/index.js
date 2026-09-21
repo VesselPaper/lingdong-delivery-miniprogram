@@ -1,5 +1,6 @@
-const api = require('../../utils/api')
+﻿const api = require('../../utils/api')
 const request = require('../../utils/request')
+const flyCart = require('../../utils/flyCart')
 
 const THEMES = {
   '热卤': { bg: '#F5F5F5', icon: 'app' },
@@ -35,14 +36,17 @@ function styleOfCategory(name) {
   return hit || CATEGORY_FALLBACK
 }
 
-const CAMPUS = '川师成龙校区'
-const POINT_KEY = 'user_point'          // 用户最近一次选定的送达楼栋（下次下单沿用）
+// 未选择楼栋时的占位文案：此前直接显示「川师成龙校区」，会让用户误以为已经选好了配送楼栋
+const POINT_UNSET = '楼栋未填写'
+const POINT_KEY = 'user_point'          // 楼栋本地缓存（真源在后端 /user/point，未登录时先用它）
 const HISTORY_KEY = 'search_history'    // 历史搜索记录
 const HISTORY_MAX = 8
 
 Page({
   data: {
-    location: CAMPUS,          // 顶部定位：默认校区，选定楼栋后显示楼栋名
+    location: POINT_UNSET,     // 顶部定位：未选楼栋时显示「楼栋未填写」，选定后显示楼栋名
+    pointUnset: true,          // 是否处于「未选择」态（用于文案样式区分）
+    deliveryFee: '1.00',       // 店铺配送费（商家端可配置）
     points: [],                // 全部可送达楼栋（与已有地址关联）
     addresses: [],             // 用户地址簿（仅用于关联昵称/手机号）
     pickedPointId: null,       // 当前选定的楼栋 id（弹层里打勾）
@@ -56,7 +60,10 @@ Page({
     categories: [],            // 分类按钮
     hotGroups: [],             // 热门商品分组（每行一个分类）
     cartCount: 0,
-    cartTotal: '0.00'
+    cartTotal: '0.00',
+    flyBall: { show: false, x: 0, y: 0, dx: 0, dy: 0, move: false },  // 加购飞入的小球
+    cartBounceCls: '',    // 购物车图标弹跳（与商城页共用一套动画）
+    cartBadgeCls: ''      // 角标跳动
   },
 
   allGoods: [],
@@ -65,14 +72,28 @@ Page({
     this.loadHistory()
   },
 
+  onUnload() {
+    flyCart.clear(this)
+  },
+
   onShow() {
     this.loadGoods()
     this.loadCart()
     this.loadCategories()
     this.loadAddress()
+    this.loadShopStatus()
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 0 })
     }
+  },
+
+  // 店铺配送费（商家端可配置，默认 1 元）
+  async loadShopStatus() {
+    try {
+      const shop = await request.get(api.shopStatus, {}, { needAuth: false })
+      const f = Number(shop && shop.delivery_fee)
+      this.setData({ deliveryFee: (isNaN(f) || f < 0 ? 1 : f).toFixed(2) })
+    } catch (e) { /* handled */ }
   },
 
   // 历史搜索记录（本地）
@@ -81,7 +102,8 @@ Page({
     this.setData({ history: Array.isArray(history) ? history.slice(0, HISTORY_MAX) : [] })
   },
 
-  // 配送定位：列出全部可送达楼栋；与已有地址关联，默认选中最近一次使用的楼栋
+  // 配送楼栋：真源在后端 /user/point —— 与「我的页 → 收货地址」「结算页 → 送达楼栋」是同一份数据，
+  // 任一处修改，另外两处下次进入即可见。
   async loadAddress() {
     const token = wx.getStorageSync('token')
     let addresses = []
@@ -108,16 +130,25 @@ Page({
       })
     })
 
-    // 初始定位为校区；用户最近配送/选择过一次楼栋时，自动显示那个楼栋
-    const saved = wx.getStorageSync(POINT_KEY)
-    const bySaved = saved && saved.landmark_id
-      ? merged.find((p) => Number(p.id) === Number(saved.landmark_id))
+    // 当前楼栋以后端为准；未登录（或接口失败）时回退本地缓存，保证离线也能先选
+    let cur = null
+    if (token) {
+      try { cur = await request.get(api.userPoint) } catch (e) { cur = null }
+    }
+    if (!cur || !cur.landmark_id) {
+      const saved = wx.getStorageSync(POINT_KEY)
+      cur = saved && saved.landmark_id ? { landmark_id: saved.landmark_id } : null
+    }
+    const hit = cur && cur.landmark_id
+      ? merged.find((p) => Number(p.id) === Number(cur.landmark_id))
       : null
     this.setData({
       addresses,
       points: merged,
-      pickedPointId: bySaved ? bySaved.id : null,
-      location: bySaved ? bySaved.name : CAMPUS
+      pickedPointId: hit ? hit.id : null,
+      // 没选过楼栋时不再冒充「川师成龙校区」，而是明确告诉用户还没填
+      location: hit ? hit.name : POINT_UNSET,
+      pointUnset: !hit
     })
   },
 
@@ -129,13 +160,23 @@ Page({
     this.setData({ showPointPicker: false })
   },
 
-  // 选择楼栋：本次定位与下次下单都用它；昵称/手机号沿用最近一次地址的数据
-  onPickPoint(e) {
+  // 选择楼栋：本地缓存 + 写入后端（三处联动的关键）
+  async onPickPoint(e) {
     const point = this.data.points[Number(e.currentTarget.dataset.index)]
     if (!point) return
     this.rememberPoint(point)
-    this.setData({ location: point.name, pickedPointId: point.id, showPointPicker: false })
+    this.setData({ location: point.name, pickedPointId: point.id, showPointPicker: false, pointUnset: false })
+    await this.syncPoint(point.id)
     wx.showToast({ title: '已切换至' + point.name, icon: 'none' })
+  },
+
+  // 同步到后端；未登录时静默跳过（本地已记住，登录后 loadAddress 会以本地值回填）
+  async syncPoint(landmarkId) {
+    const token = wx.getStorageSync('token')
+    if (!token) return
+    try {
+      await request.put(api.userPoint, { landmark_id: landmarkId === null || landmarkId === undefined ? '' : String(landmarkId) })
+    } catch (e) { /* 网络异常不阻塞选择，下次进入会以本地缓存回填 */ }
   },
 
   // 记住选定的楼栋（只存楼栋信息，不动昵称/手机号）
@@ -147,9 +188,11 @@ Page({
     })
   },
 
-  resetToCampus() {
+  // 清除已选楼栋，回到「未填写」态（后端与本地一起清）
+  async clearPoint() {
     wx.removeStorageSync(POINT_KEY)
-    this.setData({ location: CAMPUS, pickedPointId: null, showPointPicker: false })
+    this.setData({ location: POINT_UNSET, pickedPointId: null, showPointPicker: false, pointUnset: true })
+    await this.syncPoint('')
   },
 
   async loadCategories() {
@@ -193,7 +236,8 @@ Page({
     try {
       const list = await request.get(api.cartList)
       const count = list.reduce((s, it) => s + it.quantity, 0)
-      const total = list.reduce((s, it) => s + it.price * it.quantity, 0)
+      // 用 price_now（后端已按活动折后价算好）而不是 price，否则有活动时首页合计会比商城页偏高
+      const total = list.reduce((s, it) => s + (it.price_now !== undefined ? it.price_now : it.price) * it.quantity, 0)
       this.setData({ cartCount: count, cartTotal: total.toFixed(2) })
     } catch (e) { /* handled */ }
   },
@@ -290,11 +334,40 @@ Page({
   },
 
   async addCart(e) {
-    const id = e.currentTarget.dataset.id
+    const id = Number(e.currentTarget.dataset.id)
+    const g = this.findGoods(id)
+    if (g && Number(g.stock) <= 0) {
+      wx.showToast({ title: '「' + g.name + '」已售罄', icon: 'none' })
+      return
+    }
+    // 乐观更新：本地先 +1，让角标数字与飞入动画同时发生；请求失败再回滚
+    const back = this.bumpCart(1, g ? Number(g.sale_price || g.price) : 0)   // 与 loadCart 的 price_now 口径一致
+    flyCart.flyAfter(this, e)
     try {
       await request.post(api.cartAdd, { goods_id: id, quantity: 1 })
-      wx.showToast({ title: '已加入购物车', icon: 'success' })
-      this.loadCart()
-    } catch (err) { /* handled */ }
+    } catch (err) {
+      back()
+    }
+  },
+
+  // 商品查一次（搜索态与常态两处列表）
+  findGoods(id) {
+    if (this.data.searching) {
+      return this.data.searchResults.find((x) => Number(x.id) === id) || null
+    }
+    for (const grp of this.data.hotGroups) {
+      const hit = (grp.items || []).find((x) => Number(x.id) === id)
+      if (hit) return hit
+    }
+    return null
+  },
+
+  // 本地加减购物车角标，返回「回滚」函数（真实金额仍以后端 cart/list 为准，这里只为手感）
+  bumpCart(delta, unitPrice) {
+    const prev = { cartCount: this.data.cartCount, cartTotal: this.data.cartTotal }
+    const count = Math.max(0, prev.cartCount + delta)
+    const total = Math.max(0, Number(prev.cartTotal) + delta * (Number(unitPrice) || 0))
+    this.setData({ cartCount: count, cartTotal: total.toFixed(2) })
+    return () => this.setData(prev)
   }
 })

@@ -1,16 +1,39 @@
 <view class="profile-page sky-bg">
-  <view class="user-row" bindtap="onUserTap" hover-class="row-hover">
-    <view class="avatar"><t-icon name="user" size="24" color="#3078C0" /></view>
-    <view class="user-info">
-      <block wx:if="{{user && user.openid}}">
-        <view class="user-name">{{user.nickname || '零栋用户'}}</view>
-        <view class="user-phone text-weak" wx:if="{{user.phone}}">{{user.phone}}</view>
-        <view class="edit-hint text-weak text-sm">点击编辑个人信息 <t-icon name="chevron-right" size="12" color="#3078C0" /></view>
+  <view class="id-card" bindtap="onUserTap" hover-class="id-card-hover" hover-stay-time="60">
+    <!-- 头像本身是可点的：已登录时用微信 chooseAvatar（选择器里默认就是微信头像），未登录时点它去登录 -->
+    <button
+      class="id-avatar-btn"
+      open-type="{{user.openid ? 'chooseAvatar' : ''}}"
+      bind:chooseavatar="onChooseAvatar"
+      catch:tap="onAvatarTap"
+    >
+      <view class="id-avatar {{user.openid ? '' : 'id-avatar-off'}}">
+        <image wx:if="{{user.avatar}}" class="id-avatar-img" src="{{user.avatar}}" mode="aspectFill" />
+        <text wx:elif="{{user.openid}}" class="id-avatar-text">{{userInitial}}</text>
+        <t-icon wx:else name="user" size="26" color="#9AA6B2" />
+      </view>
+      <view class="id-avatar-edit" wx:if="{{user.openid}}">
+        <t-icon name="camera" size="11" color="#ffffff" />
+      </view>
+    </button>
+
+    <view class="id-body">
+      <block wx:if="{{user.openid}}">
+        <view class="id-name ellipsis">{{user.nickname || '零栋用户'}}</view>
+        <view class="id-meta" wx:if="{{roleText || phoneText}}">
+          <view wx:if="{{roleText}}" class="id-role">{{roleText}}</view>
+          <text wx:if="{{phoneText}}" class="id-phone">{{phoneText}}</text>
+        </view>
       </block>
       <block wx:else>
-        <view class="user-name">未登录</view>
-        <view class="login-link">点击登录 <t-icon name="chevron-right" size="12" color="#3078C0" /></view>
+        <view class="id-name">未登录</view>
+        <view class="id-meta"><text class="id-sub">登录后即可下单、查看配送进度</text></view>
       </block>
+    </view>
+
+    <view class="id-action">
+      <text class="id-action-text">{{user.openid ? '编辑' : '登录'}}</text>
+      <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
   </view>
 
@@ -53,7 +76,7 @@
     <view class="cell" bindtap="goAddress">
       <t-icon name="location" size="18" color="#111111" />
       <view class="cell-label" style="margin-left:16rpx;">收货地址</view>
-      <view class="cell-value"></view>
+      <view class="cell-value {{pointName ? '' : 'text-weak'}}">{{pointName || '未设置楼栋'}}</view>
       <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
     <view class="cell" bindtap="goRefundList">
@@ -77,12 +100,6 @@
     <view class="cell" bindtap="goSetting">
       <t-icon name="setting" size="18" color="#111111" />
       <view class="cell-label" style="margin-left:16rpx;">设置</view>
-      <view class="cell-value"></view>
-      <t-icon name="chevron-right" size="14" color="#C0C0C0" />
-    </view>
-    <view class="cell" bindtap="logout" wx:if="{{user}}">
-      <t-icon name="logout" size="18" color="#111111" />
-      <view class="cell-label" style="margin-left:16rpx;">退出登录</view>
       <view class="cell-value"></view>
       <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>

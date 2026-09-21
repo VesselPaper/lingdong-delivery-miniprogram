@@ -19,15 +19,11 @@
   height: 100%;
 }
 
-.hero-badge {
-  position: absolute;
-  right: 24rpx;
-  bottom: 24rpx;
-  background: rgba(0, 0, 0, 0.45);
-  color: #ffffff;
-  font-size: 22rpx;
-  border-radius: 8rpx;
-  padding: 8rpx 24rpx;
+/* 「已省 ¥x」：把优惠金额单独成行，不与现价挤在一行 */
+.save-line {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #E64340;
 }
 
 .info {
@@ -171,4 +167,79 @@
   font-weight: 500;
   display: flex;
   align-items: center;
+}
+
+/* ---------- 费用明细弹层（贴在底部栏上方，点空白收起） ---------- */
+.fee-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 20;
+}
+
+.fee-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(110rpx + env(safe-area-inset-bottom));
+  z-index: 21;
+  background: #ffffff;
+  border-radius: 20rpx 20rpx 0 0;
+  padding: 28rpx 32rpx 32rpx;
+  box-shadow: 0 -6rpx 24rpx rgba(0, 0, 0, 0.08);
+}
+
+.fee-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.fee-panel-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #111111;
+}
+
+.fee-panel-close {
+  padding: 8rpx;
+}
+
+.fee-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 26rpx;
+  color: #666666;
+  padding: 14rpx 0;
+}
+
+.fee-k {
+  color: #666666;
+}
+
+.fee-v {
+  color: #111111;
+}
+
+.fee-cut {
+  color: #E64340;
+}
+
+.fee-line-total {
+  margin-top: 8rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid #F0F0F0;
+}
+
+.fee-total {
+  color: #E64340;
+  font-size: 34rpx;
+  font-weight: 700;
+}
+
+.fee-note {
+  margin-top: 12rpx;
+  line-height: 1.6;
 }

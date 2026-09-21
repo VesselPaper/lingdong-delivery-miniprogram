@@ -1,9 +1,11 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
+const avatar = require('../../utils/avatar')
 
-// 编辑个人信息：昵称 + 手机号（保存调 PUT /user/profile）
+// 编辑个人信息：头像 + 昵称 + 手机号（保存调 PUT /user/profile）
 Page({
   data: {
+    avatarUrl: '',
     nickname: '',
     phone: '',
     saving: false
@@ -12,8 +14,17 @@ Page({
   async onLoad() {
     try {
       const user = await request.get(api.getProfile)
-      this.setData({ nickname: user.nickname || '', phone: user.phone || '' })
+      this.setData({
+        avatarUrl: user.avatar || '',
+        nickname: user.nickname || '',
+        phone: user.phone || ''
+      })
     } catch (e) { /* 未登录时 request 层会引导登录 */ }
+  },
+
+  // 头像：选中即上传即保存，不必等「保存」按钮（头像单独一个接口，改完立刻生效）
+  onChooseAvatar(e) {
+    avatar.chooseAndSave((user) => this.setData({ avatarUrl: user.avatar || '' }))(e)
   },
 
   onNickname(e) {

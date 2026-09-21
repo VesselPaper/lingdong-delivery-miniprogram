@@ -31,6 +31,59 @@
   margin: 24rpx 8rpx;
 }
 
+/* 头像行：<button open-type="chooseAvatar"> 自带样式全部抹掉，只借用它的微信头像选择能力 */
+.avatar-btn {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  line-height: 1;
+  overflow: visible;
+}
+
+.avatar-btn::after {
+  border: none;
+}
+
+.avatar-circle {
+  position: relative;
+  width: 104rpx;
+  height: 104rpx;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--fill);
+  border: 1rpx solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.avatar-edit {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 34rpx;
+  height: 34rpx;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--brand-deep);
+  border: 2rpx solid #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .foot-actions {
   margin-top: 40rpx;
 }

@@ -3,17 +3,27 @@ const request = require('../../utils/request')
 
 Page({
   data: {
-    list: []
+    list: [],
+    pointId: ''    // 当前配送楼栋 id（与首页顶部、结算页楼栋是同一份后端数据）
   },
 
   onShow() {
     this.load()
+    this.loadPoint()
   },
 
   async load() {
     try {
       const list = await request.get(api.addressList)
       this.setData({ list })
+    } catch (e) { /* handled */ }
+  },
+
+  // 当前楼栋以后端为准，用于在列表里标出「当前送达」并决定是否显示「送到这里」
+  async loadPoint() {
+    try {
+      const p = await request.get(api.userPoint)
+      this.setData({ pointId: p && p.landmark_id ? String(p.landmark_id) : '' })
     } catch (e) { /* handled */ }
   },
 
@@ -35,6 +45,18 @@ Page({
       wx.showToast({ title: '已设为默认', icon: 'success' })
       this.load()
     } catch (e) { /* handled */ }
+  },
+
+  // 直接切换当前配送楼栋：写的是后端 /user/point，首页顶部与结算页楼栋会同步变化
+  async setPoint(e) {
+    const id = Number(e.currentTarget.dataset.id)
+    const item = this.data.list.find((a) => Number(a.id) === id)
+    if (!item || !item.landmark_id) return
+    try {
+      await request.put(api.userPoint, { landmark_id: String(item.landmark_id) })
+      this.setData({ pointId: String(item.landmark_id) })
+      wx.showToast({ title: '已切换至' + (item.landmark_name || '该楼栋'), icon: 'none' })
+    } catch (err) { /* handled */ }
   },
 
   async del(e) {

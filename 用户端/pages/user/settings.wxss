@@ -1,6 +1,21 @@
 .settings-page {
   min-height: 100vh;
   background: #FAFAFA;
-  padding: 24rpx 32rpx 200rpx;
+  padding: 24rpx 32rpx 60rpx;
   box-sizing: border-box;
+}
+
+/* 保存按钮跟随表单卡片，不再悬浮在页面底部 */
+.save-wrap {
+  margin-top: 32rpx;
+}
+
+.hint {
+  margin-top: 16rpx;
+  line-height: 1.6;
+}
+
+/* 退出登录属危险操作，用红色文字与普通设置项区分 */
+.cell-danger .danger-text {
+  color: #E64340;
 }
