@@ -601,13 +601,37 @@ module.exports = (store, deps) => {
       batchRow = store.prepare('SELECT * FROM delivery_batches WHERE status IN (1,2) ORDER BY id DESC LIMIT 1').get()
       if (!batchRow) batchRow = store.prepare('SELECT * FROM delivery_batches WHERE status=0 ORDER BY id DESC LIMIT 1').get()
     } else {
-      // 真实（P1-10）：只按扫码设备号精确匹配待上货批次。
-      // 原先匹配不到会回退「取最早待上货批次」并顺手把 device_sn 覆盖成扫到的车 ——
-      // 商家对着 A 车扫码，货却上到 B 车（或 A 车被派了 B 车的货），真机误送必出客诉。
-      // 匹配不到直接 404 报错，引导商家先派车并指定本机器人，绝不静默认错车。
+      // 真实（P1-10）：按扫码设备号精确匹配，绝不把货错装到别的车。
+      // ① 该车已派好车的「待上货」批次 → 直接复用。
       batchRow = q.batchByStatusDeviceSn(store, 1, deviceSn)
+      // ② 还没派车（组单中 status=0）：商家站在车前扫码 = 明确指定了这台车，就把批次派给它。
+      //    修复：此前只认 status=1，而新订单产生的是 status=0 且 device_sn 为空，
+      //    导致「有单但没先点派车」时扫码必然报「没有批次」——而走到车前扫码本是商家最自然的动作。
+      if (!batchRow) {
+        const open = q.batchesByStatusIn(store, [0], 'ASC', 3)
+        for (const cand of open) {
+          try {
+            await s.doDispatchBatch(store, deps, cand.id, deviceSn)
+            batchRow = q.batchByStatusDeviceSn(store, 1, deviceSn)
+            break
+          } catch (e) {
+            // 被并发扫码抢走 → 试下一批；车忙/离线等真实故障 → 把可操作提示原样交给商家
+            if (String((e && e.message) || '').indexOf('已派车') === -1) {
+              return res.status(400).json({ code: 400, msg: e.message })
+            }
+          }
+        }
+      }
     }
-    if (!batchRow) return res.status(404).json({ code: 404, msg: '该机器人没有待上货的批次，请先在批次列表「派车」并指定本机器人' })
+    if (!batchRow) {
+      const otherReady = q.batchesByStatusIn(store, [1], 'ASC', 1)
+      return res.status(404).json({
+        code: 404,
+        msg: otherReady.length
+          ? '本车暂无待上货批次：待上货批次已派给其他无人车，请扫对应车辆'
+          : '当前没有待配单的订单，新订单接单后会自动组单，请稍后再试'
+      })
+    }
     // 记录设备编号到批次与批次内任务
     q.setBatchDeviceSn(store, batchRow.id, deviceSn)
     q.setBatchTasksDeviceSn(store, batchRow.id, deviceSn)

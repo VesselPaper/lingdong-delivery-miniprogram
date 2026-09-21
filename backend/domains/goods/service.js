@@ -9,7 +9,7 @@ const q = require('./queries')
 // 强制点在后端（mock-dispatch/test-complete 按 deviceMock 返回 404），此处下发仅供前端选择分支。
 function shopWithRuntime(shop, runtime) {
   return Object.assign(
-    { id: 1, name: '零栋铺子', business_status: 'open', auto_accept: 0 },
+    { id: 1, name: '零栋铺子', business_status: 'open', auto_accept: 0, delivery_fee: 1 },
     shop || {},
     {
       run_mode: runtime.mode,

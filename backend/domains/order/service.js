@@ -242,6 +242,12 @@ function createOrder(store, deps, body, userId) {
   if (shop.business_status === 'closed') {
     return { error: { status: 400, msg: '店铺歇业中，暂无法下单' } }
   }
+  // 配送费（元/单）：取店铺当前配置（商家端可改），缺省 1 元；下单时快照进订单，
+  // 事后商家调价不影响历史订单的对账与退款金额。
+  const feeRaw = shop.delivery_fee
+  const deliveryFee = feeRaw === undefined || feeRaw === null || isNaN(Number(feeRaw))
+    ? 1
+    : Math.max(0, Math.round(Number(feeRaw) * 100) / 100)
   const { landmark_id, landmark_name, remark = '', items = [], contact_name = '', contact_phone = '', address_id, activity_id } = body || {}
   if (!items.length) return { error: { status: 400, msg: '订单不能为空' } }
   // 收餐人落库（P0-3）：姓名 trim 非空 ≤20；手机号必须校验
@@ -277,13 +283,19 @@ function createOrder(store, deps, body, userId) {
   const pickupCodeNew = () => String(Math.floor(1000 + Math.random() * 9000))
   // 当前生效且已发布的活动（含时间窗过滤）：同单只享一个，取用户选中的（activity_id），未选/失效取最大优惠
   const ordersActivePromos = promotion.loadActive(store)
+  // 拆单（单笔超单车容量 12 件）时配送费整单只收一次，挂在第一单上，
+  // 否则一次下单被拆成 3 单就会收 3 次配送费。
+  let feeAssigned = false
   for (const chunk of chunks) {
     const originalTotal = chunk.reduce((s, it) => s + it.goods.price * it.quantity, 0)
     // 权威优惠计算：后端重算应付金额，前端自报价无效
     const promo = activity_id
       ? promotion.resolvePicked(chunk.map((it) => ({ goods: it.goods, quantity: it.quantity })), ordersActivePromos, activity_id)
       : promotion.resolve(chunk.map((it) => ({ goods: it.goods, quantity: it.quantity })), ordersActivePromos)
-    const chunkTotal = promo.payable
+    const chunkFee = feeAssigned ? 0 : deliveryFee
+    feeAssigned = true
+    // 实付 = 商品活动后金额 + 配送费（配送费不参与活动折扣，也不进 discount_amount）
+    const chunkTotal = Math.round((Number(promo.payable) + chunkFee) * 100) / 100
     const discountAmount = promo.discount
     const orderNo = orderNoNew()
     const pickupCode = pickupCodeNew()
@@ -293,6 +305,7 @@ function createOrder(store, deps, body, userId) {
       contactName: cname, contactPhone: cphone, totalAmount: Number(chunkTotal).toFixed(2),
       originalAmount: Number(originalTotal).toFixed(2), discountAmount: Number(discountAmount).toFixed(2),
       activityId: promo.activity ? promo.activity.id : null,
+      deliveryFee: Number(chunkFee).toFixed(2),
       remark, pickupCode, seq
     })
     for (const { goods, quantity } of chunk) {

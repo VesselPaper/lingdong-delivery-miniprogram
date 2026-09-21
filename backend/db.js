@@ -20,6 +20,8 @@ function init() {
       avatar TEXT,
       phone TEXT,
       role TEXT DEFAULT 'student',
+      landmark_id TEXT DEFAULT '',   -- 当前配送楼栋（首页/我的页/结算页三处共用同一份，空=未选择）
+      landmark_name TEXT DEFAULT '',
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS addresses (
@@ -128,6 +130,7 @@ function init() {
       name TEXT,
       business_status TEXT DEFAULT 'open',
       auto_accept INTEGER DEFAULT 0,
+      delivery_fee REAL DEFAULT 1,   -- 配送费（元/单），商家端可改，默认 1 元
       updated_at TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS activities (
@@ -170,6 +173,7 @@ function init() {
   migrate(db)
   seed(db)
   importStoreGoods(db)
+  applySeedImages(db)
   return db
 }
 
@@ -237,6 +241,13 @@ function migrate(db) {
   // users：订单消息已读时间（我的页红点）
   const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
   if (!userCols.includes('order_read_at')) db.exec("ALTER TABLE users ADD COLUMN order_read_at TEXT")
+  // users：当前配送楼栋（首页顶部 / 我的页收货地址 / 结算页楼栋 三处共用同一份后端数据，
+  // 不再各自维护本地缓存，否则三处会互相看不见对方的修改）
+  if (!userCols.includes('landmark_id')) db.exec("ALTER TABLE users ADD COLUMN landmark_id TEXT DEFAULT ''")
+  if (!userCols.includes('landmark_name')) db.exec("ALTER TABLE users ADD COLUMN landmark_name TEXT DEFAULT ''")
+  // shops：配送费（元/单），商家端可配置，默认 1 元
+  const shopCols = db.prepare('PRAGMA table_info(shops)').all().map((c) => c.name)
+  if (!shopCols.includes('delivery_fee')) db.exec("ALTER TABLE shops ADD COLUMN delivery_fee REAL DEFAULT 1")
   // 历史数据修正：地址 landmark_id 若存成 "2.0" 这类数值文本，规范化为 "2"
   const addrRows = db.prepare('SELECT id, landmark_id FROM addresses').all()
   addrRows.forEach((r) => {
@@ -288,6 +299,8 @@ function migrate(db) {
   if (!orderCols.includes('original_amount')) db.exec("ALTER TABLE orders ADD COLUMN original_amount REAL")
   if (!orderCols.includes('discount_amount')) db.exec("ALTER TABLE orders ADD COLUMN discount_amount REAL DEFAULT 0")
   if (!orderCols.includes('activity_id')) db.exec("ALTER TABLE orders ADD COLUMN activity_id INTEGER")
+  // 订单：配送费（下单时快照当时的店铺配送费，事后商家改价不影响历史订单对账）
+  if (!orderCols.includes('delivery_fee')) db.exec("ALTER TABLE orders ADD COLUMN delivery_fee REAL DEFAULT 0")
   // 商品：条码 / 主单位（门店进销存数据导入）
   const goodsCols = db.prepare('PRAGMA table_info(goods)').all().map((c) => c.name)
   if (!goodsCols.includes('barcode')) db.exec("ALTER TABLE goods ADD COLUMN barcode TEXT DEFAULT ''")
@@ -422,6 +435,9 @@ function importStoreGoods(db) {
   if (meta && meta.value === hash) return
 
   // 记录本次重导前已存在的商品图（按条码），重建后回填，避免清空已填的图片。
+  // 分工：此处只负责"保留商家已上传/已配的那批图"（按条码，DELETE 前快照，重建后贴回）。
+  // "给 image 为空的商品回填同名种子图"由启动兜底 applySeedImages() 统一负责（见其注释），
+  // 它只在 image 为空时补，绝不覆盖此处贴回的上传图 —— 两者不冲突、职责互补。
   let imgByBc = {}
   try {
     const prev = db.prepare('SELECT barcode, image FROM goods WHERE image <> \'\'').all()
@@ -457,6 +473,33 @@ function importStoreGoods(db) {
     db.exec('ROLLBACK')
     throw e
   }
+}
+
+// 商品种子图回填（幂等）：门店商品重导（importStoreGoods）会用 store_goods.json 整体替换商品表，
+// 而该文件不含图片列，会把所有 goods.image 清空，导致用户端/商家端商品图全部空白。
+// 这里在每次启动后，为「图片为空但有同名种子图」的商品填上 /store-img/<文件名>，其余（无种子图）保持为空、留待商家后台自行上传。
+// 幂等：只更新 image 为空的商品；已有图片（商家后台上传过 /uploads/...）绝不覆盖。
+function applySeedImages(db) {
+  const dir = path.join(__dirname, 'seed_images')
+  let files = []
+  try { files = fs.readdirSync(dir).filter((f) => /\.(jpg|jpeg|png|webp|gif)$/i.test(f)) } catch (e) { return }
+  if (!files.length) return
+  // 保留中文/字母/数字，去掉空格与标点，用于名称匹配
+  const key = (s) => String(s).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]/g, '')
+  const seeds = files.map((f) => ({ file: f, key: key(f.replace(/\.[^.]+$/, '')) }))
+  const empty = db.prepare("SELECT id, name FROM goods WHERE image IS NULL OR image = ''").all()
+  const upd = db.prepare('UPDATE goods SET image=? WHERE id=?')
+  let n = 0
+  for (const g of empty) {
+    const gk = key(g.name)
+    if (!gk) continue
+    // 只做「规范化后完全相等」的匹配：种子图文件名就是商品名（仅标点/空格差异）。
+    // 早先的子串匹配（indexOf/startsWith）会把「脆升升 薯条蜂蜜黄油味50g」错配给
+    // 「脆升升 波浪薯片蜂蜜黄油味38g」这类同品牌不同口味的商品，故收紧为精确匹配。
+    const hit = seeds.find((s) => s.key === gk)
+    if (hit) { upd.run('/store-img/' + hit.file, g.id); n++ }
+  }
+  if (n) console.log(`[db] 种子图回填：${n} 个商品已补齐 image（/store-img/）`)
 }
 
 module.exports = { init, DB_PATH }

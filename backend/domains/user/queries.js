@@ -13,14 +13,22 @@ module.exports = {
   updateNickname: (store, id, nickname) => store.prepare('UPDATE users SET nickname=? WHERE id=?').run(nickname, id),
   // 持正确邀请码的学生升级为商家
   upgradeToMerchant: (store, id) => store.prepare("UPDATE users SET role='merchant' WHERE id=?").run(id),
-  updateProfile: (store, id, nickname, phone) => {
+  // 逐字段更新：undefined/null 表示「本次不改这个字段」，避免只传昵称时把手机号清空
+  updateProfile: (store, id, nickname, phone, avatar) => {
     if (nickname !== undefined && nickname !== null) {
       store.prepare('UPDATE users SET nickname=? WHERE id=?').run(String(nickname), id)
     }
     if (phone !== undefined && phone !== null) {
       store.prepare('UPDATE users SET phone=? WHERE id=?').run(String(phone), id)
     }
+    if (avatar !== undefined && avatar !== null) {
+      store.prepare('UPDATE users SET avatar=? WHERE id=?').run(String(avatar), id)
+    }
   },
+  // 当前配送楼栋：首页顶部 / 我的页收货地址 / 结算页楼栋 三处读写同一份，空串=未选择。
+  // 不放在地址簿里是因为「没建过地址也要能选楼栋」，而地址簿是可选的联系人信息。
+  updatePoint: (store, id, landmarkId, landmarkName) => store.prepare('UPDATE users SET landmark_id=?, landmark_name=? WHERE id=?')
+    .run(String(landmarkId || ''), String(landmarkName || ''), id),
 
   // ---------- cart ----------
   // 列表 JOIN goods 取名称/价格/库存（跨域只读；写权限仍只在 cart 表）

@@ -31,8 +31,8 @@ module.exports = {
 
   // ---------- shops ----------
   getShop: (store) => store.prepare('SELECT * FROM shops WHERE id=1').get() || {},
-  updateShop: (store, business_status, auto_accept) => store.prepare(
-    "UPDATE shops SET business_status=?, auto_accept=?, updated_at=datetime('now','localtime') WHERE id=1").run(business_status, auto_accept),
+  updateShop: (store, business_status, auto_accept, delivery_fee) => store.prepare(
+    "UPDATE shops SET business_status=?, auto_accept=?, delivery_fee=?, updated_at=datetime('now','localtime') WHERE id=1").run(business_status, auto_accept, delivery_fee),
 
   // ---------- activities ----------
   listActivities: (store) => store.prepare('SELECT * FROM activities WHERE status=1 ORDER BY sort, id DESC').all(),

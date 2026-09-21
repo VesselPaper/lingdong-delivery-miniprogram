@@ -36,12 +36,19 @@ module.exports = (store, deps) => {
   router.get('/merchant/shop', merchantGuard, (req, res) => ok(res, service.shopWithRuntime(q.getShop(store), runtime)))
 
   router.put('/merchant/shop', merchantGuard, (req, res) => {
-    const { business_status, auto_accept } = req.body || {}
+    const { business_status, auto_accept, delivery_fee } = req.body || {}
     const cur = q.getShop(store)
-    const st = business_status === 'closed' ? 'closed' : 'open'
+    // 未传的字段保留原值（此前 business_status 缺省会被强制成 open，导致单改配送费会把歇业店改回营业）
+    const st = business_status === undefined ? (cur.business_status || 'open') : (business_status === 'closed' ? 'closed' : 'open')
     const aa = auto_accept === undefined ? cur.auto_accept : (auto_accept ? 1 : 0)
-    q.updateShop(store, st, aa)
-    audit(req, 'shop/update', 'shop#1', 'business_status=' + st + ' auto_accept=' + aa)
+    // 配送费：只接受 0~999 的数值（保留 2 位小数）；非法输入忽略并保留原值，空串按 0 处理
+    let df = cur.delivery_fee === undefined || cur.delivery_fee === null ? 1 : Number(cur.delivery_fee)
+    if (delivery_fee !== undefined) {
+      const n = Number(delivery_fee)
+      if (!isNaN(n) && n >= 0 && n <= 999) df = Math.round(n * 100) / 100
+    }
+    q.updateShop(store, st, aa, df)
+    audit(req, 'shop/update', 'shop#1', 'business_status=' + st + ' auto_accept=' + aa + ' delivery_fee=' + df)
     ok(res, q.getShop(store))
   })
 
@@ -90,7 +97,8 @@ module.exports = (store, deps) => {
   router.post('/merchant/goods', merchantGuard, (req, res) => {
     const { name, price, original_price, image, category, stock, description, barcode, unit } = req.body || {}
     if (!name) return res.status(400).json({ code: 400, msg: '商品名称不能为空' })
-    const st = toStock(stock, 999)
+    // 库存缺省 99：与商家端表单提示「不填默认 99」保持一致
+    const st = toStock(stock, 99)
     const id = q.insert(store, { name, price, original_price, image, category, stock: st, description, barcode, unit })
     audit(req, 'goods/create', 'goods#' + id, 'name=' + name + ' price=' + price + ' stock=' + st)
     ok(res, { id })
@@ -101,8 +109,8 @@ module.exports = (store, deps) => {
     if (!id) return res.status(400).json({ code: 400, msg: '缺少商品 id' })
     const cur = q.findById(store, id)
     if (!cur) return res.status(404).json({ code: 404, msg: '商品不存在' })
-    // 编辑商品时未传 stock 字段 → 保留原库存；传了（含 0）→ 用传入值（修复「设 0 变 999」）
-    const st = stock === undefined || stock === null || stock === '' ? cur.stock : toStock(stock, 999)
+    // 编辑商品时未传 stock 字段 → 保留原库存；传了（含 0）→ 用传入值（修复「设 0 被重置」）
+    const st = stock === undefined || stock === null || stock === '' ? cur.stock : toStock(stock, 99)
     q.update(store, id, {
       name, price, original_price, image, category, stock: st, description,
       status: status !== undefined ? Number(status) : 1,
