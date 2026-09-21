@@ -1,1 +1,0 @@
-const props={animation:{type:String,value:"moving"},text:{type:String,value:""}};export default props;

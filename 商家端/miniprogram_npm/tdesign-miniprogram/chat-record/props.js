@@ -1,1 +1,0 @@
-const props={autoSend:{type:Boolean,value:!1},bottomHeight:{type:Number,value:0},duration:{type:Number,value:6e4},lang:{type:String,value:"zh_CN"}};export default props;

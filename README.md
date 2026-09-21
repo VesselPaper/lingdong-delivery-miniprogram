@@ -283,6 +283,14 @@ git push origin main         # 再推送（普通推送，不要加 --force）
 
 白灰底 + 品牌蓝 #3078C0 + 黑灰文字 + 浅蓝辅助 #DCE9F8，干净整洁的电商蓝风格。设计变量与自绘组件层（btn/cell/field/nav/stepper/popup）见双端 app.wxss。
 
+### 图标与包体积（改动前务必先读）
+
+- 两端图标统一用 `t-icon`，但**字体已本地化**：`miniprogram_npm/tdesign-miniprogram/icon/icon.wxss` 的 `@font-face` 已改为**内联 base64 的子集字体**（只含项目实际用到的 48 个图标字形，约 10KB），不再走 `tdesign.gtimg.com` CDN——避免弱网首屏图标闪烁/缺失。
+- `miniprogram_npm/tdesign-miniprogram/` 已**按需精简**：只保留 `icon / qrcode / loading / common / mixins` + 嵌套 `tslib`，其余 90 多个未使用组件（button/dialog/calendar/chat 全家桶…）已删除，主包从 2.58MB 降到约 0.69MB。
+- ⚠️ **在微信开发者工具里重新执行「构建 npm」会把上面两项都覆盖回去**（组件恢复全量、字体回到 CDN）。若必须重建，请重建后重新精简组件目录、并把图标字体换回子集 base64（子集只保留实际用到的字形，缺字形会显示成方块）。
+- ⚠️ 自定义 `<button>`（尤其带 `open-type` 的）放在 flex 行里时，**必须显式写 `flex: 0 0 auto`**：微信 button 默认会参与 flex 拉伸，会把同行文字顶开（"我的"页头像卡面踩过这个坑）。
+- 底部导航栏为**通栏贴底**（`custom-tab-bar/index.wxss`，白底覆盖安全区）；tab 页的悬浮购物车栏用 `bottom: calc(116rpx + env(safe-area-inset-bottom))` 贴在导航栏上沿。
+
 ## 核心功能
 
 - 用户端：登录、商品浏览/搜索/分类、购物车、选点位下单、微信支付、订单管理（直接取消/取消申请/退款投诉）、取餐码、机器人配送追踪（含同车进度）、模拟扫码取餐、售后记录、地址管理、活动查看、我的页订单红点。

@@ -1,1 +1,0 @@
-const props={content:{type:String},ellipsis:{type:null,value:!1},level:{type:String,value:"h1"}};export default props;
