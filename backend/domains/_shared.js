@@ -4,6 +4,8 @@
 // 说明：本文件不依赖任何域，域间互相 require 时不会成环。
 
 const crypto = require('crypto')
+// 状态流水：audit() 顺带登记「操作者线索」，供采集器给状态迁移署名（见 services/statusEvents.js）
+const statusEvents = require('../services/statusEvents')
 
 // 管理员令牌：页面首次打开需输入（存 localStorage）；可用环境变量 ADMIN_TOKEN 覆盖
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '123456'
@@ -91,16 +93,119 @@ function createShared(store) {
   // 商家敏感操作审计（P1-13）：改价/上下架/退款/取消/派车/设备控制/活动全部落 audit_logs，
   // 配合手机号脱敏形成「展示最小化、操作可追溯」的隐私与责任闭环。
   // 管理员操作（方案A）同样落审计：身份 = 登录的管理员账号（user_id=管理员id, user_role='admin'）。
+  //
+  // 2026-09 重构：audit() 改为「纯标注」——只把语义写进 req._audit，不直接落库。
+  // 真正的写入由 auditMw 在响应时统一完成，好处：
+  //   ① 新增写接口自动进审计（中间件兜底），不再依赖每个 handler 记得手写一行；
+  //      （此前管理端 14 个写接口就是因为漏写 audit() 而没有留痕）
+  //   ② 成功与失败都留痕：失败时 detail 取响应 msg；
+  //   ③ 现有 audit(req, action, target, detail) 调用签名不变，一行都不用改。
   function audit(req, action, target, detail) {
-    try {
-      const uid = req.admin ? req.admin.id : (req.user ? req.user.id : 0)
-      const role = req.admin ? 'admin' : (req.user ? (req.user.role || '') : '')
-      store.prepare('INSERT INTO audit_logs (user_id, user_role, action, target, detail) VALUES (?,?,?,?,?)')
-        .run(uid, role, String(action || ''), String(target || ''), String(detail || '').slice(0, 500))
-    } catch (e) { /* 审计失败不阻断业务 */ }
+    if (!req) return
+    req._audit = {
+      action: String(action || ''),
+      target: String(target || ''),
+      detail: String(detail || '')
+    }
+    // 顺带登记「操作者线索」：采集器捕获到 target 所指实体的状态迁移时，用这个操作者署名。
+    // 这样 37 处已有的 audit() 调用无需改动，就为状态时间线补上了 actor 归属。
+    const actor = req.admin
+      ? { type: 'admin', id: req.admin.id, name: req.admin.username }
+      : (req.user
+        ? { type: req.user.role === 'merchant' ? 'merchant' : 'user', id: req.user.id, name: req.user.nickname || '' }
+        : null)
+    if (actor) statusEvents.hintActor(String(target || ''), actor, String(detail || ''))
   }
 
-  return { auth, merchantGuard, adminGuard, audit, ok, maskPhone, toStock }
+  // ---------- 审计中间件：写请求统一落库（成功与失败都记） ----------
+  // 只读（GET/HEAD/OPTIONS）不记；高频且无审计价值的写路径由 AUDIT_EXCLUDE_PREFIXES 排除，
+  // 否则用户端加购物车/改地址这类操作会把审计表刷爆。
+  // 注意：中间件挂在 app.use('/api', ...)，此时 req.path 已被剥掉挂载前缀，
+  // 所以排除判断与动作推导一律用 req.originalUrl（完整路径）。
+  const AUDIT_EXCLUDE = String(process.env.AUDIT_EXCLUDE_PREFIXES === undefined
+    ? '/api/cart,/api/address,/api/user,/api/pay/notify'
+    : process.env.AUDIT_EXCLUDE_PREFIXES)
+    .split(',').map((s) => s.trim()).filter(Boolean)
+
+  function fullPathOf(req) {
+    return String((req && (req.originalUrl || req.url || req.path)) || '').split('?')[0]
+  }
+
+  // 从请求体里挑一个最能代表「操作对象」的字段，形如 order#123 / device_sn#Z201...
+  const AUDIT_ID_FIELDS = ['order_id', 'batch_id', 'task_id', 'platform_task_id', 'goods_id', 'activity_id', 'id', 'device_sn']
+  function auditTarget(req) {
+    const b = (req && req.body) || {}
+    for (const k of AUDIT_ID_FIELDS) {
+      const v = b[k]
+      if (v === undefined || v === null || v === '') continue
+      return k.replace(/_id$/, '') + '#' + String(v).slice(0, 60)
+    }
+    return ''
+  }
+
+  // 由路径推导动作码：POST /api/admin/order/cancel → admin/order/cancel [POST]
+  // 本项目所有 id 都在 body/query（路径无动态段），故路径即稳定的动作标识。
+  function auditAction(req) {
+    const p = fullPathOf(req).replace(/^\/+/, '').replace(/^api\//, '').replace(/\/+$/, '')
+    return (p || 'unknown') + ' [' + String((req && req.method) || '').toUpperCase() + ']'
+  }
+
+  function auditMw(req, res, next) {
+    const method = String(req.method || '').toUpperCase()
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return next()
+    const path = fullPathOf(req)
+    if (AUDIT_EXCLUDE.some((pre) => path.indexOf(pre) === 0)) return next()
+
+    const startedAt = Date.now()
+    let done = false
+    let failMsg = ''
+
+    function write() {
+      if (done) return
+      done = true
+      try {
+        // 身份：adminGuard 设 req.admin / auth 设 req.user（两者都在响应前完成，故此处读取可靠）
+        const actor = req.admin
+          ? { id: req.admin.id, role: 'admin', name: req.admin.username }
+          : (req.user
+            ? { id: req.user.id, role: req.user.role || '', name: req.user.nickname || '' }
+            : { id: 0, role: '', name: '' })
+        const ann = req._audit || {}
+        const status = Number(res.statusCode) || 0
+        const okFlag = status >= 200 && status < 400
+        // 成功用标注 detail；失败优先用标注 detail，否则取响应 msg（如「原密码不正确」）
+        const detail = ann.detail || (okFlag ? '' : failMsg)
+        store.prepare(`INSERT INTO audit_logs
+          (user_id, user_role, action, target, detail, ok, status, ip, ua, ms)
+          VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
+          actor.id, actor.role,
+          String(ann.action || auditAction(req)).slice(0, 120),
+          String(ann.target || auditTarget(req)).slice(0, 120),
+          String(detail || '').slice(0, 500),
+          okFlag ? 1 : 0, status,
+          String(req.ip || (req.socket && req.socket.remoteAddress) || '').slice(0, 60),
+          String(req.headers['user-agent'] || '').slice(0, 200),
+          Date.now() - startedAt
+        )
+      } catch (e) { /* 审计失败不阻断业务 */ }
+    }
+
+    // 包一层 res.json 取失败原因，并在响应前落库（此时 audit() 标注一定已写入）
+    const origJson = res.json.bind(res)
+    res.json = function (body) {
+      try {
+        if (body && typeof body === 'object' && Number(body.code) !== 0) failMsg = String(body.msg || '')
+      } catch (e) { /* 忽略 */ }
+      write()
+      return origJson(body)
+    }
+    // 兜底：非 JSON 响应（res.send/end）或连接中断时也要落库
+    res.on('finish', write)
+    res.on('close', write)
+    next()
+  }
+
+  return { auth, merchantGuard, adminGuard, audit, auditMw, ok, maskPhone, toStock }
 }
 
 module.exports = { createShared, ok, maskPhone, toStock, ADMIN_TOKEN, assetAbs, PUBLIC_ORIGIN }

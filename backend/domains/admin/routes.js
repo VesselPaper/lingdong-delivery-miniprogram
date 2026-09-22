@@ -134,6 +134,36 @@ module.exports = (store, deps) => {
     ok(res, await s.buildAdminState(store, deps))
   })
 
+  // 审计日志（管理页「操作日志」）：读服务端持久化的 audit_logs，成功与失败都在。
+  // 默认只看管理员（user_role='admin'）；role=all 看全部（含商家/用户端的写操作）。
+  // 写入由 domains/_shared.js → auditMw 中间件统一负责，本接口只读。
+  router.get('/admin/audit', adminGuard, (req, res) => {
+    const query = req.query || {}
+    const role = query.role === undefined ? 'admin' : String(query.role)
+    const okRaw = query.ok
+    ok(res, q.auditLogs(store, {
+      limit: query.limit,
+      offset: query.offset,
+      action: query.action ? String(query.action) : '',
+      role: role === 'all' ? '' : role,
+      ok: (okRaw === undefined || okRaw === '') ? undefined : Number(okRaw)
+    }))
+  })
+
+  // 状态时间线（管理页详情抽屉）：status_events 真实事件优先；老数据无事件时给「推断节点」。
+  // type=batch 时合并批内订单事件（一次看清整批流转）。
+  router.get('/admin/timeline', adminGuard, (req, res) => {
+    const query = req.query || {}
+    const type = String(query.type || '')
+    const id = Number(query.id || 0)
+    if (!id || ['order', 'batch', 'task'].indexOf(type) < 0) {
+      return res.status(400).json({ code: 400, msg: '参数不合法：需要 type=order|batch|task 与 id' })
+    }
+    const r = s.buildTimeline(store, type, id)
+    if (!r) return res.status(404).json({ code: 404, msg: '对象不存在' })
+    ok(res, r)
+  })
+
   // 令牌校验：前端「令牌」输入框提交后验证（对=200，错=401），用于即时反馈正确/错误
   router.get('/admin/verify', adminGuard, (req, res) => {
     ok(res, { valid: true, admin: true })
@@ -175,7 +205,9 @@ module.exports = (store, deps) => {
     const { platform_task_id = '' } = req.body || {}
     if (!platform_task_id) return res.status(400).json({ code: 400, msg: '缺少平台任务ID' })
     const r = await deps.platform.cancelQueueTask(platform_task_id)
-    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+    if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg })
+    audit(req, 'admin/task-cancel', 'platform_task#' + platform_task_id, '取消排队任务')
+    ok(res, r)
   })
 
   // 关闭任务（舱内有货会自动开舱）
@@ -183,20 +215,27 @@ module.exports = (store, deps) => {
     const { device_sn = '', platform_task_id = '' } = req.body || {}
     if (!device_sn || !platform_task_id) return res.status(400).json({ code: 400, msg: '缺少设备编号或任务ID' })
     const r = await deps.platform.closeTask(device_sn, platform_task_id, '管理员手动关闭')
-    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+    if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg })
+    audit(req, 'admin/task-close', 'platform_task#' + platform_task_id, '关闭平台任务（设备 ' + device_sn + '，舱内有货自动开舱）')
+    ok(res, r)
   })
 
   // 删除预创建任务（预创建后不再继续，立即关舱）
   router.post('/admin/precreate/del', adminGuard, async (req, res) => {
-    const r = await deps.platform.deletePreCreateTask(String((req.body || {}).device_sn || ''))
-    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+    const sn = String((req.body || {}).device_sn || '')
+    const r = await deps.platform.deletePreCreateTask(sn)
+    if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg })
+    audit(req, 'admin/precreate-del', 'device#' + sn, '删除预创建任务（立即关舱）')
+    ok(res, r)
   })
 
   // 开/关舱门（drawerCtrl 独立控制，不影响任务状态）
   router.post('/admin/drawer', adminGuard, async (req, res) => {
     const { device_sn = '', cmd = 1 } = req.body || {}
     const r = await deps.platform.drawerCtrl(String(device_sn), Number(cmd))
-    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+    if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg })
+    audit(req, 'admin/drawer', 'device#' + device_sn, Number(cmd) ? '开舱' : '关舱')
+    ok(res, r)
   })
 
   // 召唤可选目标点（上货点/充电点/取货点）
@@ -210,7 +249,9 @@ module.exports = (store, deps) => {
     const { device_sn = '', landmark_id = '' } = req.body || {}
     if (!landmark_id) return res.status(400).json({ code: 400, msg: '缺少目标点位' })
     const r = await deps.platform.summonToPoint(store, String(device_sn), String(landmark_id))
-    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+    if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg })
+    audit(req, 'admin/robot-summon', 'device#' + device_sn, '召唤到点位 ' + landmark_id + '（会中断正在执行的配送任务）')
+    ok(res, r)
   })
 
   // 机器人驻停（stopTime 秒后自动恢复）
@@ -218,7 +259,9 @@ module.exports = (store, deps) => {
     const { device_sn = '', stop_time = 30 } = req.body || {}
     if (!device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
     const r = await deps.platform.stopRobot(String(device_sn), Number(stop_time))
-    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+    if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg })
+    audit(req, 'admin/robot-stop', 'device#' + device_sn, '驻停 ' + Number(stop_time) + ' 秒后自动恢复')
+    ok(res, r)
   })
 
   // 机器人继续工作（恢复任务）
@@ -226,7 +269,9 @@ module.exports = (store, deps) => {
     const { device_sn = '' } = req.body || {}
     if (!device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
     const r = await deps.platform.recoverRobot(store, String(device_sn))
-    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+    if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg })
+    audit(req, 'admin/robot-recover', 'device#' + device_sn, '恢复任务执行')
+    ok(res, r)
   })
 
   // 停止并取消正在做的任务（先关闭活跃任务，再驻停）
@@ -234,26 +279,96 @@ module.exports = (store, deps) => {
     const { device_sn = '' } = req.body || {}
     if (!device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
     const r = await deps.platform.stopAndCancelTask(store, String(device_sn))
-    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+    if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg })
+    audit(req, 'admin/robot-stop-cancel', 'device#' + device_sn, '关闭活跃任务 ' + (r.closed || 0) + ' 个并驻停')
+    ok(res, r)
+  })
+
+  // 取消机器人当前的全部任务（管理页「更多操作 → 停止并取消任务」）
+  // 与旧 /robot/stop-cancel 的区别（旧接口保留作兼容，前端不再调用）：
+  //   ① 旧接口只关「平台任务」且最多 3 个，不回补库存、不摘批次 → 本地订单会卡在「配送中」；
+  //   ② 本接口枚举该设备全部任务并逐个关闭，且对关联本地订单走 order 域统一落账
+  //      （作废任务 + 回补库存 + 摘批次 + 平台召回），批次置 4，双端一致、不留脏数据。
+  // 顺序：先枚举 → 再本地落账（内含平台召回，记录已处理的任务）→ 关闭剩余孤儿任务 → 批次置 4。
+  router.post('/admin/robot/cancel-tasks', adminGuard, async (req, res) => {
+    const sn = String((req.body || {}).device_sn || '')
+    if (!sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
+    const out = { device_sn: sn, closed: 0, cancelled: 0, batch_cleaned: 0, failed: [], source: '' }
+
+    // ① 枚举该设备当前任务：优先平台货舱查询（权威），失败回退本地活跃任务
+    const ids = []
+    const qt = await deps.platform.queryDeviceTasks(sn)
+    if (qt.ok && (qt.tasks || []).length) {
+      out.source = 'platform'
+      for (const t of qt.tasks) if (t.taskId) ids.push(String(t.taskId))
+    } else {
+      out.source = qt.ok ? 'platform-empty' : 'local-fallback'
+      const local = await deps.platform.deviceActiveTasks(store, sn)
+      for (const t of (local || [])) if (t.id) ids.push(String(t.id))
+    }
+    const uniq = [...new Set(ids)]
+
+    // ② 关联本地订单统一落账（内含平台召回）；记录其平台任务，避免下一步重复关闭
+    const handled = new Set()
+    for (const o of q.activeOrdersByDevice(store, sn)) {
+      try {
+        const r = await deps.order.applyOrderCancelled(store, orderDeps, o, { reason: '管理员取消机器人全部任务' })
+        if (r.claimed) out.cancelled++
+        for (const t of (r.tasks || [])) if (t && t.platform_task_id) handled.add(String(t.platform_task_id))
+      } catch (e) { out.failed.push('订单#' + o.id + '：' + e.message) }
+    }
+
+    // ③ 关闭剩余平台任务（订单落账未覆盖的孤儿任务），逐项容错
+    for (const pid of uniq) {
+      if (handled.has(pid)) continue
+      try {
+        const r = await deps.platform.closeTask(sn, pid, '管理员取消机器人全部任务')
+        if (r.ok) out.closed++
+        else out.failed.push('平台任务 ' + pid + '：' + r.msg)
+      } catch (e) { out.failed.push('平台任务 ' + pid + '：' + e.message) }
+    }
+
+    // ④ 该设备涉及的活跃批次置 4
+    for (const b of q.activeBatchesByDevice(store, sn)) { q.cleanBatch(store, b.id); out.batch_cleaned++ }
+
+    audit(req, 'admin/robot-cancel-tasks', 'device#' + sn,
+      '关闭平台任务 ' + out.closed + '，取消订单 ' + out.cancelled + '，清理批次 ' + out.batch_cleaned
+      + '，失败 ' + out.failed.length + '（枚举来源 ' + out.source + '）')
+    ok(res, out)
   })
 
   // 获取设备控制权
   router.post('/admin/control/grant', adminGuard, async (req, res) => {
-    const r = await deps.platform.grantControl(String((req.body || {}).device_sn || ''), 600)
-    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+    const sn = String((req.body || {}).device_sn || '')
+    const r = await deps.platform.grantControl(sn, 600)
+    if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg })
+    // 控制权 ID 持久化：此前直接丢弃返回值，导致「释放控制权」必须人工输入 ID
+    const ctrlId = String((r.data && (r.data.ctrlId || r.data.sessionId || r.data.id)) || '')
+    if (sn && ctrlId) q.setMeta(store, 'ctrl_id:' + sn, ctrlId)
+    audit(req, 'admin/control-grant', 'device#' + sn, '获取控制权 600 秒' + (ctrlId ? '' : '（平台未返回 ctrlId）'))
+    ok(res, r)
   })
 
   // 释放设备控制权（ctrl-id 放 header；body 为 deviceSn+principalId）
+  // ctrl_id 可省：优先用请求体，否则读获取时持久化到 meta 的值（前端不再需要人工输入）
   router.post('/admin/control/release', adminGuard, async (req, res) => {
     const { device_sn = '', ctrl_id = '' } = req.body || {}
-    const r = await deps.platform.releaseControl(String(device_sn), String(ctrl_id))
-    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg })
+    const sn = String(device_sn)
+    const id = String(ctrl_id) || String(q.getMeta(store, 'ctrl_id:' + sn) || '')
+    if (!id) return res.status(400).json({ code: 400, msg: '缺少控制权ID（未记录该设备的控制权，或已被释放）' })
+    const r = await deps.platform.releaseControl(sn, id)
+    if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg })
+    q.delMeta(store, 'ctrl_id:' + sn)
+    audit(req, 'admin/control-release', 'device#' + sn, '释放控制权')
+    ok(res, r)
   })
 
   // 同步点位（从平台 landmarks 拉到本地库）
   router.post('/admin/landmarks/sync', adminGuard, async (req, res) => {
     const r = await deps.platform.syncLandmarks(store)
-    r.ok ? ok(res, r) : res.status(400).json({ code: 400, msg: r.msg || '同步失败' })
+    if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg || '同步失败' })
+    audit(req, 'admin/landmarks-sync', 'landmarks', '点位同步 ' + (r.count === undefined ? '' : r.count + ' 个'))
+    ok(res, r)
   })
 
   // 本地取消订单（cancelLocal：作废任务+回补库存+摘批次；随后平台召回关任务）
@@ -261,6 +376,8 @@ module.exports = (store, deps) => {
     const order = q.orderById(store, Number((req.body || {}).order_id || 0))
     if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
     const r = await deps.order.applyOrderCancelled(store, orderDeps, order, { reason: '管理员清理' })
+    audit(req, 'admin/order-cancel', 'order#' + order.id,
+      '订单 ' + (order.order_no || order.id) + ' 取消：claimed=' + r.claimed + ' 终态=' + r.finalStatus + ' 平台任务=' + r.tasks.length)
     ok(res, { claimed: r.claimed, final_status: r.finalStatus, tasks: r.tasks.length })
   })
 
@@ -277,6 +394,7 @@ module.exports = (store, deps) => {
     }
     q.voidTask(store, taskId, '管理员作废')
     out.voided = true
+    audit(req, 'admin/task-close-void', 'task#' + taskId, '关闭平台任务=' + out.closed + ' 本地作废=' + out.voided)
     ok(res, out)
   })
 
@@ -427,6 +545,7 @@ module.exports = (store, deps) => {
     const t = q.taskById(store, taskId)
     if (!t) return res.status(404).json({ code: 404, msg: '任务不存在' })
     q.voidTask(store, taskId, '管理员作废')
+    audit(req, 'admin/task-void', 'task#' + taskId, '仅本地作废（不关平台任务）')
     ok(res, { task_id: taskId })
   })
 

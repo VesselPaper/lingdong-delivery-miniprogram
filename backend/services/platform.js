@@ -937,6 +937,34 @@ async function deviceActiveTasks(store, deviceSn) {
   return (r.tasks || []).filter((t) => t.deviceSn === deviceSn && Number(t.taskStatus) < 80)
 }
 
+// 查询设备当前货舱状态与对应任务（deviceCtrl/queryDeviceTasks，GET ?deviceSN=）。
+// 用途：管理员「取消机器人全部任务」——平台侧货舱占用是任务占用的权威来源，
+// 比「拉全量任务再按设备过滤」更准确（basicPageList 有分页上限）。
+// 规格未给响应示例，故对 data 结构做容错提取；失败时调用方回退 deviceActiveTasks。
+async function queryDeviceTasks(deviceSn) {
+  if (MOCK) return { ok: true, tasks: [], mock: true }
+  if (!deviceSn) return { ok: false, msg: '缺少设备编号' }
+  try {
+    const r = await requestPlatform('GET', '/open-api/v1/deviceCtrl/queryDeviceTasks?deviceSN=' + encodeURIComponent(deviceSn))
+    if (!r || r.code !== 'COMM_200') return { ok: false, msg: (r && r.msg) || '查询设备任务失败' }
+    const d = r.data
+    let arr = []
+    if (Array.isArray(d)) arr = d
+    else if (d && Array.isArray(d.data)) arr = d.data
+    else if (d && Array.isArray(d.tasks)) arr = d.tasks
+    else if (d && Array.isArray(d.list)) arr = d.list
+    else if (d && typeof d === 'object') arr = [d]
+    const tasks = arr.map((x) => ({
+      taskId: (x && (x.taskId !== undefined ? x.taskId : (x.id !== undefined ? x.id : ''))) + '',
+      stockPos: (x && (x.stockPos || x.position)) || '',
+      status: Number((x && (x.taskStatus !== undefined ? x.taskStatus : x.status)) || 0)
+    })).filter((t) => t.taskId !== '' && t.taskId !== 'undefined')
+    return { ok: true, tasks, raw: d }
+  } catch (e) {
+    return { ok: false, msg: '查询设备任务异常：' + e.message }
+  }
+}
+
 // 恢复任务（继续工作）：恢复设备当前（挂起）任务；平台要求 taskId 必填
 async function recoverRobot(store, deviceSn) {
   if (MOCK) return { ok: true, msg: '模拟恢复成功' }
@@ -1777,4 +1805,4 @@ async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   }
 }
 
-module.exports = { createQueueTask, createTasksForBatch, createDirectTask, preCreateTask, deletePreCreateTask, listPlatformTasks, recreatePickupTask, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, getRobotRadar, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, getMapImageBytes, applyStatus, platformReady, getDeviceList, getDevicePositionBySn, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, robotAtPoint, isRobotBusy, summonToLoadingPoint, getSummonTargets, summonToPoint, summonDeliveryToStop, queryLightTask, lightTaskArrived, stopRobot, recoverRobot, stopAndCancelTask, adminCalibStatus }
+module.exports = { createQueueTask, createTasksForBatch, createDirectTask, preCreateTask, deletePreCreateTask, listPlatformTasks, recreatePickupTask, batchPendingTasks, verifyBatchLoading, confirmBatchLoading, pickAvailableRobot, getTaskStatus, getDevicePosition, getRobotRadar, syncTaskStatus, syncLandmarks, getMapOverview, getMapBbox, getMapImageBytes, applyStatus, platformReady, getDeviceList, getDevicePositionBySn, grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm, unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask, setDispatchHook, cancelMockTask, robotAtLoadingPoint, robotAtPoint, isRobotBusy, summonToLoadingPoint, getSummonTargets, summonToPoint, summonDeliveryToStop, queryLightTask, lightTaskArrived, stopRobot, recoverRobot, stopAndCancelTask, adminCalibStatus, queryDeviceTasks, deviceActiveTasks }

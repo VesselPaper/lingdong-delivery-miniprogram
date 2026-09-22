@@ -384,6 +384,8 @@ function migrate(db) {
   `)
   // 操作审计表（P1-13）：商家敏感操作（改价/上下架/退款/取消/派车/设备控制/活动）落审计，
   // 与「手机号脱敏」配套 —— 脱敏后唯一需要明文的地方必须留下操作痕迹可追溯。
+  // 2026-09：写入方式改为「审计中间件统一落库」（见 domains/_shared.js → auditMw），
+  // 并补 ok/status/ip/ua/ms 五个字段，使成功与失败都可区分、可追溯来源。
   db.exec(`
     CREATE TABLE IF NOT EXISTS audit_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -392,9 +394,48 @@ function migrate(db) {
       action TEXT,
       target TEXT DEFAULT '',
       detail TEXT DEFAULT '',
+      ok INTEGER DEFAULT 1,          -- 1=成功（2xx/3xx）0=失败（4xx/5xx）
+      status INTEGER DEFAULT 0,      -- HTTP 状态码
+      ip TEXT DEFAULT '',
+      ua TEXT DEFAULT '',
+      ms INTEGER DEFAULT 0,          -- 处理耗时（毫秒）
       created_at TEXT DEFAULT (datetime('now','localtime'))
     )
   `)
+  // 存量库补列（旧表只有前 7 列）
+  const auditCols = db.prepare('PRAGMA table_info(audit_logs)').all().map((c) => c.name)
+  if (!auditCols.includes('ok')) db.exec('ALTER TABLE audit_logs ADD COLUMN ok INTEGER DEFAULT 1')
+  if (!auditCols.includes('status')) db.exec('ALTER TABLE audit_logs ADD COLUMN status INTEGER DEFAULT 0')
+  if (!auditCols.includes('ip')) db.exec("ALTER TABLE audit_logs ADD COLUMN ip TEXT DEFAULT ''")
+  if (!auditCols.includes('ua')) db.exec("ALTER TABLE audit_logs ADD COLUMN ua TEXT DEFAULT ''")
+  if (!auditCols.includes('ms')) db.exec('ALTER TABLE audit_logs ADD COLUMN ms INTEGER DEFAULT 0')
+  // 管理页「操作日志」按时间倒序分页 + 按角色筛选（默认只看管理员）
+  db.exec('CREATE INDEX IF NOT EXISTS ix_audit_logs_created ON audit_logs(created_at)')
+  db.exec('CREATE INDEX IF NOT EXISTS ix_audit_logs_role ON audit_logs(created_at, user_role)')
+
+  // 业务状态流水（status_events）：订单/批次/任务的每一次状态迁移都留一条，
+  // 供管理页「详情抽屉 → 状态时间线」还原「每个状态变更的具体时间」。
+  // 为什么需要单独一张表：orders 只有零散时间列（created_at/delivered_at/cancelled_at…），
+  // delivery_tasks 更是只有 updated_at/void_at —— 任务的状态历史靠现有列无法还原。
+  // 写入方：services/statusEvents.js（集中采集器 diffOnce 保证不漏 + 入口级 record 标注操作者）。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS status_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_type TEXT NOT NULL,          -- order | batch | task
+      entity_id   INTEGER NOT NULL,
+      from_status INTEGER,                -- 变更前状态（首次记录可能为空）
+      to_status   INTEGER NOT NULL,
+      status_text TEXT DEFAULT '',        -- 变更后状态的中文文案（写入时的快照）
+      actor_type  TEXT DEFAULT 'system',  -- system | admin | merchant | user | platform
+      actor_id    INTEGER DEFAULT 0,
+      actor_name  TEXT DEFAULT '',
+      note        TEXT DEFAULT '',
+      created_at  TEXT DEFAULT (datetime('now','localtime'))
+    )
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS ix_status_events_entity ON status_events(entity_type, entity_id, id)')
+  db.exec('CREATE INDEX IF NOT EXISTS ix_status_events_created ON status_events(created_at)')
+
   // 一次性迁移标记（避免每次启动重复执行不可逆的数据修正）
   db.exec(`
     CREATE TABLE IF NOT EXISTS meta (

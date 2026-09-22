@@ -55,5 +55,62 @@ module.exports = {
   // ---------- 管理员写操作（本地库唯一真相源） ----------
   voidTask: (store, id, text) => store.prepare("UPDATE delivery_tasks SET task_status=110, status_text=?, void_at=datetime('now','localtime'), updated_at=datetime('now','localtime') WHERE id=?").run(text, Number(id)),
   clearBatchCtrl: (store, id) => store.prepare("UPDATE delivery_batches SET ctrl_id='' WHERE id=?").run(Number(id)),
-  cleanBatch: (store, id) => store.prepare("UPDATE delivery_batches SET status=4, status_text='测试清理已取消', device_sn='', updated_at=datetime('now','localtime') WHERE id=?").run(Number(id))
+  cleanBatch: (store, id) => store.prepare("UPDATE delivery_batches SET status=4, status_text='测试清理已取消', device_sn='', updated_at=datetime('now','localtime') WHERE id=?").run(Number(id)),
+
+  // ---------- meta 键值（持久化小状态：控制权 ID 等；重启不丢） ----------
+  getMeta: (store, key) => {
+    const r = store.prepare('SELECT value FROM meta WHERE key=?').get(String(key))
+    return r ? r.value : ''
+  },
+  setMeta: (store, key, value) => store.prepare(
+    'INSERT INTO meta (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value'
+  ).run(String(key), String(value)),
+  delMeta: (store, key) => store.prepare('DELETE FROM meta WHERE key=?').run(String(key)),
+
+  // 某设备涉及的活跃订单 / 活跃批次（「取消机器人全部任务」需按设备找出要统一落账的本地数据）
+  activeOrdersByDevice: (store, deviceSn) => store.prepare(
+    `SELECT o.* FROM orders o JOIN delivery_batches b ON b.id=o.batch_id
+     WHERE b.device_sn=? AND o.status IN (0,1,2,3,6) ORDER BY o.id`).all(String(deviceSn)),
+  activeBatchesByDevice: (store, deviceSn) => store.prepare(
+    'SELECT id FROM delivery_batches WHERE device_sn=? AND status IN (0,1,2) ORDER BY id').all(String(deviceSn)),
+
+  // ---------- 审计日志（管理页「操作日志」读服务端持久化审计，成功/失败都在） ----------
+  auditLogs: (store, opt = {}) => {
+    const limit = Math.min(Math.max(Number(opt.limit) || 50, 1), 200)
+    const offset = Math.max(Number(opt.offset) || 0, 0)
+    const where = []
+    const args = []
+    if (opt.role) { where.push('user_role=?'); args.push(String(opt.role)) }
+    if (opt.action) { where.push('action LIKE ?'); args.push('%' + String(opt.action) + '%') }
+    if (opt.ok === 0 || opt.ok === 1) { where.push('IFNULL(ok,1)=?'); args.push(Number(opt.ok)) }
+    const w = where.length ? ' WHERE ' + where.join(' AND ') : ''
+    const total = store.prepare('SELECT COUNT(*) c FROM audit_logs' + w).get(...args).c
+    const rows = store.prepare(`SELECT id, user_id, user_role, action, target, detail,
+        IFNULL(ok,1) ok, IFNULL(status,0) status, IFNULL(ip,'') ip, IFNULL(ua,'') ua, IFNULL(ms,0) ms, created_at
+      FROM audit_logs` + w + ' ORDER BY id DESC LIMIT ? OFFSET ?').all(...args, limit, offset)
+    return { total, limit, offset, rows }
+  },
+
+  // ---------- 状态时间线（status_events） ----------  // 单实体事件（升序，便于前端按时间正序渲染时间线）
+  eventsOf: (store, type, id, limit = 200) => store.prepare(
+    `SELECT id, entity_type, entity_id, from_status, to_status, status_text, actor_type, actor_id, actor_name, note, created_at
+     FROM status_events WHERE entity_type=? AND entity_id=? ORDER BY id ASC LIMIT ?`
+  ).all(String(type), Number(id), Math.min(Math.max(Number(limit) || 200, 1), 500)),
+
+  // 多实体事件（批次时间线要合并批内订单的事件）
+  eventsOfMany: (store, type, ids, limit = 400) => {
+    if (!ids || !ids.length) return []
+    const ph = ids.map(() => '?').join(',')
+    return store.prepare(
+      `SELECT id, entity_type, entity_id, from_status, to_status, status_text, actor_type, actor_id, actor_name, note, created_at
+       FROM status_events WHERE entity_type=? AND entity_id IN (${ph}) ORDER BY id ASC LIMIT ?`
+    ).all(String(type), ...ids.map(Number), Math.min(Math.max(Number(limit) || 400, 1), 1000))
+  },
+
+  // 最近事件（供状态总览给每个实体附「最近变更」摘要）。
+  // 用「取最近 N 条再在内存里按实体取最新」代替相关子查询：有界且不随表增长而变慢。
+  recentEvents: (store, limit = 800) => store.prepare(
+    `SELECT entity_type, entity_id, to_status, status_text, actor_type, actor_name, created_at
+     FROM status_events ORDER BY id DESC LIMIT ?`
+  ).all(Math.min(Math.max(Number(limit) || 800, 1), 3000))
 }

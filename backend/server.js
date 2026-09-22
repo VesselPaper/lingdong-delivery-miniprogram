@@ -56,6 +56,8 @@ const adminLive = require('./domains/admin/live')
 const push = require('./services/push')
 // 有单自动去上货点调度器（事件驱动）
 const autoLoad = require('./services/autoLoad')
+// 业务状态流水（订单/批次/任务的状态迁移时间线）
+const statusEvents = require('./services/statusEvents')
 
 // 派车告警以注入方式挂到平台适配层，避免 platform.js 反向依赖 runtime.js 形成环
 platform.setDispatchHook(runtime.warnIfUnsafeDispatch)
@@ -96,9 +98,14 @@ app.use('/dashboard', express.static(DASHBOARD_DIR))
 // 注意必须带尾部斜杠：/admin 无斜杠时，页面里相对路径（admin.js）会被解析成 /admin.js 而 404
 app.get('/', (req, res) => res.redirect('/admin/'))
 
-// 公共中间件/工具（auth / merchantGuard / adminGuard / audit / maskPhone / toStock / ok）
+// 公共中间件/工具（auth / merchantGuard / adminGuard / audit / auditMw / maskPhone / toStock / ok）
 // 统一来自 domains/_shared，依赖 store 的部分由工厂 createShared(store) 注入（server.js 与各域 routes 同一套实现）。
-const { auth, merchantGuard, adminGuard, audit, ok, maskPhone, toStock } = createShared(store)
+const { auth, merchantGuard, adminGuard, audit, auditMw, ok, maskPhone, toStock } = createShared(store)
+
+// 审计中间件：挂在所有域路由之前，对写请求统一落 audit_logs（成功与失败都记；只读与排除前缀跳过）。
+// 它不依赖挂载顺序读取身份 —— req.admin / req.user 是在响应时才取的，此时守卫早已执行完毕。
+// 有了这层兜底，新增写接口自动进审计，不再需要每个 handler 手写 audit()。
+app.use('/api', auditMw)
 
 // ---------- 分层域挂载：user / goods / order / delivery / admin（URL 与原先内联路由一致，前端零改动） ----------
 // user 域：/api/auth/*、/api/user/*、/api/cart/*、/api/address/*（domains/user/routes.js）
@@ -140,6 +147,12 @@ deliveryTimers.start(store, {
   runtime, platform, batch, orderCancel,
   goods: goodsService, order: orderService
 })
+
+// 业务状态流水采集器（常驻，与 WS 订阅者无关）：每 2.5s 比对订单/批次/任务状态快照，
+// 变化即写 status_events，供管理页「状态时间线」还原每次状态变更的时间与操作者。
+// 首次调用只建快照、不落事件（避免把存量数据当成一轮变更刷进去）。
+statusEvents.diffOnce(store)
+setInterval(() => statusEvents.diffOnce(store), Number(process.env.STATUS_EVENTS_MS || 2500))
 
 // 监听地址：默认 0.0.0.0（真机预览需要局域网可达）。只在反向代理后暴露时应设 BIND_HOST=127.0.0.1。
 const BIND_HOST = process.env.BIND_HOST || '0.0.0.0'

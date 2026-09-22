@@ -5,6 +5,8 @@
 const q = require('./queries')
 // 编号格式化：批次人读短号（B-MMDD-NN）
 const seqSvc = require('../../services/seq')
+// 状态字典（订单/批次/任务状态码 → 中文），与 status_events 写入时用的同一份
+const statusSvc = require('../../services/statusEvents')
 
 // 状态字典（机器状态码/任务状态码 → 中文），供页面展示状态关系
 const ADMIN_TASK_STATUS = {
@@ -29,6 +31,25 @@ async function buildAdminState(store, deps) {
     .map((b) => Object.assign({}, b, { code_short: seqSvc.batchShortOf(b.seq_date, b.created_at, b.daily_seq || b.id) }))
   out.orders = q.orderCards(store, q.activeOrders(store).concat(q.historyOrders(store)))
   out.tasks = q.activeTasks(store).concat(q.historyTasks(store))
+
+  // 卡片上的「最近变更」摘要 + 订单的设备归属（订单表没有 device_sn，经批次关联）。
+  // recentEvents 取最近 N 条后在内存里按实体取最新：有界，不随 status_events 增长而变慢。
+  const lastMap = new Map()
+  for (const e of q.recentEvents(store, 800)) {
+    const k = e.entity_type + '#' + e.entity_id
+    if (!lastMap.has(k)) lastMap.set(k, e)
+  }
+  const batchById = new Map()
+  for (const b of out.batches) batchById.set(b.id, b)
+  out.batches = out.batches.map((b) => Object.assign({}, b, { last_event: lastMap.get('batch#' + b.id) || null }))
+  out.orders = out.orders.map((o) => {
+    const b = o.batch_id ? batchById.get(o.batch_id) : null
+    return Object.assign({}, o, {
+      device_sn: b ? (b.device_sn || '') : '',
+      last_event: lastMap.get('order#' + o.id) || null
+    })
+  })
+  out.tasks = out.tasks.map((t) => Object.assign({}, t, { last_event: lastMap.get('task#' + t.id) || null }))
   // 死锁/异常检测（管理页观察车是否卡死/异常）
   const nowMs = Date.now()
   const STUCK_MIN = Number(process.env.ADMIN_STUCK_MIN || 10)
@@ -104,4 +125,81 @@ async function buildDashboard(store, deps) {
   }
 }
 
-module.exports = { ADMIN_TASK_STATUS, buildAdminState, buildDashboard }
+// ---------- 状态时间线（管理页详情抽屉） ----------
+// 优先返回 status_events 里的真实事件；老数据没有事件时退回「推断节点」
+// （用现有时间列拼出可得的节点，前端标注为「推断」，不做假数据）。
+function legacyNodes(store, type, id) {
+  const out = []
+  const push = (label, at) => { if (at) out.push({ label, at: String(at) }) }
+  if (type === 'order') {
+    const o = store.prepare('SELECT created_at, delivered_at, picked_up_at, cancelled_at, updated_at FROM orders WHERE id=?').get(Number(id))
+    if (!o) return out
+    push('创建订单', o.created_at); push('送达', o.delivered_at); push('已取餐', o.picked_up_at)
+    push('取消', o.cancelled_at); push('最后变更', o.updated_at)
+  } else if (type === 'batch') {
+    const b = store.prepare('SELECT created_at, dispatched_at, loaded_at, completed_at, updated_at FROM delivery_batches WHERE id=?').get(Number(id))
+    if (!b) return out
+    push('创建批次', b.created_at); push('派车', b.dispatched_at); push('上货完成', b.loaded_at)
+    push('完成', b.completed_at); push('最后变更', b.updated_at)
+  } else {
+    const t = store.prepare('SELECT updated_at, void_at FROM delivery_tasks WHERE id=?').get(Number(id))
+    if (!t) return out
+    push('最后变更', t.updated_at); push('作废', t.void_at)
+  }
+  // created_at 等均为 'YYYY-MM-DD HH:MM:SS'，字典序即时间序
+  return out.sort((a, b) => String(a.at).localeCompare(String(b.at)))
+}
+
+function buildTimeline(store, type, id) {
+  const t = String(type)
+  const eid = Number(id)
+  if (!eid || ['order', 'batch', 'task'].indexOf(t) < 0) return null
+  let events = []
+  let current = null
+  let context = null
+
+  if (t === 'batch') {
+    const b = q.batchById(store, eid)
+    if (!b) return null
+    current = { status: Number(b.status), status_text: b.status_text, device_sn: b.device_sn || '', batch_no: b.batch_no }
+    // 批次时间线合并批内订单事件（一次看清整批流转），并标注事件归属哪个订单
+    const orders = q.batchOrdersAll(store, eid)
+    const ids = orders.map((o) => o.id)
+    const shortOf = new Map()
+    for (const o of orders) shortOf.set(o.id, seqSvc.orderShortOf(o.seq_date, o.created_at, o.daily_seq || o.id))
+    const batchEvs = q.eventsOf(store, 'batch', eid)
+    const orderEvs = q.eventsOfMany(store, 'order', ids)
+      .map((e) => Object.assign({}, e, { order_short: shortOf.get(e.entity_id) || ('#' + e.entity_id) }))
+    events = batchEvs.concat(orderEvs).sort((a, b2) => a.id - b2.id)
+    context = { batch_no: b.batch_no, order_count: ids.length }
+  } else if (t === 'order') {
+    const o = q.orderById(store, eid)
+    if (!o) return null
+    current = {
+      status: Number(o.status), status_text: (statusSvc.ORDER_STATUS_TEXT[Number(o.status)] || ''),
+      batch_id: o.batch_id || null, landmark_name: o.landmark_name || '', order_no: o.order_no
+    }
+    events = q.eventsOf(store, 'order', eid)
+    context = { order_no: o.order_no, pickup_code: o.pickup_code || '' }
+  } else {
+    const tk = q.taskById(store, eid)
+    if (!tk) return null
+    current = {
+      status: Number(tk.task_status), status_text: tk.status_text || (ADMIN_TASK_STATUS[Number(tk.task_status)] || ''),
+      device_sn: tk.device_sn || '', platform_task_id: tk.platform_task_id || ''
+    }
+    events = q.eventsOf(store, 'task', eid)
+  }
+
+  return {
+    type: t,
+    id: eid,
+    current,
+    context,
+    events,
+    // 只在完全没有真实事件时给推断节点，避免新旧混排造成误读
+    legacy: events.length ? [] : legacyNodes(store, t, eid)
+  }
+}
+
+module.exports = { ADMIN_TASK_STATUS, buildAdminState, buildDashboard, buildTimeline, legacyNodes }
