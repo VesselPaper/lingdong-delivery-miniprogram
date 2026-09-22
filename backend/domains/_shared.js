@@ -74,20 +74,29 @@ function createShared(store) {
   }
 
   function adminGuard(req, res, next) {
-    const given = String(req.headers['x-admin-token'] || req.query.token || '')
-    if (!given) return res.status(401).json({ code: 401, msg: '缺少管理员令牌' })
-    const a = crypto.createHash('sha256').update(given).digest()
-    const b = crypto.createHash('sha256').update(ADMIN_TOKEN).digest()
-    if (!crypto.timingSafeEqual(a, b)) return res.status(401).json({ code: 401, msg: '管理员令牌无效' })
+    // 方案A：x-admin-token = 登录签发的随机 session token；不再使用共享静态 ADMIN_TOKEN。
+    // 只认请求头：曾支持 ?token= 查询串，令牌会因此进入访问日志/浏览器历史/Referer，已移除。
+    const given = String(req.headers['x-admin-token'] || '')
+    const s = given ? store.prepare(`SELECT s.id AS session_id, s.expires_at,
+        u.id, u.username, u.nickname, u.role, u.status
+      FROM admin_sessions s JOIN admin_users u ON u.id = s.admin_user_id
+      WHERE s.token=? AND s.expires_at > datetime('now','localtime')`).get(given) : null
+    if (!s || Number(s.status) !== 1) {
+      return res.status(401).json({ code: 401, msg: '未登录或登录已过期' })
+    }
+    req.admin = { id: s.id, username: s.username, nickname: s.nickname || '', role: s.role || 'admin' }
     next()
   }
 
   // 商家敏感操作审计（P1-13）：改价/上下架/退款/取消/派车/设备控制/活动全部落 audit_logs，
   // 配合手机号脱敏形成「展示最小化、操作可追溯」的隐私与责任闭环。
+  // 管理员操作（方案A）同样落审计：身份 = 登录的管理员账号（user_id=管理员id, user_role='admin'）。
   function audit(req, action, target, detail) {
     try {
+      const uid = req.admin ? req.admin.id : (req.user ? req.user.id : 0)
+      const role = req.admin ? 'admin' : (req.user ? (req.user.role || '') : '')
       store.prepare('INSERT INTO audit_logs (user_id, user_role, action, target, detail) VALUES (?,?,?,?,?)')
-        .run(req.user ? req.user.id : 0, req.user ? (req.user.role || '') : '', action, String(target || ''), String(detail || '').slice(0, 500))
+        .run(uid, role, String(action || ''), String(target || ''), String(detail || '').slice(0, 500))
     } catch (e) { /* 审计失败不阻断业务 */ }
   }
 

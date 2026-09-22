@@ -36,9 +36,11 @@ const batch = require('./services/batch')
 const orderCancel = require('./services/orderCancel')
 // 商家邀请码：登录校验在 user 域 service 内；此处用于启动日志统计有效码数
 const invite = require('./services/merchantInvite')
+// 管理员账号（方案A）：用户名+密码 → session token
+const adminAuth = require('./services/adminAuth')
 
 // 分层域（domains/）：按数据项拆分的路由工厂 (store, deps) => router；URL 与原先内联路由完全一致
-const { createShared, ADMIN_TOKEN } = require('./domains/_shared')
+const { createShared } = require('./domains/_shared')
 const userRoutes = require('./domains/user/routes')
 const userService = require('./domains/user/service')
 const goodsRoutes = require('./domains/goods/routes')
@@ -139,9 +141,11 @@ deliveryTimers.start(store, {
   goods: goodsService, order: orderService
 })
 
-const server = app.listen(PORT, () => {
+// 监听地址：默认 0.0.0.0（真机预览需要局域网可达）。只在反向代理后暴露时应设 BIND_HOST=127.0.0.1。
+const BIND_HOST = process.env.BIND_HOST || '0.0.0.0'
+const server = app.listen(PORT, BIND_HOST, () => {
   const d = runtime.describe()
-  console.log(`[lingdong-backend] listening on http://127.0.0.1:${PORT}`)
+  console.log(`[lingdong-backend] listening on http://${BIND_HOST}:${PORT}` + (BIND_HOST === '0.0.0.0' ? '（0.0.0.0 = 同网段都能访问，请确认 ADMIN_TOKEN 已是强随机串）' : ''))
   console.log(`[lingdong-backend] 运行模式 RUN_MODE=${d.run_mode}`)
   console.log(`[lingdong-backend]   登录：${d.real_login ? '真实微信 code2session' : '演示（token 可预测，不可用于真实运营）'}`)
   console.log(`[lingdong-backend]   支付：${d.real_pay ? '微信支付 V3' : '模拟（不产生资金流，退款也不会真实退钱）'}`)
@@ -158,21 +162,44 @@ const server = app.listen(PORT, () => {
   // 邀请码状态：以 merchant_invites 表的有效条数 + 旧单一码 env 为准（按商家一条、首绑、可吊销）
   const invCount = invite.configuredCount(store)
   console.log('[lingdong-backend]   商家邀请码已启用：' + invCount + ' 个有效' + (invCount ? '' : ' → 尚未配置，商家端登录将被拒绝'))
+
+  // 管理员账号（方案A）：非演示档必须存在至少一个启用的管理员账号，否则管理员网页无法登录
+  const adminEnabled = adminAuth.enabledCount(store)
+  if (adminEnabled === 0) {
+    const msg = '尚未创建管理员账号：请运行 node backend/tools/admin_user.js add --username <账号> --password <密码> 创建，否则管理员网页无法登录'
+    if (runtime.mode === 'demo') {
+      console.warn('[lingdong-backend] ' + msg)
+    } else {
+      console.error('\n[runtime] 启动被拒绝：' + msg + '\n')
+      process.exit(1)
+    }
+  } else {
+    console.log('[lingdong-backend]   管理员账号已就绪：' + adminEnabled + ' 个启用（账号密码登录 + session token）')
+  }
 })
 
-// WebSocket 实时推送：挂在 /ws 路径。校验登录 token 或管理员令牌（管理员页用 ADMIN_TOKEN）；
+// WebSocket 实时推送：挂在 /ws 路径。校验登录 token 或管理员 session token（管理员页用登录签发的 token）；
 // 新订单支付成功时 order 域调用 push.broadcast（送达全部客户端）。
 push.attach(server, {
   validateToken: (token) => {
     if (!token) return false
-    // 管理员令牌（默认 '123456'，env ADMIN_TOKEN 可覆盖）
+    // 管理员网页：登录签发的随机 session token（方案A）
     try {
-      const crypto = require('crypto')
-      const a = crypto.createHash('sha256').update(String(token)).digest()
-      const b = crypto.createHash('sha256').update(ADMIN_TOKEN).digest()
-      if (crypto.timingSafeEqual(a, b)) return true
-    } catch (e) { /* 长度不一致会抛异常，视为非管理员令牌 */ }
+      const s = store.prepare(`SELECT 1 FROM admin_sessions s JOIN admin_users u ON u.id = s.admin_user_id
+        WHERE s.token=? AND s.expires_at > datetime('now','localtime') AND u.status=1`).get(String(token))
+      if (s) return true
+    } catch (e) { /* 忽略 */ }
     // 普通登录 token（用户/商家小程序）
     try { return !!store.prepare('SELECT 1 FROM users WHERE openid=?').get(String(token)) } catch (e) { return false }
   }
+})
+
+// 进程级兜底：Express 4 不会接管 async 处理器的异常 —— 一次未捕获的 Promise 拒绝就会让整个进程退出
+// （已实测：一个 async 路由里 throw 即进程退出码 1），而该进程同时承担派车调度、平台回调接收与 WS 推送。
+// 这里只记录、不退出，优先保证校园内服务可用；若以后接守护进程（pm2 / nssm / 计划任务）可改为记录后受控退出。
+process.on('unhandledRejection', (e) => {
+  console.error('[fatal] unhandledRejection:', (e && e.stack) || e)
+})
+process.on('uncaughtException', (e) => {
+  console.error('[fatal] uncaughtException:', (e && e.stack) || e)
 })

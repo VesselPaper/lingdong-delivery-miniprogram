@@ -6,6 +6,32 @@ const express = require('express')
 const { createShared } = require('../_shared')
 const q = require('./queries')
 const s = require('./service')
+// 管理员账号服务（方案A）：scrypt 密码 + 随机 session token
+const adminAuth = require('../../services/adminAuth')
+
+// 登录限流（内存）：同一「账号+IP」连续失败 ADMIN_LOGIN_MAX 次后锁定窗口
+// f = { count: 失败次数, until: 锁定截止时间戳（0 = 未锁定） }
+const loginFails = new Map()
+const LOGIN_MAX = Number(process.env.ADMIN_LOGIN_MAX || 5)
+const LOGIN_WINDOW_MS = Number(process.env.ADMIN_LOGIN_WINDOW_MS || 10 * 60 * 1000)
+function loginLocked(key) {
+  const f = loginFails.get(key)
+  if (!f) return false
+  if (f.until && Date.now() < f.until) return true     // 锁定窗口内
+  if (f.until && Date.now() >= f.until) loginFails.delete(key)  // 窗口已过，清掉计数
+  return false
+}
+function recordLoginFail(key) {
+  const f = loginFails.get(key) || { count: 0, until: 0 }
+  f.count += 1
+  if (f.count >= LOGIN_MAX && !f.until) f.until = Date.now() + LOGIN_WINDOW_MS
+  loginFails.set(key, f)
+  if (loginFails.size > 10000) {  // 防泄漏：清掉已过期的，仍超则删最早一条
+    const now = Date.now()
+    for (const [k, v] of loginFails) if (v.until && now > v.until) loginFails.delete(k)
+    if (loginFails.size > 10000) loginFails.delete(loginFails.keys().next().value)
+  }
+}
 
 module.exports = (store, deps) => {
   const { adminGuard, audit, ok } = createShared(store)
@@ -56,6 +82,52 @@ module.exports = (store, deps) => {
     ok(res, { tk: process.env.TIANDITU_TK || '', ts: new Date().toISOString() })
   })
 
+  // ---------- 管理员登录（方案A：用户名+密码 → 随机 session token） ----------
+  router.post('/admin/login', (req, res) => {
+    const { username = '', password = '' } = req.body || {}
+    const key = String(username || '').trim().toLowerCase() + ':' + (req.ip || req.socket.remoteAddress || '')
+    if (loginLocked(key)) {
+      return res.status(429).json({ code: 429, msg: '尝试次数过多，请 10 分钟后再试' })
+    }
+    const admin = adminAuth.findByUsername(store, username)
+    if (!admin || Number(admin.status) !== 1 || !adminAuth.verifyPassword(password, admin.password_hash)) {
+      recordLoginFail(key)
+      return res.status(401).json({ code: 401, msg: '用户名或密码错误' })
+    }
+    loginFails.delete(key)
+    store.prepare("UPDATE admin_users SET last_login_at=datetime('now','localtime') WHERE id=?").run(admin.id)
+    req.admin = { id: admin.id, username: admin.username, nickname: admin.nickname || '', role: admin.role || 'admin' }
+    const sess = adminAuth.issueSession(store, admin.id)
+    audit(req, 'admin/login', 'admin#' + admin.id, 'username=' + admin.username)
+    ok(res, { token: sess.token, admin: req.admin })
+  })
+
+  // 当前登录管理员（前端启动/刷新时校验会话）
+  router.get('/admin/me', adminGuard, (req, res) => ok(res, { admin: req.admin }))
+
+  // 退出登录：吊销当前 session
+  router.post('/admin/logout', adminGuard, (req, res) => {
+    adminAuth.revokeSession(store, req.headers['x-admin-token'])
+    audit(req, 'admin/logout', 'admin#' + req.admin.id, req.admin.username)
+    ok(res)
+  })
+
+  // 修改自己的密码：改后吊销该账号全部 session，强制重新登录
+  router.post('/admin/password', adminGuard, (req, res) => {
+    const { old_password = '', new_password = '' } = req.body || {}
+    const admin = store.prepare('SELECT * FROM admin_users WHERE id=?').get(req.admin.id)
+    if (!adminAuth.verifyPassword(old_password, admin.password_hash)) {
+      return res.status(400).json({ code: 400, msg: '原密码不正确' })
+    }
+    if (!new_password || String(new_password).length < 8) {
+      return res.status(400).json({ code: 400, msg: '新密码至少 8 位' })
+    }
+    store.prepare('UPDATE admin_users SET password_hash=? WHERE id=?').run(adminAuth.hashPassword(new_password), admin.id)
+    adminAuth.revokeAllSessions(store, admin.id)
+    audit(req, 'admin/password', 'admin#' + admin.id, '修改密码')
+    ok(res, { msg: '密码已修改，请重新登录' })
+  })
+
   // ---------- 管理员工具（查看/修复机器人状态） ----------
   // 状态总览：设备 + 平台活跃任务 + 本地批次/订单/任务 + 死锁/异常检测
   router.get('/admin/state', adminGuard, async (req, res) => {
@@ -82,7 +154,7 @@ module.exports = (store, deps) => {
     const batchId = Number((req.query || {}).batch_id || 0)
     const b = q.batchById(store, batchId)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
-    ok(res, { batch: b, orders: q.batchOrdersAll(store, batchId) })
+    ok(res, { batch: b, orders: q.orderCards(store, q.batchOrdersAll(store, batchId)) })
   })
 
   // 机器人实时雷达数据（eviz 激光点云 + 代价地图 + 位姿），页面轮询绘制雷达图

@@ -151,6 +151,14 @@ function check() {
     if (!prodPlatform) warnings.push(`RUN_MODE=production 但 PLATFORM_BASE 指向非生产环境（${platformHost}）`)
   }
 
+  // 管理员鉴权已改为「账号 + session token」（方案A，见 services/adminAuth.js），
+  // 静态 ADMIN_TOKEN 不再参与鉴权。账号是否就绪由 server.js 启动时按 admin_users 表校验；
+  // 这里仅提示遗留配置可清理，不再作为启动硬约束。
+  const adminToken = process.env.ADMIN_TOKEN || ''
+  if (adminToken && adminToken !== '123456') {
+    warnings.push('ADMIN_TOKEN 已不再参与鉴权（管理员网页改为账号密码登录 + session token），可从 .env 移除')
+  }
+
   // 跨档通用告警
   if (realPlatform && prodPlatform && unsafeProd && mode !== 'production') {
     warnings.push(
