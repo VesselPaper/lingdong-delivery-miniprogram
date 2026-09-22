@@ -743,7 +743,8 @@ function formatLocalDt(ts) {
 // optExpireMin：召唤任务有效期分钟。默认 5（组队待组装车）;「释放返程」时传 3(见 settleRobotAtLoading)。
 // 到达/等待窗口同样取 optExpireMin：任务到点自动返程 =「等 optExpireMin 分钟无单则释放」的自然实现。
 async function summonToLoadingPoint(store, preferredSn, optExpireMin) {
-  if (MOCK) return { ok: true, msg: '模拟召唤成功' }
+  // Mock：模拟创建轻任务并返回合成 id——真到站链路（queryLightTask→status 30）依赖 light_task_id 才能把订单置待取货
+  if (MOCK) return { ok: true, msg: '模拟召唤成功', light_task_id: 'mock-light-' + Date.now() }
   if (!platformReady()) return { ok: false, msg: '未配置平台凭据' }
   const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
   if (!loading || !loading.platform_landmark_id || !loading.platform_map_id || !loading.platform_building_id) {
@@ -817,7 +818,8 @@ async function getSummonTargets(store) {
 // optExpireMin：lightTask 失效分钟数（到期自动返程）。默认 5（管理员手动召唤/返程沿用）；
 // 配送停靠站（summonDeliveryToStop）传更长窗口，避免「车在取餐点等单，5 分钟一到就跑回充电点」。
 async function summonToPoint(store, deviceSn, landmarkId, optExpireMin) {
-  if (MOCK) return { ok: true, msg: '模拟召唤成功' }
+  // Mock：同上，返回合成轻任务 id，保证召唤推进的「真到站」链路可测
+  if (MOCK) return { ok: true, msg: '模拟召唤成功', light_task_id: 'mock-light-' + Date.now() }
   if (!platformReady()) return { ok: false, msg: '未配置平台凭据' }
   const base = store.prepare("SELECT platform_building_id, platform_map_id FROM landmarks WHERE platform_building_id != '' LIMIT 1").get()
   if (!base || !base.platform_building_id) return { ok: false, msg: '未配置平台映射' }

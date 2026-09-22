@@ -14,7 +14,7 @@ function startServer() {
   return new Promise((resolve, reject) => {
     child = spawn(process.execPath, ['server.js'], {
       cwd: __dirname,
-      env: { ...process.env, RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB, PAY_MOCK: 'true', BATCH_WAIT_MS: '100000', MERCHANT_INVITE_CODE: 'test-invite', WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '' },
+      env: { ...process.env, RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB, PAY_MOCK: 'true', BATCH_WAIT_MS: '100000', MERCHANT_INVITE_CODE: 'test-invite', WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '', SUMMON_DELIVERY: 'false' },
       stdio: ['ignore', 'pipe', 'pipe']
     })
     let log = ''
@@ -67,6 +67,10 @@ function assert(cond, msg) {
     // 建 3 单（不同点位），支付 → 自动接单并入批次
     const lm2 = 2, lm3 = 3, lm4 = 4 // 东苑1/2/3栋
     const created = []
+    // 库存/销量基线：真实商品导入后按当前值自适应（不再写死 100/326）
+    const g0 = (await api('GET', '/merchant/goods', null, mToken)).data.find((x) => x.id === 1)
+    const stock0 = Number(g0.stock)
+    const sales0 = Number(g0.sales)
     for (const lm of [lm2, lm3, lm4, lm2]) {
       const c = await api('POST', '/order/create', { landmark_id: lm, landmark_name: '点位' + lm, contact_name: '测试学生', contact_phone: '13800138000', items: [{ goods_id: 1, quantity: 1 }] }, sToken)
       assert(c.code === 0, '下单 order=' + c.data.order_no)
@@ -75,15 +79,15 @@ function assert(cond, msg) {
       assert(p.code === 0, '支付 order=' + c.data.order_id + ' auto=' + (p.data.auto_accept ? 'yes' : 'no'))
     }
 
-    // 商品库存/销量（收货完成才结算销量，下单仅扣库存）
+    // 商品库存/销量（收货完成才结算销量，下单仅扣库存；基线按当前真实商品自适应）
     const goodsBefore = await api('GET', '/merchant/goods', null, mToken)
     const g1 = goodsBefore.data.find((x) => x.id === 1)
-    assert(Number(g1.stock) === 96, '下单扣库存：商品1 100→96（4单各1）')
-    assert(Number(g1.sales) === 326, '下单不结算销量：商品1 sales 仍为 326')
+    assert(Number(g1.stock) === stock0 - 4, '下单扣库存：商品1 ' + stock0 + '→' + (stock0 - 4) + '（4单各1）')
+    assert(Number(g1.sales) === sales0, '下单不结算销量：商品1 sales 仍为 ' + sales0)
 
     // 商品分类接口
     const cats = await api('GET', '/merchant/goods/categories', null, mToken)
-    assert(cats.code === 0 && cats.data.length > 0 && cats.data.indexOf('热卤') > -1, '商品分类列表可用')
+    assert(cats.code === 0 && cats.data.length > 0 && cats.data.indexOf('即食卤味') > -1, '商品分类列表可用（真实商品分类）')
 
     // 库存接口：标记售空=0 必须保留 0（修复「设0变999」），再恢复
     const s0 = await api('PUT', '/merchant/goods/stock', { id: 5, stock: 0 }, mToken)
@@ -194,7 +198,7 @@ function assert(cond, msg) {
     // 收货完成：已售结算（4 单全部取走 → sales 326+4=330）
     const goodsAfter = await api('GET', '/merchant/goods', null, mToken)
     const g1b = goodsAfter.data.find((x) => x.id === 1)
-    assert(Number(g1b.sales) >= 330, '收货完成结算销量：商品1 sales≥330（实际 ' + g1b.sales + '）')
+    assert(Number(g1b.sales) === sales0 + 4, '收货完成结算销量：商品1 sales ' + sales0 + '→' + (sales0 + 4) + '（4 单全取走）')
 
     // 我的页红点
     const badge = await api('GET', '/user/order/badge', null, sToken)
@@ -244,7 +248,7 @@ function assert(cond, msg) {
     // 库存回补：cf 单未售出退款回补，ce 单仍待上货占用 → 商品1 stock=95
     const goodsR = await api('GET', '/merchant/goods', null, mToken)
     const g1r = goodsR.data.find((x) => x.id === 1)
-    assert(Number(g1r.stock) === 95, '异常退款回补库存：商品1 stock=95（96 -1 ce -1 cf +1 退款回补）')
+    assert(Number(g1r.stock) === stock0 - 5, '异常退款回补库存：商品1 stock=' + (stock0 - 5) + '（' + stock0 + ' -4主单 -1ce -1cf +1退款回补）')
     tdb.close()
 
     // ---- 取餐超时（已送达无人取餐）两段式：正在取餐暂停计时 / 一段超时 / 返程再等 / 二段驳回 ----
@@ -255,7 +259,7 @@ function assert(cond, msg) {
       cwd: __dirname,
       env: { ...process.env, RUN_MODE: 'demo', PORT: String(PORT2), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB2, PAY_MOCK: 'true',
         BATCH_WAIT_MS: '100000', MERCHANT_INVITE_CODE: 'test-invite', WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '',
-        PICKUP_TIMEOUT_MS: '1500', PICKUP_RETRY_TIMEOUT_MS: '1500', PICKUP_PICKING_GUARD_MS: '60000', PICKUP_SCAN_MS: '300', BATCH_SCAN_MS: '300', MOCK_ARRIVE_MS: '300' },
+        PICKUP_TIMEOUT_MS: '1500', PICKUP_RETRY_TIMEOUT_MS: '1500', PICKUP_PICKING_GUARD_MS: '60000', PICKUP_SCAN_MS: '300', BATCH_SCAN_MS: '300', MOCK_ARRIVE_MS: '300', SUMMON_DELIVERY: 'false' },
       stdio: ['ignore', 'pipe', 'pipe']
     })
     const BASE2 = 'http://127.0.0.1:' + PORT2 + '/api'

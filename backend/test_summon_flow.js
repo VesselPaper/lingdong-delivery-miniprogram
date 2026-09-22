@@ -141,11 +141,20 @@ function routeUnitTest() {
     assert(detail.data.route.length >= 2, '路线含多点：' + detail.data.route.map((x) => x.landmark_name).join('→'))
     const routeOrder = detail.data.route.map((s) => s.stop + ':' + s.landmark_name + '(' + (s.order_ids || []).length + '单)').join(' → ')
     console.log('    路线: ' + routeOrder)
-    // 首站订单全被置为待取货(3)
-    const wholeRouteOrders = detail.data.orders
-    const firstStopIds = detail.data.route[0].order_ids.map(String)
-    const firstStopOrders = wholeRouteOrders.filter((o) => firstStopIds.includes(String(o.id)))
-    assert(firstStopOrders.length >= 2 && firstStopOrders.every((o) => o.status === 3), '首站订单已置待取货(3)')
+    // 首站订单置待取货(3)：召唤派车后由「真到站门禁 + 推进看门狗（默认 5s）」置位 —— 轮询等待而非立即断言
+    let firstStopOrders = []
+    let firstOk = false
+    for (let i = 0; i < 24 && !firstOk; i++) {
+      detail = await api('GET', '/merchant/delivery/batch/detail?batch_id=' + batchId, null, mT)
+      const routeNow = detail.data && detail.data.route
+      if (routeNow && routeNow.length) {
+        const fsi = routeNow[0].order_ids.map(String)
+        firstStopOrders = detail.data.orders.filter((o) => fsi.includes(String(o.id)))
+        firstOk = firstStopOrders.length >= 2 && firstStopOrders.every((o) => o.status === 3)
+      }
+      if (!firstOk) await WAIT(500)
+    }
+    assert(firstOk, '首站订单已置待取货(3)（真到站门禁 + 看门狗置位）')
 
     // 逐站取餐：每站全取完 → 停 SUMMON_STOP_ADVANCE_MS → 下一站订单变待取货 → 再取……直至批次完成
     let visited = 0
