@@ -33,11 +33,9 @@ Page({
         nickname: '零栋铺子',
         merchant_code: String(this.data.merchantCode || '').trim()
       }, { needAuth: false }) // 登录接口本身免鉴权：未登录时必须发出，否则被 request 拦截永远登不进
-      wx.setStorageSync('token', res.token)
-      wx.setStorageSync('userInfo', res.user)
-      // 运行模式标志：设备控制（开舱/关舱/派发）走真实还是模拟分支由后端决定，前端不再硬编码
-      wx.setStorageSync('runtimeFlags', res.runtime || {})
       wx.hideLoading()
+      // 先校验身份再落盘：非商家账号绝不留下 token，否则下次冷启动会跳过登录页直接进首页，
+      // 之后所有 /merchant/* 都 403，用户只看到「无权限」却没有任何路径回登录页。
       if (!res.user || res.user.role !== 'merchant') {
         wx.showModal({
           title: '当前不是商家账号',
@@ -47,6 +45,13 @@ Page({
         })
         return
       }
+      wx.setStorageSync('token', res.token)
+      wx.setStorageSync('userInfo', res.user)
+      // 运行模式标志：设备控制（开舱/关舱/派发）走真实还是模拟分支由后端决定，前端不再硬编码
+      wx.setStorageSync('runtimeFlags', res.runtime || {})
+      // 登录成功后回首页；并让首页自动进入「四川师范大学商铺」页（与冷启动同一条路径）
+      const app = getApp()
+      if (app && app.globalData) app.globalData.autoEnterShop = true
       wx.showToast({ title: '登录成功', icon: 'success' })
       setTimeout(() => {
         wx.switchTab({ url: '/pages/index/index' })

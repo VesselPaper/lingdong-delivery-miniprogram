@@ -1,4 +1,10 @@
 {
+  "networkTimeout": {
+    "request": 15000,
+    "uploadFile": 30000,
+    "downloadFile": 30000,
+    "connectSocket": 10000
+  },
   "pages": [
     "pages/index/index",
     "pages/user/login",

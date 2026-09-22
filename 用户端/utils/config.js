@@ -5,7 +5,7 @@
 const ENV = {
   dev: {
     // 真机预览用电脑局域网 IP（手机与电脑需同一 WiFi）；模拟器用 localhost 亦可
-    baseUrl: 'http://10.6.64.124:3000/api'
+    baseUrl: 'http://10.75.155.19:3000/api'
   },
   prod: {
     baseUrl: 'http://localhost:3000/api'

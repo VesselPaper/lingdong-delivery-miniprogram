@@ -13,6 +13,8 @@ page {
 .search-area {
   padding: 16rpx 24rpx;
   background: #ffffff;
+  position: relative;
+  z-index: 10;   /* 历史遮罩之上，保证搜索框始终可点 */
 }
 
 .search-box {
@@ -28,6 +30,78 @@ page {
   margin-left: 12rpx;
   font-size: 28rpx;
   color: #111111;
+}
+
+/* 历史搜索（与首页共用样式） */
+.history-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 9;
+  background: transparent;
+}
+
+.history {
+  position: relative;
+  z-index: 10;
+  margin: 8rpx 24rpx 0;
+  padding: 16rpx 8rpx;
+  background: #FAFAFA;
+}
+
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+}
+
+.history-title {
+  font-size: 24rpx;
+  color: #999999;
+}
+
+.history-clear {
+  padding: 4rpx;
+}
+
+.history-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.history-tag {
+  max-width: 320rpx;
+  padding: 8rpx 24rpx;
+  background: #ffffff;
+  border: 1rpx solid #EBEBEB;
+  border-radius: 100rpx;
+  font-size: 24rpx;
+  color: #555555;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 无搜索结果时的分类建议词 */
+.empty-sugs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16rpx;
+  margin-top: 20rpx;
+}
+
+.empty-sug-tag {
+  padding: 8rpx 28rpx;
+  background: #ffffff;
+  border: 1rpx solid #D8D8D8;
+  border-radius: 100rpx;
+  font-size: 24rpx;
+  color: #3078C0;
 }
 
 /* 店铺卡 */

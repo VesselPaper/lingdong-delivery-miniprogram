@@ -43,37 +43,7 @@
   <!-- 点空白处收起历史面板 -->
   <view class="history-mask" wx:if="{{showHistory}}" catchtap="closeHistory"></view>
 
-  <!-- 搜索结果：直接展示在首页，无需跳转商城 -->
-  <block wx:if="{{searching}}">
-    <view class="section">
-      <view class="section-head">
-        <view class="section-title">搜索「{{keyword}}」</view>
-        <view class="section-more" bindtap="clearKeyword">取消<t-icon name="close" size="12" color="#3078C0" /></view>
-      </view>
-      <view class="goods-grid">
-        <view class="goods-card" wx:for="{{searchResults}}" wx:key="id" bindtap="goDetail" data-id="{{item.id}}">
-          <view class="goods-img" style="background: {{item.theme}};">
-            <image wx:if="{{item.image}}" class="fill-img" src="{{item.image}}" mode="aspectFill" lazy-load />
-            <t-icon wx:else name="{{item.icon}}" size="30" color="#BFBFBF" />
-          </view>
-          <view class="goods-name ellipsis">{{item.name}}</view>
-          <view class="goods-bottom">
-            <view class="goods-price">
-              <text class="goods-price-now">¥{{item.sale_price || item.price}}</text>
-              <text class="goods-old" wx:if="{{item.sale_price}}">¥{{item.price}}</text>
-            </view>
-            <view class="add-btn" catchtap="addCart" data-id="{{item.id}}" hover-class="add-btn-hover" hover-stay-time="80">
-              <t-icon name="add" size="12" color="#ffffff" />
-            </view>
-          </view>
-        </view>
-      </view>
-      <view class="search-empty" wx:if="{{!searchResults.length}}">没有找到相关商品</view>
-    </view>
-  </block>
-
   <!-- 常态内容：福利卡 + 分类 + 热门商品 -->
-  <block wx:else>
   <!-- 福利卡片：点击箭头/卡片进入商城 -->
   <view class="coupon-card" bindtap="goAll">
     <view class="coupon-head">
@@ -89,11 +59,11 @@
     </view>
   </view>
 
-  <!-- 分类按钮：零售卡通图标，点击直达商城对应分类 -->
+  <!-- 分类按钮：矢量线条图标（SVG），点击直达商城对应分类 -->
   <view class="cat-bar" wx:if="{{categories.length}}">
     <view class="cat-item" wx:for="{{categories}}" wx:key="name" bindtap="goCategory" data-name="{{item.name}}">
       <view class="cat-icon" style="background: {{item.bg}};">
-        <t-icon name="{{item.icon}}" size="26" color="{{item.color}}" />
+        <view class="cat-ic cat-ic-{{item.icon}}"></view>
       </view>
       <text class="cat-name">{{item.name}}</text>
     </view>
@@ -103,7 +73,7 @@
   <view class="section" wx:for="{{hotGroups}}" wx:key="name" wx:for-item="group">
     <view class="section-head">
       <view class="section-title">
-        <t-icon name="{{group.icon}}" size="18" color="{{group.color}}" />
+        <view class="cat-ic cat-ic-sm cat-ic-{{group.icon}}"></view>
         <text class="section-title-text">{{group.name}}</text>
       </view>
       <view class="section-more" bindtap="goCategory" data-name="{{group.name}}">更多<t-icon name="chevron-right" size="12" color="#3078C0" /></view>
@@ -127,7 +97,6 @@
       </view>
     </view>
   </view>
-  </block>
 
   <!-- 楼栋选择弹层：列出全部可送达楼栋，已有地址的楼栋显示关联的昵称/手机号 -->
   <view class="picker-mask" wx:if="{{showPointPicker}}" bindtap="closePointPicker"></view>

@@ -11,11 +11,10 @@ function firstChar(name) {
   return Array.from(s)[0]
 }
 
-// 11 位手机号排成 3-4-4，其他格式原样展示
+// 手机号原样展示：不做 3-4-4 分组（分组会在数字中间插空格，看起来间距不均匀），
+// 统一间距交给样式里的 letter-spacing；这里只清掉可能混入的空白字符
 function formatPhone(phone) {
-  const s = String(phone == null ? '' : phone).replace(/\s/g, '')
-  if (!/^\d{11}$/.test(s)) return s
-  return s.slice(0, 3) + ' ' + s.slice(3, 7) + ' ' + s.slice(7)
+  return String(phone == null ? '' : phone).replace(/\s/g, '')
 }
 
 Page({

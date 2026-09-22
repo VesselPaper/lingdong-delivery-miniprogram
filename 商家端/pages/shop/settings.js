@@ -1,4 +1,5 @@
 const shopState = require('../../utils/shopState')
+const request = require('../../utils/request')
 
 Page({
   data: {
@@ -58,8 +59,9 @@ Page({
   },
 
   logout() {
-    wx.removeStorageSync('token')
-    wx.removeStorageSync('userInfo')
+    // 统一清理：token / userInfo / runtimeFlags / shopInfo + globalData + 断开推送 WebSocket。
+    // 店员手机常共用，只删 token 会让下一位登录者先看到上一位商家的营业状态与配送费。
+    request.clearLoginState()
     wx.showToast({ title: '已退出', icon: 'success' })
     setTimeout(() => {
       wx.reLaunch({ url: '/pages/user/login' })

@@ -12,14 +12,16 @@
     </view>
     <view class="field">
       <view class="field-label">昵称</view>
+      <!-- type="nickname"：微信官方「昵称填写能力」，聚焦后键盘上方给出「使用微信昵称」，点一下即填入 -->
       <input
         class="field-input"
-        type="text"
+        type="nickname"
         maxlength="20"
-        placeholder="请输入昵称"
+        placeholder="点击可选用微信昵称"
         placeholder-class="field-placeholder"
         value="{{nickname}}"
         bindinput="onNickname"
+        bindblur="onNickname"
       />
     </view>
     <view class="field">
@@ -36,7 +38,7 @@
     </view>
   </view>
 
-  <view class="tip text-weak text-sm">昵称与手机号将展示给商家，用于配送联系；保存后立即生效。头像点击即可更换（默认取你的微信头像）。</view>
+  <view class="tip text-weak text-sm">昵称与手机号将展示给商家，用于配送联系；保存后立即生效。头像点击即可更换（默认取你的微信头像）；昵称框点一下可直接选用微信昵称。</view>
 
   <view class="foot-actions">
     <view class="btn btn-block {{saving ? 'btn-disabled' : ''}}" bindtap="save">保存</view>

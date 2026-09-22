@@ -48,8 +48,8 @@ Page({
       confirmColor: '#3078C0',
       success: (r) => {
         if (!r.confirm) return
-        wx.removeStorageSync('token')
-        wx.removeStorageSync('userInfo')
+        // 统一清理（token/userInfo/收货信息/搜索历史等 + globalData），与 401/403 失效路径同一套
+        request.clearLoginState()
         wx.reLaunch({ url: '/pages/user/login' })
       }
     })

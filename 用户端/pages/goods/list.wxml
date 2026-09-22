@@ -10,10 +10,25 @@
         confirm-type="search"
         bind:input="onSearch"
         bind:confirm="onSearchConfirm"
+        bindfocus="onSearchFocus"
         focus="{{focus}}"
       />
     </view>
   </view>
+
+  <!-- 历史搜索：与首页共用同一份记录，聚焦搜索框展开 -->
+  <view class="history" wx:if="{{showHistory && history.length}}">
+    <view class="history-head">
+      <text class="history-title">历史搜索</text>
+      <view class="history-clear" catchtap="clearHistory">
+        <t-icon name="delete" size="14" color="#999999" />
+      </view>
+    </view>
+    <view class="history-tags">
+      <view class="history-tag" wx:for="{{history}}" wx:key="*this" catchtap="onHistoryTap" data-kw="{{item}}">{{item}}</view>
+    </view>
+  </view>
+  <view class="history-mask" wx:if="{{showHistory}}" catchtap="closeHistory"></view>
 
   <view class="store-card">
     <view class="store-icon">
@@ -61,6 +76,9 @@
           <view wx:if="{{!groups.length}}" class="empty">
             <view class="empty-icon"><t-icon name="app" size="40" color="#D8D8D8" /></view>
             <view class="empty-text">没有找到相关商品</view>
+            <view class="empty-sugs" wx:if="{{noResultSugs.length}}">
+              <view class="empty-sug-tag" wx:for="{{noResultSugs}}" wx:key="*this" bindtap="onSugTap" data-kw="{{item}}">{{item}}</view>
+            </view>
           </view>
           <block wx:for="{{groups}}" wx:key="name" wx:for-index="gi">
             <view id="group-{{gi}}" class="group">

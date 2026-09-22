@@ -1,4 +1,4 @@
-﻿const api = require('../../utils/api')
+const api = require('../../utils/api')
 const request = require('../../utils/request')
 const flyCart = require('../../utils/flyCart')
 
@@ -10,24 +10,20 @@ const THEMES = {
 }
 const DEFAULT_THEME = { bg: '#F5F5F5', icon: 'app' }
 
-// 分类 → 零售卡通图标（tdesign 图标名）与配色；按名称关键字匹配，未命中用默认
-// 注意：更具体的词放前面，避免“面包糕点”被“面”抢先匹配成面条
+// 分类 → 彩色扁平插画图标（见 pages/index/cat-icons.wxss，由 backend/tools/gen_cat_icons.js 生成）与圆形底色
+// 规则顺序即优先级：更具体的词放前面，避免「面包糕点」被面条/米饭菜规则抢走、「水果」被「水」抢走
 const CATEGORY_STYLE = [
-  { keys: ['面包', '糕点', '蛋糕', '烘焙'], icon: 'bread', color: '#D9942F', bg: '#FCF2E0' },
-  { keys: ['方便面', '泡面', '米线', '粉丝', '面食'], icon: 'noodle', color: '#E8833A', bg: '#FDF0E4' },
-  { keys: ['饼干', '零食', '膨化', '薯片'], icon: 'candy', color: '#E05B7E', bg: '#FCE9EF' },
-  { keys: ['卤味', '热卤', '熟食', '肉'], icon: 'drumstick', color: '#C9702F', bg: '#FBEDE2' },
-  { keys: ['纸品', '洗护', '清洁', '日用'], icon: 'shop', color: '#5C9E6E', bg: '#E8F4EB' },
-  { keys: ['奶', '乳'], icon: 'milk', color: '#4A8FD4', bg: '#E8F1FC' },
-  { keys: ['饮品', '饮料', '水', '茶'], icon: 'drink', color: '#2E9BD6', bg: '#E4F3FB' },
-  { keys: ['水果', '果'], icon: 'watermelon', color: '#E0605B', bg: '#FCEAE9' },
-  { keys: ['冰', '雪糕', '冷饮'], icon: 'ice-cream', color: '#7B6FD0', bg: '#EFEDFB' },
-  { keys: ['米', '饭', '餐'], icon: 'rice', color: '#C9A227', bg: '#FAF4DF' },
-  { keys: ['酒'], icon: 'beer', color: '#C79A3B', bg: '#FAF2DF' },
-  { keys: ['糖', '巧克力'], icon: 'candy', color: '#D4652F', bg: '#FBEBE2' },
-  { keys: ['礼', '套餐'], icon: 'gift', color: '#D2564E', bg: '#FCE9E7' }
+  { keys: ['面包', '糕点', '蛋糕', '烘焙'], icon: 'bread', bg: '#FCF2E0' },
+  { keys: ['方便面', '泡面', '米线', '粉丝', '面食', '米', '饭', '餐'], icon: 'noodle', bg: '#FDF0E4' },
+  { keys: ['饼干', '零食', '膨化', '薯片', '糖', '巧克力'], icon: 'cookie', bg: '#FCE9EF' },
+  { keys: ['卤味', '热卤', '熟食', '肉'], icon: 'meat', bg: '#FBEDE2' },
+  { keys: ['纸品', '洗护', '清洁', '日用'], icon: 'tissue', bg: '#E8F4EB' },
+  { keys: ['水果', '果'], icon: 'fruit', bg: '#FCEAE9' },
+  { keys: ['冰', '雪糕', '冷饮'], icon: 'icecream', bg: '#EFEDFB' },
+  { keys: ['奶', '乳', '饮品', '饮料', '水', '茶', '酒'], icon: 'drink', bg: '#E4F3FB' },
+  { keys: ['礼', '套餐'], icon: 'gift', bg: '#FCE9E7' }
 ]
-const CATEGORY_FALLBACK = { icon: 'shop', color: '#3078C0', bg: '#EAF2FC' }
+const CATEGORY_FALLBACK = { icon: 'store', bg: '#EAF2FC' }
 
 // 按分类名解析图标与配色
 function styleOfCategory(name) {
@@ -54,9 +50,7 @@ Page({
     history: [],               // 历史搜索
     showHistory: false,        // 历史搜索面板是否展开
     searchFocus: false,        // 搜索框是否处于聚焦态
-    keyword: '',               // 首页独立搜索关键词
-    searching: false,          // 是否处于搜索结果态
-    searchResults: [],         // 搜索结果
+    keyword: '',               // 首页搜索关键词（确认后携带跳转商城页执行搜索）
     categories: [],            // 分类按钮
     hotGroups: [],             // 热门商品分组（每行一个分类）
     cartCount: 0,
@@ -201,7 +195,7 @@ Page({
       // 分类按钮：每个分类按名称配零售卡通图标与配色
       const categories = (list || []).map((name) => {
         const s = styleOfCategory(name)
-        return { name, icon: s.icon, color: s.color, bg: s.bg }
+        return { name, icon: s.icon, bg: s.bg }
       })
       this.setData({ categories })
     } catch (e) { /* handled */ }
@@ -222,13 +216,10 @@ Page({
         .map((name) => ({
           name,
           icon: styleOfCategory(name).icon,
-          color: styleOfCategory(name).color,
           items: goods.filter((g) => g.category === name).slice(0, 4)
         }))
         .filter((g) => g.items.length)
       this.setData({ goods, hotGroups })
-      // 若正处于搜索结果态，数据刷新后同步刷新结果
-      if (this.data.searching) this.doSearch(this.data.keyword, true)
     } catch (e) { /* toast 已由 request 处理 */ }
   },
 
@@ -264,14 +255,14 @@ Page({
 
   onSearchConfirm(e) {
     const v = e && e.detail && e.detail.value !== undefined ? e.detail.value : this.data.keyword
-    this.doSearch(v)
+    this.goSearch(v)
   },
 
-  // 点历史记录：直接以该词搜索（不再跳商城、无需二次点击）
+  // 点历史记录：直接以该词搜索（跳商城页执行，与商城搜索一致）
   onHistoryTap(e) {
     const kw = e.currentTarget.dataset.kw
     this.setData({ keyword: kw })
-    this.doSearch(kw)
+    this.goSearch(kw)
   },
 
   // 记录历史搜索（去重、置顶、限量）
@@ -283,23 +274,24 @@ Page({
     this.setData({ history })
   },
 
-  // 执行搜索：命中商品名或分类，结果直接展示在首页
-  doSearch(kw, keepHistory) {
+  // 首页搜索统一入口：记录历史 → 携带关键词跳转商城页搜索（不再在首页内联展示结果）
+  goSearch(kw) {
     const k = String(kw || '').trim()
     if (!k) {
-      this.setData({ searching: false, searchResults: [], showHistory: false, searchFocus: false })
+      this.clearKeyword()
       return
     }
-    if (!keepHistory) this.saveHistory(k)
-    const results = (this.allGoods || []).filter(
-      (g) => (g.name || '').indexOf(k) > -1 || (g.category || '').indexOf(k) > -1
-    )
-    this.setData({ keyword: k, searching: true, searchResults: results, showHistory: false, searchFocus: false })
+    this.saveHistory(k)
+    this.setData({ keyword: k, showHistory: false, searchFocus: false })
+    wx.setStorageSync('goods_keyword', k)
+    wx.setStorageSync('goods_category', '')
+    wx.setStorageSync('goods_focus', 0)
+    wx.switchTab({ url: '/pages/goods/list' })
   },
 
   // 退出搜索态，回到首页常态
   clearKeyword() {
-    this.setData({ keyword: '', searching: false, searchResults: [], showHistory: false, searchFocus: false })
+    this.setData({ keyword: '', showHistory: false, searchFocus: false })
   },
 
   clearHistory() {
@@ -350,11 +342,8 @@ Page({
     }
   },
 
-  // 商品查一次（搜索态与常态两处列表）
+  // 商品查一次（用于加购判断库存）
   findGoods(id) {
-    if (this.data.searching) {
-      return this.data.searchResults.find((x) => Number(x.id) === id) || null
-    }
     for (const grp of this.data.hotGroups) {
       const hit = (grp.items || []).find((x) => Number(x.id) === id)
       if (hit) return hit

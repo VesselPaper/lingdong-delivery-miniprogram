@@ -1,7 +1,15 @@
+@import "cat-icons.wxss";
+
 .home {
   min-height: 100vh;
   /* 底部留白：盖过悬浮购物车栏（116rpx 起，高 120rpx）+ 通栏 tabBar，并跟随安全区 */
   padding-bottom: calc(280rpx + env(safe-area-inset-bottom));
+}
+
+/* 分组标题里的小号插画图标 */
+.cat-ic-sm {
+  width: 38rpx;
+  height: 38rpx;
 }
 
 /* 首页是 tab 页，结算栏紧贴通栏 tabBar 上沿（tabBar 高 100rpx + 16rpx 间隙） */

@@ -2,6 +2,10 @@ const api = require('../../utils/api')
 const request = require('../../utils/request')
 const flyCart = require('../../utils/flyCart')
 
+// 历史搜索：与首页共用同一份本地记录（search_history）
+const HISTORY_KEY = 'search_history'
+const HISTORY_MAX = 8
+
 const THEMES = {
   '热卤': { bg: '#F5F5F5', icon: 'app' },
   '卤味': { bg: '#F5F5F5', icon: 'app' },
@@ -14,6 +18,9 @@ Page({
   data: {
     keyword: '',
     focus: false,
+    history: [],           // 历史搜索（与首页共用 search_history）
+    showHistory: false,    // 历史面板展开
+    noResultSugs: [],      // 无结果时的分类建议词
     categories: [],
     activeCategory: '',
     groups: [],
@@ -38,6 +45,7 @@ Page({
   onLoad() {
     const focus = wx.getStorageSync('goods_focus') === 1
     this.setData({ focus })
+    this.loadHistory()
     this.loadCategories()
   },
 
@@ -76,11 +84,52 @@ Page({
 
   onSearch(e) {
     const v = e.detail && typeof e.detail === 'object' ? e.detail.value : e.detail
-    this.setData({ keyword: v }, () => this.loadGoods())
+    this.setData({ keyword: v, showHistory: false }, () => this.loadGoods())
   },
 
   onSearchConfirm() {
+    this.saveHistory(this.data.keyword)
     this.loadGoods()
+  },
+
+  // 点分类建议词：直接以该分类搜索
+  onSugTap(e) {
+    const kw = e.currentTarget.dataset.kw
+    this.saveHistory(kw)
+    this.setData({ keyword: kw }, () => this.loadGoods())
+  },
+
+  /* ---------- 历史搜索（与首页共用） ---------- */
+  loadHistory() {
+    const history = wx.getStorageSync(HISTORY_KEY) || []
+    this.setData({ history: Array.isArray(history) ? history.slice(0, HISTORY_MAX) : [] })
+  },
+
+  saveHistory(kw) {
+    const k = String(kw || '').trim()
+    if (!k) return
+    const history = [k].concat((this.data.history || []).filter((h) => h !== k)).slice(0, HISTORY_MAX)
+    wx.setStorageSync(HISTORY_KEY, history)
+    this.setData({ history })
+  },
+
+  clearHistory() {
+    wx.removeStorageSync(HISTORY_KEY)
+    this.setData({ history: [] })
+  },
+
+  onSearchFocus() {
+    if (this.data.history.length) this.setData({ showHistory: true })
+  },
+
+  closeHistory() {
+    this.setData({ showHistory: false })
+  },
+
+  onHistoryTap(e) {
+    const kw = e.currentTarget.dataset.kw
+    this.saveHistory(kw)
+    this.setData({ keyword: kw, showHistory: false }, () => this.loadGoods())
   },
 
   async loadCategories() {
@@ -101,11 +150,16 @@ Page({
       this.cartMap = byGoods
 
       const kw = this.data.keyword.trim()
-      const filtered = kw ? list.filter((g) => g.name.indexOf(kw) > -1) : list
+      // 搜索命中「商品名 或 分类」（如搜「零食」可命中分类「饼干零食」下的全部商品）
+      const filtered = kw
+        ? list.filter((g) => (g.name || '').indexOf(kw) > -1 || (g.category || '').indexOf(kw) > -1)
+        : list
       const catOrder = this.data.categories.slice()
       filtered.forEach((g) => {
         if (catOrder.indexOf(g.category) === -1) catOrder.push(g.category)
       })
+      // 无结果时给出分类建议词，点一下即搜索该分类
+      const noResultSugs = kw && !filtered.length ? catOrder.slice(0, 4) : []
       const groups = catOrder
         .map((name) => ({
           name,
@@ -140,7 +194,7 @@ Page({
 
       const count = cart.reduce((s, it) => s + it.quantity, 0)
       const total = cart.reduce((s, it) => s + (it.price_now !== undefined ? it.price_now : it.price) * it.quantity, 0)
-      this.setData({ groups, cartCount: count, cartTotal: total.toFixed(2) }, () => {
+      this.setData({ groups, cartCount: count, cartTotal: total.toFixed(2), noResultSugs }, () => {
         // 首页带入的分类：加载完直接定位到该分组
         const target = this.pendingCategory
         this.pendingCategory = ''
