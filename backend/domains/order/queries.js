@@ -13,15 +13,13 @@ module.exports = {
     sql += ' ORDER BY id DESC'
     return store.prepare(sql).all(...args)
   },
-  dailySeqCount: (store) => {
-    const r = store.prepare("SELECT COUNT(*) c FROM orders WHERE date(created_at)=date('now','localtime')").get()
-    return Number(r && r.c || 0)
-  },
+  // 当日序号取号已收口到 services/seq.js（原子计数器表，删行不重号）；
+  // 原 COUNT(*)-based 的 dailySeqCount 已删除，避免被误用造成重号。
   insert: (store, f) => {
     const info = store.prepare(`INSERT INTO orders
-      (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, original_amount, discount_amount, activity_id, delivery_fee, status, remark, pickup_code, daily_seq)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)`)
-      .run(f.orderNo, f.userId, f.landmarkId, f.landmarkName, f.contactName, f.contactPhone, f.totalAmount, f.originalAmount, f.discountAmount, f.activityId, f.deliveryFee, f.remark, f.pickupCode, f.seq)
+      (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, original_amount, discount_amount, activity_id, delivery_fee, status, remark, pickup_code, daily_seq, seq_date)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)`)
+      .run(f.orderNo, f.userId, f.landmarkId, f.landmarkName, f.contactName, f.contactPhone, f.totalAmount, f.originalAmount, f.discountAmount, f.activityId, f.deliveryFee, f.remark, f.pickupCode, f.seq, f.seqDate)
     return Number(info.lastInsertRowid)
   },
   // 模拟支付：直接置待接单(1)

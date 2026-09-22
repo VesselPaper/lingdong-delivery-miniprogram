@@ -235,6 +235,71 @@ function migrate(db) {
     SELECT COUNT(*) FROM orders o2
     WHERE date(o2.created_at)=date(orders.created_at) AND o2.id <= orders.id)
     WHERE daily_seq IS NULL`)
+
+  // ---------- 编号重构：批次号/订单号 = 日期 + 当日序号（见 backend/services/seq.js） ----------
+  // 取号计数器表：取代 COUNT(*) 取号 —— 删行不会重号，且跨进程由 SQLite 写锁串行化
+  db.exec(`CREATE TABLE IF NOT EXISTS seq_counters (
+    scope TEXT NOT NULL,
+    day TEXT NOT NULL,
+    last_seq INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (scope, day)
+  )`)
+  // 当日序号所属日期（与 created_at 同源）；历史数据回填后，短号可按「MMDD-序号」正确拼出
+  if (!orderCols.includes('seq_date')) db.exec("ALTER TABLE orders ADD COLUMN seq_date TEXT")
+  if (!batchCols.includes('seq_date')) db.exec("ALTER TABLE delivery_batches ADD COLUMN seq_date TEXT")
+  db.exec("UPDATE orders SET seq_date=date(created_at) WHERE seq_date IS NULL")
+  db.exec("UPDATE delivery_batches SET seq_date=date(created_at) WHERE seq_date IS NULL")
+  // 同日序号去重：旧的 COUNT(*) 取号方案在「当日删过行」后会重号；重复项按 id 顺序重编号到当日最大值之后
+  for (const table of ['orders', 'delivery_batches']) {
+    const dups = db.prepare(`SELECT seq_date, daily_seq FROM ${table}
+      WHERE seq_date IS NOT NULL AND daily_seq IS NOT NULL
+      GROUP BY seq_date, daily_seq HAVING COUNT(*) > 1`).all()
+    for (const d of dups) {
+      let next = Number(db.prepare(`SELECT IFNULL(MAX(daily_seq),0) AS m FROM ${table} WHERE seq_date=?`).get(d.seq_date).m)
+      const rows = db.prepare(`SELECT id FROM ${table} WHERE seq_date=? AND daily_seq=? ORDER BY id ASC`).all(d.seq_date, d.daily_seq)
+      for (const r of rows.slice(1)) {   // 保留最早一条，其余重编号
+        next += 1
+        db.prepare(`UPDATE ${table} SET daily_seq=? WHERE id=?`).run(next, r.id)
+      }
+    }
+  }
+  // 唯一约束由数据库兜底（重复已在上一步修复；仍失败只告警，不阻断启动）
+  for (const table of ['orders', 'delivery_batches']) {
+    try {
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_${table}_seq ON ${table}(seq_date, daily_seq)`)
+    } catch (e) {
+      console.warn('[db] ' + table + ' 同日序号唯一索引创建失败（疑似仍有重复，请人工核查）：' + e.message)
+    }
+  }
+  // 计数器播种：按当日最大序号初始化，保证首次取号不与历史号冲突
+  for (const [scope, table] of [['order', 'orders'], ['batch', 'delivery_batches']]) {
+    db.exec(`INSERT INTO seq_counters (scope, day, last_seq)
+      SELECT '${scope}', seq_date, MAX(daily_seq) FROM ${table}
+      WHERE seq_date IS NOT NULL AND daily_seq IS NOT NULL GROUP BY seq_date
+      ON CONFLICT(scope, day) DO UPDATE SET last_seq = MAX(last_seq, excluded.last_seq)`)
+  }
+
+  // ---------- 管理员账号体系（方案A：用户名+密码登录 → 随机 session token，替代共享静态 ADMIN_TOKEN） ----------
+  // admin_users：账号主体；password_hash 为 scrypt 哈希（salt$hash，hex）。
+  // admin_sessions：登录签发的随机 token（32 字节 hex），过期后失效；吊销即删行，可单独禁用某账号。
+  db.exec(`CREATE TABLE IF NOT EXISTS admin_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    nickname TEXT DEFAULT '',
+    role TEXT DEFAULT 'admin',
+    status INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    last_login_at TEXT
+  )`)
+  db.exec(`CREATE TABLE IF NOT EXISTS admin_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT UNIQUE NOT NULL,
+    admin_user_id INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    expires_at TEXT NOT NULL
+  )`)
+  db.exec('CREATE INDEX IF NOT EXISTS ux_admin_sessions_user ON admin_sessions(admin_user_id)')
   // delivery_tasks：批次归属
   const taskCols = db.prepare('PRAGMA table_info(delivery_tasks)').all().map((c) => c.name)
   if (!taskCols.includes('batch_id')) db.exec("ALTER TABLE delivery_tasks ADD COLUMN batch_id INTEGER DEFAULT NULL")

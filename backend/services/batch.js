@@ -10,6 +10,9 @@
 // 本模块只做数据库编排，不直接调用平台（平台调用在 services/platform.js，由 server.js 编排），
 // 避免循环依赖。
 
+// 编号服务：批次号 = 日期 + 当日序号（原子取号）
+const seqSvc = require('./seq')
+
 const BATCH_STATUS = {
   0: '组单中',
   1: '待上货',
@@ -92,11 +95,11 @@ function getOrCreateOpenBatch(store, itemCount) {
     HAVING items + ? <= ?
     ORDER BY items DESC, b.id DESC LIMIT 1`).get(n, BATCH_MAX_ITEMS)
   if (b) return store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(b.id))
-  const batchNo = 'BD' + Date.now().toString().slice(-8) + Math.random().toString(36).slice(2, 6).toUpperCase()
-  // 当日序号：每天从 1 重置（商家端卡面展示「批次 N」，长编号只在批次详情显示）
-  const seqRow = store.prepare("SELECT COUNT(*) c FROM delivery_batches WHERE date(created_at)=date('now','localtime')").get()
-  const info = store.prepare('INSERT INTO delivery_batches (batch_no, status, status_text, total_orders, total_items, daily_seq) VALUES (?,0,?,0,0,?)')
-    .run(batchNo, BATCH_STATUS[0], Number(seqRow && seqRow.c || 0) + 1)
+  // 编号：日期 + 当日序号（原子取号，见 services/seq.js）；商家端卡面展示短号「B-MMDD-NN」
+  const { day: seqDay, seq } = seqSvc.nextSeq(store, 'batch')
+  const batchNo = seqSvc.batchNo(seqDay, seq)
+  const info = store.prepare('INSERT INTO delivery_batches (batch_no, status, status_text, total_orders, total_items, daily_seq, seq_date) VALUES (?,0,?,0,0,?,?)')
+    .run(batchNo, BATCH_STATUS[0], seq, seqDay)
   return store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(info.lastInsertRowid))
 }
 
@@ -271,6 +274,7 @@ function getBatchDetail(store, batchId) {
     return {
       id: o.id, order_no: o.order_no, status: o.status, status_text: statusText(o.status),
       daily_seq: Number(o.daily_seq || o.id),
+      code_short: seqSvc.orderShortOf(o.seq_date, o.created_at, o.daily_seq || o.id),
       landmark_id: o.landmark_id, landmark_name: lmName,
       contact_name: o.contact_name, contact_phone: maskPhone(o.contact_phone),
       pickup_code: o.pickup_code, total_amount: o.total_amount,
@@ -294,6 +298,7 @@ function getBatchDetail(store, batchId) {
   return {
     id: b.id, batch_no: b.batch_no, status: b.status, status_text: b.status_text || statusText(b.status),
     daily_seq: Number(b.daily_seq || b.id),
+    code_short: seqSvc.batchShortOf(b.seq_date, b.created_at, b.daily_seq || b.id),
     device_sn: b.device_sn, total_orders: orders.length, total_items: totalItems, picked_orders: picked,
     delivery_mode: b.delivery_mode || '', current_stop: Number(b.current_stop || 0),
     loaded_at: b.loaded_at || '', ready_dispatch: !!(Number(b.status) === 1 && b.loaded_at),

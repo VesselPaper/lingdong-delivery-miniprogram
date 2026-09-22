@@ -6,6 +6,8 @@
 const q = require('./queries')
 // 促销计算（promotion.js）为共享服务（纯函数 + store 注入）：下单时权威计算折后应付/优惠金额
 const promotion = require('../../services/promotion')
+// 编号服务：订单号 = 日期 + 当日序号（原子取号），并提供人读短号
+const seqSvc = require('../../services/seq')
 
 // ---------- 状态字典与常量（05 方案：ORDER_STATUS/REFUND_STATUS/CANCEL_REQ_STATUS/FREE_CANCEL_WINDOW_MS/PICKUP_*/DELIVERY_* 归 order 域） ----------
 const ORDER_STATUS = {
@@ -278,9 +280,16 @@ function createOrder(store, deps, body, userId) {
   }
   const chunks = totalItems > deps.batch.BATCH_MAX_ITEMS ? splitOrderChunks(lineItems, deps.batch.BATCH_MAX_ITEMS) : [lineItems]
   const created = []
-  let seq = q.dailySeqCount(store)
-  const orderNoNew = () => 'LD' + Date.now().toString().slice(-8) + Math.random().toString(36).slice(2, 6).toUpperCase()
-  const pickupCodeNew = () => String(Math.floor(1000 + Math.random() * 9000))
+  // 取餐码：4 位随机，在「未结束订单(0待支付/1待接单/2配送中/3待取货)」范围内查重，撞了重摇；
+  // 极端情况下兜底用当日序号派生（当日序号唯一 → 兜底码也唯一）。它是平台 loading/unloading 校验码与开舱凭据，必须唯一。
+  const pickupCodeNew = (seq) => {
+    for (let i = 0; i < 20; i++) {
+      const c = String(Math.floor(1000 + Math.random() * 9000))
+      const hit = store.prepare('SELECT 1 FROM orders WHERE pickup_code=? AND status IN (0,1,2,3) LIMIT 1').get(c)
+      if (!hit) return c
+    }
+    return String(1000 + (Number(seq) % 9000))
+  }
   // 当前生效且已发布的活动（含时间窗过滤）：同单只享一个，取用户选中的（activity_id），未选/失效取最大优惠
   const ordersActivePromos = promotion.loadActive(store)
   // 拆单（单笔超单车容量 12 件）时配送费整单只收一次，挂在第一单上，
@@ -289,24 +298,29 @@ function createOrder(store, deps, body, userId) {
   for (const chunk of chunks) {
     const originalTotal = chunk.reduce((s, it) => s + it.goods.price * it.quantity, 0)
     // 权威优惠计算：后端重算应付金额，前端自报价无效
-    const promo = activity_id
-      ? promotion.resolvePicked(chunk.map((it) => ({ goods: it.goods, quantity: it.quantity })), ordersActivePromos, activity_id)
-      : promotion.resolve(chunk.map((it) => ({ goods: it.goods, quantity: it.quantity })), ordersActivePromos)
+    // activity_id=0 / '0' / 'none' → 用户选择「不使用优惠」：无折扣、无满减，按原价结算
+    const noPromo = activity_id === 0 || activity_id === '0' || activity_id === 'none'
+    const promo = noPromo
+      ? { activity: null, discount: 0, original: originalTotal, payable: originalTotal }
+      : (activity_id
+          ? promotion.resolvePicked(chunk.map((it) => ({ goods: it.goods, quantity: it.quantity })), ordersActivePromos, activity_id)
+          : promotion.resolve(chunk.map((it) => ({ goods: it.goods, quantity: it.quantity })), ordersActivePromos))
     const chunkFee = feeAssigned ? 0 : deliveryFee
     feeAssigned = true
     // 实付 = 商品活动后金额 + 配送费（配送费不参与活动折扣，也不进 discount_amount）
     const chunkTotal = Math.round((Number(promo.payable) + chunkFee) * 100) / 100
     const discountAmount = promo.discount
-    const orderNo = orderNoNew()
-    const pickupCode = pickupCodeNew()
-    seq += 1
+    // 编号：日期 + 当日序号（原子取号）。拆单时每个子单各占一个连号。
+    const { day: seqDay, seq } = seqSvc.nextSeq(store, 'order')
+    const orderNo = seqSvc.orderNo(seqDay, seq)
+    const pickupCode = pickupCodeNew(seq)
     const orderId = q.insert(store, {
       orderNo, userId, landmarkId: String(landmark_id), landmarkName: lm.name,
       contactName: cname, contactPhone: cphone, totalAmount: Number(chunkTotal).toFixed(2),
       originalAmount: Number(originalTotal).toFixed(2), discountAmount: Number(discountAmount).toFixed(2),
       activityId: promo.activity ? promo.activity.id : null,
       deliveryFee: Number(chunkFee).toFixed(2),
-      remark, pickupCode, seq
+      remark, pickupCode, seq, seqDate: seqDay
     })
     for (const { goods, quantity } of chunk) {
       q.insertItem(store, { orderId, goodsId: goods.id, goodsName: goods.name, goodsImage: goods.image, price: goods.price, quantity })

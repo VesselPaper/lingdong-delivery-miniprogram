@@ -3,6 +3,8 @@
 // 跨域读全部为只读聚合（05 方案明确允许）；订单取消等写操作一律走 deps.order.applyOrderCancelled（order 域落账）。
 
 const q = require('./queries')
+// 编号格式化：批次人读短号（B-MMDD-NN）
+const seqSvc = require('../../services/seq')
 
 // 状态字典（机器状态码/任务状态码 → 中文），供页面展示状态关系
 const ADMIN_TASK_STATUS = {
@@ -24,7 +26,8 @@ async function buildAdminState(store, deps) {
   out.platform_tasks_error = pt.ok ? '' : pt.msg
   // 本地批次/订单/任务：活跃全量 + 终态最近 100 条（管理页分类展示：活跃在前、历史在后）
   out.batches = q.activeBatches(store).concat(q.historyBatches(store))
-  out.orders = q.activeOrders(store).concat(q.historyOrders(store))
+    .map((b) => Object.assign({}, b, { code_short: seqSvc.batchShortOf(b.seq_date, b.created_at, b.daily_seq || b.id) }))
+  out.orders = q.orderCards(store, q.activeOrders(store).concat(q.historyOrders(store)))
   out.tasks = q.activeTasks(store).concat(q.historyTasks(store))
   // 死锁/异常检测（管理页观察车是否卡死/异常）
   const nowMs = Date.now()

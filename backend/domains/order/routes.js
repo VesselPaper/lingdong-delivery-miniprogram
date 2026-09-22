@@ -8,6 +8,8 @@ const express = require('express')
 const { createShared } = require('../_shared')
 const q = require('./queries')
 const s = require('./service')
+// 编号格式化：人读短号（订单 MMDD-NN / 批次 B-MMDD-NN）
+const seqSvc = require('../../services/seq')
 
 module.exports = (store, deps) => {
   const { auth, merchantGuard, audit, ok, maskPhone } = createShared(store)
@@ -75,7 +77,11 @@ module.exports = (store, deps) => {
   // ---------- 订单列表 / 红点 / 详情 ----------
   router.get('/order/list', auth, (req, res) => {
     const { status = '' } = req.query
-    const rows = q.listByUser(store, req.user.id, status).map((o) => ({ ...o, status_text: s.ORDER_STATUS[o.status] || '' }))
+    const rows = q.listByUser(store, req.user.id, status).map((o) => ({
+      ...o,
+      status_text: s.ORDER_STATUS[o.status] || '',
+      code_short: seqSvc.orderShortOf(o.seq_date, o.created_at, o.daily_seq || o.id)
+    }))
     ok(res, rows)
   })
 
@@ -114,6 +120,7 @@ module.exports = (store, deps) => {
         const active = store.prepare('SELECT COUNT(*) c, SUM(CASE WHEN picked_up_at IS NOT NULL THEN 1 ELSE 0 END) p FROM orders WHERE batch_id=? AND status IN (2,3,4)').get(order.batch_id)
         batchInfo = {
           batch_id: b.id, batch_no: b.batch_no, status: b.status,
+          code_short: seqSvc.batchShortOf(b.seq_date, b.created_at, b.daily_seq || b.id),
           status_text: b.status_text || deps.batch.statusText(b.status),
           total_orders: Number(active && active.c || 0),
           picked_orders: Number(active && active.p || 0),
@@ -125,6 +132,7 @@ module.exports = (store, deps) => {
     ok(res, {
       ...order,
       status_text: s.ORDER_STATUS[order.status] || '',
+      code_short: seqSvc.orderShortOf(order.seq_date, order.created_at, order.daily_seq || order.id),
       items,
       task,
       batch: batchInfo,
@@ -316,7 +324,7 @@ module.exports = (store, deps) => {
     else if (status !== '' && status !== undefined) { sql += ' WHERE status=?'; args.push(Number(status)) }
     sql += ' ORDER BY id DESC'
     const getItems = store.prepare('SELECT id, goods_id, goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?')
-    const getBatch = store.prepare('SELECT batch_no, daily_seq, status, total_items, route FROM delivery_batches WHERE id=?')
+    const getBatch = store.prepare('SELECT batch_no, daily_seq, seq_date, created_at, status, total_items, route FROM delivery_batches WHERE id=?')
     const stageText = { accept: '待接单', load: '待上货', deliver: '配送中', pickup: '待取货' }[stage] || ''
     const rows = store.prepare(sql).all(...args).map((o) => {
       const items = getItems.all(o.id)
@@ -326,7 +334,7 @@ module.exports = (store, deps) => {
         if (b) {
           let rt = ''
           try { rt = (JSON.parse(b.route || '[]') || []).map((r) => r.landmark_name).filter(Boolean).join(' → ') } catch (e) { rt = '' }
-          batchInfo = { batch_no: b.batch_no, daily_seq: Number(b.daily_seq || b.id), status: b.status, total_items: Number(b.total_items || 0), route_text: rt }
+          batchInfo = { batch_no: b.batch_no, daily_seq: Number(b.daily_seq || b.id), code_short: seqSvc.batchShortOf(b.seq_date, b.created_at, b.daily_seq || b.id), status: b.status, total_items: Number(b.total_items || 0), route_text: rt }
         }
       }
       return {
@@ -338,6 +346,7 @@ module.exports = (store, deps) => {
         // 点位名清洗：脏数据（??1?）以 landmarks 表回退（deps.batch = delivery 域，未拆前直连 services/batch）
         landmark_name: deps.batch.landmarkNameOf(store, o.landmark_id, o.landmark_name),
         daily_seq: Number(o.daily_seq || o.id),
+        code_short: seqSvc.orderShortOf(o.seq_date, o.created_at, o.daily_seq || o.id),
         items,
         first_name: items.length ? items[0].goods_name : '',
         first_image: items.length ? (items[0].goods_image || '') : '',
@@ -358,7 +367,14 @@ module.exports = (store, deps) => {
       const detail = deps.batch.getBatchDetail(store, order.batch_id)
       batchInfo = detail ? { id: detail.id, batch_no: detail.batch_no, daily_seq: detail.daily_seq, status: detail.status, status_text: detail.status_text, total_orders: detail.total_orders, picked_orders: detail.picked_orders } : null
     }
-    ok(res, { ...order, contact_phone: maskPhone(order.contact_phone), status_text: s.ORDER_STATUS[order.status] || '', items, batch: batchInfo })
+    ok(res, {
+      ...order,
+      contact_phone: maskPhone(order.contact_phone),
+      status_text: s.ORDER_STATUS[order.status] || '',
+      code_short: seqSvc.orderShortOf(order.seq_date, order.created_at, order.daily_seq || order.id),
+      items,
+      batch: batchInfo
+    })
   })
 
   // 商家接单（真实业务：店铺歇业时后端拒绝接单；接单即并入当前配送批次，待批次派车）
@@ -417,7 +433,7 @@ module.exports = (store, deps) => {
   router.get('/merchant/orders/exception', merchantGuard, (req, res) => {
     const { tab = 'pending' } = req.query
     const getItems = store.prepare('SELECT id, goods_id, goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?')
-    const getBatch = store.prepare('SELECT batch_no, daily_seq, status, total_items, route FROM delivery_batches WHERE id=?')
+    const getBatch = store.prepare('SELECT batch_no, daily_seq, seq_date, created_at, status, total_items, route FROM delivery_batches WHERE id=?')
     const rows = store.prepare("SELECT * FROM orders WHERE status=6 OR exception_handled != '' ORDER BY id DESC").all()
     const out = rows.filter((o) => {
       if (tab === 'pending') return Number(o.status) === 6 && !o.exception_handled
@@ -431,7 +447,7 @@ module.exports = (store, deps) => {
         if (b) {
           let rt = ''
           try { rt = (JSON.parse(b.route || '[]') || []).map((r) => r.landmark_name).filter(Boolean).join(' → ') } catch (e) { rt = '' }
-          batchInfo = { batch_no: b.batch_no, daily_seq: Number(b.daily_seq || b.id), status: b.status, total_items: Number(b.total_items || 0), route_text: rt }
+          batchInfo = { batch_no: b.batch_no, daily_seq: Number(b.daily_seq || b.id), code_short: seqSvc.batchShortOf(b.seq_date, b.created_at, b.daily_seq || b.id), status: b.status, total_items: Number(b.total_items || 0), route_text: rt }
         }
       }
       return {
@@ -439,6 +455,7 @@ module.exports = (store, deps) => {
         status_text: s.ORDER_STATUS[o.status] || '',
         contact_phone: maskPhone(o.contact_phone),
         daily_seq: Number(o.daily_seq || o.id),
+        code_short: seqSvc.orderShortOf(o.seq_date, o.created_at, o.daily_seq || o.id),
         landmark_name: deps.batch.landmarkNameOf(store, o.landmark_id, o.landmark_name),
         items,
         first_name: items.length ? items[0].goods_name : '',

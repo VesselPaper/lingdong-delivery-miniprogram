@@ -28,7 +28,7 @@ module.exports = {
   setTaskStatusByBatchBelow: (store, batchId, status, text) => store.prepare("UPDATE delivery_tasks SET task_status=?, status_text=?, updated_at=datetime('now','localtime') WHERE batch_id=? AND task_status < ?")
     .run(Number(status), text, Number(batchId), Number(status)),
   monitorTasks: (store) => store.prepare(`
-    SELECT d.*, o.order_no, o.landmark_name, o.status AS order_status, o.daily_seq AS order_daily_seq
+    SELECT d.*, o.order_no, o.landmark_name, o.status AS order_status, o.daily_seq AS order_daily_seq, o.seq_date AS order_seq_date
     FROM delivery_tasks d JOIN orders o ON d.order_id = o.id
     WHERE d.task_status < 80 OR (d.task_status >= 90 AND d.task_status < 110)
     ORDER BY d.id DESC`).all(),

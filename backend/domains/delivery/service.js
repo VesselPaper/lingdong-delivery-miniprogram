@@ -7,6 +7,8 @@
 // 跨域读写 orders / refunds 均带注释（05 方案明确允许 delivery→orders 例外；refund 落账跟随 order 域既有实现）。
 
 const q = require('./queries')
+// 编号格式化：订单人读短号（MMDD-NN）
+const seqSvc = require('../../services/seq')
 
 // Route B（syncLoading=0）开舱获取的设备控制权，按批次暂存内存；「开始配送」时释放。
 // 重启后按平台控制权超时自动失效，无 ctrlId 时开始配送直接放行（batch.ctrl_id 列持久化兜底）。
@@ -212,7 +214,9 @@ function pickupContext(store, order) {
   let batchOrders = []
   let batchOrderCount = 0
   if (order.batch_id) {
-    batchOrders = store.prepare('SELECT id, order_no, daily_seq, landmark_name FROM orders WHERE batch_id=? AND status IN (2,3) ORDER BY id ASC').all(order.batch_id)
+    batchOrders = store.prepare('SELECT id, order_no, daily_seq, seq_date, created_at, landmark_name FROM orders WHERE batch_id=? AND status IN (2,3) ORDER BY id ASC')
+      .all(order.batch_id)
+      .map((r) => Object.assign({}, r, { code_short: seqSvc.orderShortOf(r.seq_date, r.created_at, r.daily_seq || r.id) }))
     batchOrderCount = batchOrders.length
   }
   // issue1：该用户在本批次、本取货点、当前真到站(已送达待取)的订单 —— 同点多单「一起取走」。
@@ -223,13 +227,17 @@ function pickupContext(store, order) {
   if (order.batch_id) {
     const lmFilter = curLm ? ' AND landmark_id=?' : ''
     const params = curLm ? [order.batch_id, order.user_id, curLm] : [order.batch_id, order.user_id]
-    myBatchOrders = store.prepare(`SELECT id, order_no, daily_seq, landmark_id, landmark_name, pickup_code, status, picked_up_at
+    myBatchOrders = store.prepare(`SELECT id, order_no, daily_seq, seq_date, created_at, landmark_id, landmark_name, pickup_code, status, picked_up_at
       FROM orders WHERE batch_id=? AND user_id=? AND status=3${lmFilter} ORDER BY id ASC`)
       .all(...params)
       .map((r) => {
         const items = store.prepare('SELECT goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?').all(r.id)
           .map((it) => ({ goods_name: it.goods_name, goods_image: it.goods_image, price: Number(it.price || 0), quantity: Number(it.quantity || 0) }))
-        return Object.assign({}, r, { picked_up: !!r.picked_up_at, items })
+        return Object.assign({}, r, {
+          picked_up: !!r.picked_up_at,
+          code_short: seqSvc.orderShortOf(r.seq_date, r.created_at, r.daily_seq || r.id),
+          items
+        })
       })
   }
   const myTotalItems = myBatchOrders.reduce((s, o) => s + (o.items || []).reduce((x, it) => x + it.quantity, 0), 0)
