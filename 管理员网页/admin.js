@@ -176,8 +176,9 @@
     if (pg) pg.classList.add('active')
     $('pageTitle').textContent = PAGE_META[page].title
     $('pageSub').textContent = PAGE_META[page].sub
-    // 切页时把内容滚动区滚回顶部（导航与报头/页面头固定不动）
-    var sc = document.querySelector('.page-body')
+    // 切页时把该页内容滚动区滚回顶部（导航与报头/页面头固定不动）
+    var pgEl = document.getElementById('page-' + page)
+    var sc = pgEl ? pgEl.querySelector('.page-body') : null
     if (sc) sc.scrollTop = 0
     if (state && page === 'data') renderDataPage()
     if (page === 'overview') {
