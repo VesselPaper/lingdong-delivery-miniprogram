@@ -46,8 +46,9 @@
           + '<span class="ops"><button class="btn danger ghost sm" onclick="window.actCancelBatch(' + b.id + ')">清理批次</button></span>')
       }).join('')
       dRows += deliveringOrders.map(function (o) {
-        return rowItem('order', o.id, '<span class="k">订单 #' + o.id + '</span><span class="v">' + esc(o.order_no) + '</span>'
+        return rowItem('order', o.id, '<span class="k">订单 ' + esc(o.code_short || ('#' + o.id)) + '</span><span class="v">' + esc(o.order_no) + '</span>'
           + '<span class="v">' + orderTag(o) + '</span>'
+          + orderGoods(o)
           + '<span class="v">' + esc(o.landmark_name || '—') + '</span>'
           + (o.batch_id ? '<span class="v mini">批次 ' + o.batch_id + '</span>' : '')
           + '<span class="ops"><button class="btn danger ghost sm" onclick="window.actCancelOrder(' + o.id + ')">删除订单</button></span>')
@@ -59,8 +60,9 @@
     if (waitPick.length) {
       total += waitPick.length
       parts.push(catBlock('待取货', 'violet', waitPick.map(function (o) {
-        return rowItem('order', o.id, '<span class="k">订单 #' + o.id + '</span><span class="v">' + esc(o.order_no) + '</span>'
+        return rowItem('order', o.id, '<span class="k">订单 ' + esc(o.code_short || ('#' + o.id)) + '</span><span class="v">' + esc(o.order_no) + '</span>'
           + '<span class="v">' + orderTag(o) + '</span>'
+          + orderGoods(o)
           + '<span class="v">' + esc(o.landmark_name || '—') + '</span>'
           + (o.batch_id ? '<span class="v mini">批次 ' + o.batch_id + '</span>' : '')
           + '<span class="ops"><button class="btn danger ghost sm" onclick="window.actCancelOrder(' + o.id + ')">删除订单</button></span>')
@@ -80,8 +82,9 @@
     if (errOrders.length || errTasks.length) {
       total += errOrders.length + errTasks.length
       var rows = errOrders.map(function (o) {
-        return rowItem('order', o.id, '<span class="k">订单 #' + o.id + '</span><span class="v">' + esc(o.order_no) + '</span>'
+        return rowItem('order', o.id, '<span class="k">订单 ' + esc(o.code_short || ('#' + o.id)) + '</span><span class="v">' + esc(o.order_no) + '</span>'
           + '<span class="v">' + orderTag(o) + '</span>'
+          + orderGoods(o)
           + '<span class="v">' + esc(o.landmark_name || '—') + '</span>'
           + '<span class="ops"><button class="btn danger ghost sm" onclick="window.actCancelOrder(' + o.id + ')">删除订单</button></span>')
       }).join('')
@@ -109,6 +112,20 @@
       + innerHtml + '</div>'
   }
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1) }
+
+  // 订单「商品信息卡面」：首图缩略 + 商品名（多件时「等 N 件」）；无图时灰底占位
+  function orderGoods(o) {
+    var img = o.first_image || ''
+    var name = o.first_name || ''
+    var cnt = Number(o.item_count || 0)
+    var imgHtml = img
+      ? '<img class="o-thumb" src="' + esc(img) + '" alt="" onerror="this.style.display=\'none\'">'
+      : '<span class="o-thumb ph"></span>'
+    var nameHtml = esc(name)
+    if (cnt > 1) nameHtml += ' <span class="o-more">等 ' + cnt + ' 件</span>'
+    else if (cnt === 1) nameHtml += ' <span class="o-more">× 1</span>'
+    return '<span class="o-card">' + imgHtml + '<span class="o-name">' + nameHtml + '</span></span>'
+  }
 
   function catBlock(title, color, rows) {
     var dotColor = color === 'red' ? 'var(--red)' : color === 'violet' ? 'var(--violet)' : color === 'blue' ? 'var(--blue)' : 'var(--ok)'
@@ -147,6 +164,7 @@
       if (flt !== '' && String(s) !== flt) return false
       if (q) {
         if (String(b.batch_no || '').toLowerCase().indexOf(q) >= 0) return true
+        if (String(b.code_short || '').toLowerCase().indexOf(q) >= 0) return true
         return (state.orders || []).some(function (o) { return o.batch_id === b.id && String(o.order_no || '').toLowerCase().indexOf(q) >= 0 })
       }
       return true
@@ -168,7 +186,7 @@
       var progress = Number(b.status) === 2 ? (Number(b.picked_orders || 0) + ' / ' + b.total_orders) : '—'
       return '<tr class="ctx-hit" oncontextmenu="window.ctxBatch(' + b.id + ',event)">'
         + '<td><input type="checkbox" class="ck" data-type="batch" data-id="' + b.id + '" onchange="window.toggleSel(\'batch\',' + b.id + ',this.checked)"></td>'
-        + '<td><b>' + b.id + '</b></td><td>' + esc(b.batch_no) + '</td><td>' + batchTag(b) + '</td>'
+        + '<td><b>' + esc(b.code_short || b.id) + '</b><br><span class="mini">#' + b.id + '</span></td><td>' + esc(b.batch_no) + '</td><td>' + batchTag(b) + '</td>'
         + '<td>' + esc(b.device_sn || '—') + '</td><td>' + b.total_orders + '</td>'
         + '<td>' + progress + '</td><td>' + esc(currentStopText(b)) + '</td>'
         + '<td class="route-cell">' + (hasRoute ? esc(batchRouteText(b)) : '—') + '</td>'
@@ -192,6 +210,7 @@
       if (flt !== '' && String(s) !== flt) return false
       if (q) {
         if (String(o.order_no || '').toLowerCase().indexOf(q) >= 0) return true
+        if (String(o.code_short || '').toLowerCase().indexOf(q) >= 0) return true
         var b = (state.batches || []).find(function (x) { return x.id === o.batch_id })
         return b && String(b.batch_no || '').toLowerCase().indexOf(q) >= 0
       }
@@ -203,13 +222,14 @@
     }
     var head = '<div class="tblwrap"><table><thead><tr>'
       + '<th style="width:34px"><input type="checkbox" class="ck" onchange="window.toggleSelAll(\'order\',this.checked,\'' + page + '\')"></th>'
-      + '<th>ID</th><th>订单号</th><th>状态</th><th>批次</th><th>点位</th><th>金额</th><th>创建时间</th><th>操作</th>'
+      + '<th>ID</th><th>订单号</th><th>状态</th><th>商品</th><th>批次</th><th>点位</th><th>金额</th><th>创建时间</th><th>操作</th>'
       + '</tr></thead><tbody>'
     var body = rows.map(function (o) {
       var active = [0, 1, 2, 3, 6].indexOf(Number(o.status)) >= 0
       return '<tr class="ctx-hit" oncontextmenu="window.ctxOrder(' + o.id + ',event)">'
         + '<td><input type="checkbox" class="ck" data-type="order" data-id="' + o.id + '" onchange="window.toggleSel(\'order\',' + o.id + ',this.checked)"></td>'
-        + '<td><b>' + o.id + '</b></td><td>' + esc(o.order_no) + '</td><td>' + orderTag(o) + '</td>'
+        + '<td><b>' + esc(o.code_short || o.id) + '</b><br><span class="mini">#' + o.id + '</span></td><td>' + esc(o.order_no) + '</td><td>' + orderTag(o) + '</td>'
+        + '<td>' + orderGoods(o) + '</td>'
         + '<td>' + (o.batch_id || '—') + '</td><td>' + esc(o.landmark_name || '—') + '</td><td>' + (o.total_amount || 0) + '</td>'
         + '<td>' + esc(o.created_at || '—') + '</td>'
         + '<td class="row-ops">' + (active ? '<button class="btn danger ghost sm" onclick="window.actCancelOrder(' + o.id + ')">删除订单</button>' : '<span class="mini">终态</span>') + '</td></tr>'

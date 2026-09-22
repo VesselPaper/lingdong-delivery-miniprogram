@@ -35,9 +35,10 @@
   var batchOrdersCache = {}        // 批次 id -> 订单数组 | 'loading'
   var statusFilter = { tasks: '', history: '' }
   var searchQ = { tasks: '', history: '' }
-  var tokenVerified = false
   var toastTimer = null
   var busy = false                // 状态轮询防重入
+  var currentAdmin = null         // 当前登录的管理员（方案A：账号密码登录）
+  var onUnauthorized = null       // 会话失效回调（由登录模块设置 → 弹登录页）
 
   // ---------- 基础工具 ----------
   function esc(s) { return String(s === undefined || s === null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;') }
@@ -60,7 +61,8 @@
     toastTimer = setTimeout(function () { t.hidden = true }, 3400)
   }
 
-  function token() { return $('token').value.trim() || localStorage.getItem(TOKEN_KEY) || '' }
+  // 管理员会话 token（方案A：登录签发的随机 session token，存 localStorage；不再有「输入令牌」框）
+  function token() { return localStorage.getItem(TOKEN_KEY) || '' }
 
   function api(path, method, body) {
     return fetch('/api/admin' + path, {
@@ -72,6 +74,8 @@
         var err = new Error(j.msg || ('HTTP ' + r.status))
         err.status = r.status
         err.code = j.code
+        // 登录接口自身的 401（密码错误）不触发全局会话失效回调，否则会清空用户刚输入的账号密码
+        if (r.status === 401 && path !== '/login') { if (onUnauthorized) onUnauthorized(); throw err }
         if (r.status === 401) throw err
         if (j.code !== 0 && j.code !== undefined) throw err
         return j.data
@@ -529,9 +533,9 @@
     if (cache === 'loading') inner = '<div class="skel">批次订单加载中…</div>'
     else if (!cache || !cache.length) inner = '<div class="empty">该批次暂无订单</div>'
     else {
-      inner = '<div class="tblwrap"><table class="mini-tbl"><thead><tr><th>ID</th><th>订单号</th><th>状态</th><th>点位</th><th>金额</th><th>取餐码</th><th>创建时间</th></tr></thead><tbody>'
+      inner = '<div class="tblwrap"><table class="mini-tbl"><thead><tr><th>短号</th><th>订单号</th><th>状态</th><th>商品</th><th>点位</th><th>金额</th><th>取餐码</th><th>创建时间</th></tr></thead><tbody>'
         + cache.map(function (o) {
-          return '<tr><td>' + o.id + '</td><td>' + esc(o.order_no) + '</td><td>' + orderTag(o) + '</td><td>' + esc(o.landmark_name || '—') + '</td><td>' + (o.total_amount || 0) + '</td><td class="num">' + esc(o.pickup_code || '—') + '</td><td>' + esc(o.created_at || '—') + '</td></tr>'
+          return '<tr><td><b>' + esc(o.code_short || o.id) + '</b></td><td>' + esc(o.order_no) + '</td><td>' + orderTag(o) + '</td><td>' + orderGoods(o) + '</td><td>' + esc(o.landmark_name || '—') + '</td><td>' + (o.total_amount || 0) + '</td><td class="num">' + esc(o.pickup_code || '—') + '</td><td>' + esc(o.created_at || '—') + '</td></tr>'
         }).join('')
         + '</tbody></table></div>'
     }
@@ -697,8 +701,9 @@
           + '<span class="ops"><button class="btn danger ghost sm" onclick="window.actCancelBatch(' + b.id + ')">清理批次</button></span>')
       }).join('')
       dRows += deliveringOrders.map(function (o) {
-        return rowItem('order', o.id, '<span class="k">订单 #' + o.id + '</span><span class="v">' + esc(o.order_no) + '</span>'
+        return rowItem('order', o.id, '<span class="k">订单 ' + esc(o.code_short || ('#' + o.id)) + '</span><span class="v">' + esc(o.order_no) + '</span>'
           + '<span class="v">' + orderTag(o) + '</span>'
+          + orderGoods(o)
           + '<span class="v">' + esc(o.landmark_name || '—') + '</span>'
           + (o.batch_id ? '<span class="v mini">批次 ' + o.batch_id + '</span>' : '')
           + '<span class="ops"><button class="btn danger ghost sm" onclick="window.actCancelOrder(' + o.id + ')">删除订单</button></span>')
@@ -710,8 +715,9 @@
     if (waitPick.length) {
       total += waitPick.length
       parts.push(catBlock('待取货', 'violet', waitPick.map(function (o) {
-        return rowItem('order', o.id, '<span class="k">订单 #' + o.id + '</span><span class="v">' + esc(o.order_no) + '</span>'
+        return rowItem('order', o.id, '<span class="k">订单 ' + esc(o.code_short || ('#' + o.id)) + '</span><span class="v">' + esc(o.order_no) + '</span>'
           + '<span class="v">' + orderTag(o) + '</span>'
+          + orderGoods(o)
           + '<span class="v">' + esc(o.landmark_name || '—') + '</span>'
           + (o.batch_id ? '<span class="v mini">批次 ' + o.batch_id + '</span>' : '')
           + '<span class="ops"><button class="btn danger ghost sm" onclick="window.actCancelOrder(' + o.id + ')">删除订单</button></span>')
@@ -731,8 +737,9 @@
     if (errOrders.length || errTasks.length) {
       total += errOrders.length + errTasks.length
       var rows = errOrders.map(function (o) {
-        return rowItem('order', o.id, '<span class="k">订单 #' + o.id + '</span><span class="v">' + esc(o.order_no) + '</span>'
+        return rowItem('order', o.id, '<span class="k">订单 ' + esc(o.code_short || ('#' + o.id)) + '</span><span class="v">' + esc(o.order_no) + '</span>'
           + '<span class="v">' + orderTag(o) + '</span>'
+          + orderGoods(o)
           + '<span class="v">' + esc(o.landmark_name || '—') + '</span>'
           + '<span class="ops"><button class="btn danger ghost sm" onclick="window.actCancelOrder(' + o.id + ')">删除订单</button></span>')
       }).join('')
@@ -760,6 +767,20 @@
       + innerHtml + '</div>'
   }
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1) }
+
+  // 订单「商品信息卡面」：首图缩略 + 商品名（多件时「等 N 件」）；无图时灰底占位
+  function orderGoods(o) {
+    var img = o.first_image || ''
+    var name = o.first_name || ''
+    var cnt = Number(o.item_count || 0)
+    var imgHtml = img
+      ? '<img class="o-thumb" src="' + esc(img) + '" alt="" onerror="this.style.display=\'none\'">'
+      : '<span class="o-thumb ph"></span>'
+    var nameHtml = esc(name)
+    if (cnt > 1) nameHtml += ' <span class="o-more">等 ' + cnt + ' 件</span>'
+    else if (cnt === 1) nameHtml += ' <span class="o-more">× 1</span>'
+    return '<span class="o-card">' + imgHtml + '<span class="o-name">' + nameHtml + '</span></span>'
+  }
 
   function catBlock(title, color, rows) {
     var dotColor = color === 'red' ? 'var(--red)' : color === 'violet' ? 'var(--violet)' : color === 'blue' ? 'var(--blue)' : 'var(--ok)'
@@ -798,6 +819,7 @@
       if (flt !== '' && String(s) !== flt) return false
       if (q) {
         if (String(b.batch_no || '').toLowerCase().indexOf(q) >= 0) return true
+        if (String(b.code_short || '').toLowerCase().indexOf(q) >= 0) return true
         return (state.orders || []).some(function (o) { return o.batch_id === b.id && String(o.order_no || '').toLowerCase().indexOf(q) >= 0 })
       }
       return true
@@ -819,7 +841,7 @@
       var progress = Number(b.status) === 2 ? (Number(b.picked_orders || 0) + ' / ' + b.total_orders) : '—'
       return '<tr class="ctx-hit" oncontextmenu="window.ctxBatch(' + b.id + ',event)">'
         + '<td><input type="checkbox" class="ck" data-type="batch" data-id="' + b.id + '" onchange="window.toggleSel(\'batch\',' + b.id + ',this.checked)"></td>'
-        + '<td><b>' + b.id + '</b></td><td>' + esc(b.batch_no) + '</td><td>' + batchTag(b) + '</td>'
+        + '<td><b>' + esc(b.code_short || b.id) + '</b><br><span class="mini">#' + b.id + '</span></td><td>' + esc(b.batch_no) + '</td><td>' + batchTag(b) + '</td>'
         + '<td>' + esc(b.device_sn || '—') + '</td><td>' + b.total_orders + '</td>'
         + '<td>' + progress + '</td><td>' + esc(currentStopText(b)) + '</td>'
         + '<td class="route-cell">' + (hasRoute ? esc(batchRouteText(b)) : '—') + '</td>'
@@ -843,6 +865,7 @@
       if (flt !== '' && String(s) !== flt) return false
       if (q) {
         if (String(o.order_no || '').toLowerCase().indexOf(q) >= 0) return true
+        if (String(o.code_short || '').toLowerCase().indexOf(q) >= 0) return true
         var b = (state.batches || []).find(function (x) { return x.id === o.batch_id })
         return b && String(b.batch_no || '').toLowerCase().indexOf(q) >= 0
       }
@@ -854,13 +877,14 @@
     }
     var head = '<div class="tblwrap"><table><thead><tr>'
       + '<th style="width:34px"><input type="checkbox" class="ck" onchange="window.toggleSelAll(\'order\',this.checked,\'' + page + '\')"></th>'
-      + '<th>ID</th><th>订单号</th><th>状态</th><th>批次</th><th>点位</th><th>金额</th><th>创建时间</th><th>操作</th>'
+      + '<th>ID</th><th>订单号</th><th>状态</th><th>商品</th><th>批次</th><th>点位</th><th>金额</th><th>创建时间</th><th>操作</th>'
       + '</tr></thead><tbody>'
     var body = rows.map(function (o) {
       var active = [0, 1, 2, 3, 6].indexOf(Number(o.status)) >= 0
       return '<tr class="ctx-hit" oncontextmenu="window.ctxOrder(' + o.id + ',event)">'
         + '<td><input type="checkbox" class="ck" data-type="order" data-id="' + o.id + '" onchange="window.toggleSel(\'order\',' + o.id + ',this.checked)"></td>'
-        + '<td><b>' + o.id + '</b></td><td>' + esc(o.order_no) + '</td><td>' + orderTag(o) + '</td>'
+        + '<td><b>' + esc(o.code_short || o.id) + '</b><br><span class="mini">#' + o.id + '</span></td><td>' + esc(o.order_no) + '</td><td>' + orderTag(o) + '</td>'
+        + '<td>' + orderGoods(o) + '</td>'
         + '<td>' + (o.batch_id || '—') + '</td><td>' + esc(o.landmark_name || '—') + '</td><td>' + (o.total_amount || 0) + '</td>'
         + '<td>' + esc(o.created_at || '—') + '</td>'
         + '<td class="row-ops">' + (active ? '<button class="btn danger ghost sm" onclick="window.actCancelOrder(' + o.id + ')">删除订单</button>' : '<span class="mini">终态</span>') + '</td></tr>'
@@ -976,12 +1000,12 @@
     }
   }
 
-  // ---------- 刷新与认证 ----------
+  // ---------- 刷新与认证（方案A：账号密码 → 随机 session token） ----------
   function refresh() {
     var tk = token()
     if (!tk) {
-      setAuthBanner('未认证：请输入管理员令牌并保存后才能查看和管理', false)
-      $('conn').textContent = '未认证'
+      setAuthBanner('未登录：请使用管理员账号登录', false)
+      $('conn').textContent = '未登录'
       return
     }
     if (busy) return
@@ -997,7 +1021,7 @@
       $('conn').textContent = ''
       if (isUnauthorized(e)) {
         state = null
-        setAuthBanner('令牌无效：无法认证，不能查看和管理', true)
+        setAuthBanner('登录已过期：请重新登录', true)
         log('认证失败：' + e.message, 'bad')
       } else {
         setAuthBanner('')
@@ -1006,79 +1030,92 @@
     }).then(function () { busy = false })
   }
 
-  // ---------- 令牌（设置页） ----------
-  function verifyToken(t) {
-    return fetch('/api/admin/verify', { headers: { 'x-admin-token': t } })
-      .then(function (r) { return r.status === 200 })
-      .catch(function () { return false })
+  // ---------- 登录 / 会话（方案A） ----------
+  function showLogin() {
+    var m = $('loginMask')
+    if (m) m.hidden = false
+    var u = $('loginUser')
+    if (u) { u.value = ''; try { u.focus() } catch (e) {} }
+    var p = $('loginPass'); if (p) p.value = ''
+    var e = $('loginErr'); if (e) { e.hidden = true; e.textContent = '' }
+    setAuthBanner('')
+    $('conn').textContent = '未登录'
   }
+  function hideLogin() { var m = $('loginMask'); if (m) m.hidden = true }
 
-  function renderTokenUI() {
-    var inp = $('token'), st = $('tokenState'), msg = $('tokenMsg'), chg = $('tokenChange'), btn = $('saveToken')
-    if (tokenVerified) {
-      inp.value = ''
-      inp.placeholder = '••••••'
-      inp.disabled = true
-      inp.classList.add('ok'); inp.classList.remove('err')
-      st.innerHTML = '<svg class="ok-ico"><use href="#i-check"/></svg><span class="ok-txt">正确</span>'
-      st.hidden = false
-      msg.innerHTML = ''
-      msg.className = 'token-msg ok'
-      chg.hidden = false
-      btn.hidden = true
-    } else {
-      inp.disabled = false
-      inp.classList.remove('ok', 'err')
-      if (!inp.value) inp.placeholder = '请输入令牌'
-      st.hidden = true
-      msg.className = 'token-msg'
-      chg.hidden = true
-      btn.hidden = false
-    }
-  }
-
-  $('saveToken').onclick = function () {
-    var t = $('token').value.trim()
-    var inp = $('token'), msg = $('tokenMsg'), st = $('tokenState')
-    if (!t) {
-      msg.className = 'token-msg err'
-      msg.innerHTML = '请输入令牌'
-      inp.classList.add('err'); inp.classList.remove('ok')
-      return
-    }
-    verifyToken(t).then(function (ok) {
-      if (ok) {
-        localStorage.setItem(TOKEN_KEY, t)
-        tokenVerified = true
-        renderTokenUI()
-        log('令牌验证通过', 'green')
-        toast('令牌验证通过', 'ok')
-        refresh()
-        connectWS() // 用新令牌重建实时推送连接
-      } else {
-        tokenVerified = false
-        inp.classList.add('err'); inp.classList.remove('ok')
-        st.innerHTML = '<svg class="err-ico"><use href="#i-close"/></svg>'
-        st.hidden = false
-        msg.className = 'token-msg err'
-        msg.innerHTML = '令牌不正确'
-        log('令牌验证失败：不匹配', 'bad')
-      }
+  function adminLogin() {
+    var username = $('loginUser').value.trim()
+    var password = $('loginPass').value
+    var err = $('loginErr')
+    if (!username || !password) { err.textContent = '请输入账号和密码'; err.hidden = false; return }
+    $('loginBtn').disabled = true
+    err.textContent = ''
+    api('/login', 'POST', { username: username, password: password }).then(function (d) {
+      localStorage.setItem(TOKEN_KEY, d.token)
+      currentAdmin = d.admin
+      hideLogin()
+      renderAccountUI()
+      log('管理员 ' + d.admin.username + ' 登录成功', 'green')
+      refresh()
+      connectWS()
+    }).catch(function (e) {
+      $('loginBtn').disabled = false
+      err.textContent = (e && e.message) || '登录失败'
+      err.hidden = false
+      log('登录失败：' + ((e && e.message) || ''), 'bad')
     })
   }
 
-  $('changeToken').onclick = function () {
+  function logout() {
+    var tk = token()
+    if (tk) api('/logout', 'POST', {}).catch(function () {})
     localStorage.removeItem(TOKEN_KEY)
-    tokenVerified = false
-    $('token').value = ''
-    $('tokenMsg').innerHTML = ''
-    renderTokenUI()
-    $('token').focus()
+    currentAdmin = null
     state = null
-    refresh()
-    connectWS() // 旧令牌连接立即断开；输入新令牌并保存后由 connectWS 重建
-    log('已清除令牌，等待重新输入', 'warn')
+    if (ws) { try { ws.close() } catch (e) {} ws = null }
+    showLogin()
+    log('已退出登录', 'warn')
   }
+
+  function changePassword() {
+    var oldP = $('oldPass').value, np1 = $('np1').value, np2 = $('np2').value
+    var msg = $('tokenMsg')
+    if (!oldP || !np1) { msg.className = 'token-msg err'; msg.innerHTML = '请填写原密码与新密码'; return }
+    if (np1 !== np2) { msg.className = 'token-msg err'; msg.innerHTML = '两次输入的新密码不一致'; return }
+    if (np1.length < 8) { msg.className = 'token-msg err'; msg.innerHTML = '新密码至少 8 位'; return }
+    api('/password', 'POST', { old_password: oldP, new_password: np1 }).then(function () {
+      msg.className = 'token-msg ok'
+      msg.innerHTML = '密码已修改，请重新登录'
+      setTimeout(logout, 800)
+    }).catch(function (e) {
+      msg.className = 'token-msg err'
+      msg.innerHTML = (e && e.message) || '修改失败'
+    })
+  }
+
+  function renderAccountUI() {
+    var a = $('accountName'), r = $('accountRole')
+    if (a) a.textContent = currentAdmin ? currentAdmin.username : '—'
+    if (r) r.textContent = currentAdmin
+      ? (currentAdmin.nickname ? currentAdmin.nickname + ' · ' : '') + (currentAdmin.role || 'admin')
+      : ''
+    var msg = $('tokenMsg'); if (msg) { msg.className = 'token-msg'; msg.innerHTML = '' }
+    ;[$('oldPass'), $('np1'), $('np2')].forEach(function (x) { if (x) x.value = '' })
+  }
+
+  // 会话失效（任意接口 401）统一回调 → 弹登录页
+  onUnauthorized = function () {
+    currentAdmin = null
+    showLogin()
+  }
+
+  // 登录页 / 账号页事件
+  $('loginBtn').onclick = adminLogin
+  $('loginPass').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') adminLogin() })
+  $('loginUser').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { var p = $('loginPass'); if (p) p.focus() } })
+  $('logoutBtn').onclick = logout
+  $('savePass').onclick = changePassword
+
 
   // ---------- 单项操作（保留原语义，走后端统一落账） ----------
   function run(label, p, body, successMsg) {
@@ -1263,22 +1300,16 @@
   wireSearch('historySearch', 'history')
 
   var saved = localStorage.getItem(TOKEN_KEY)
-  renderTokenUI()
   if (saved) {
-    verifyToken(saved).then(function (ok) {
-      if (ok) {
-        tokenVerified = true
-        renderTokenUI()
-        refresh()
-      } else {
-        localStorage.removeItem(TOKEN_KEY)
-        tokenVerified = false
-        renderTokenUI()
-        refresh()
-      }
-    })
+    // 方案A：有会话 token → 调 /admin/me 校验；失效/过期由 onUnauthorized 弹登录页
+    api('/me').then(function (d) {
+      currentAdmin = d.admin
+      renderAccountUI()
+      hideLogin()   // 有效会话：loginMask 默认可见，必须显式隐藏，否则每次刷新都被登录遮罩挡住
+      refresh()
+    }).catch(function () { /* onUnauthorized 已弹登录页 */ })
   } else {
-    refresh()
+    showLogin()
   }
   // 事件驱动（WS 推送）更新数据，无轮询：本定时器只做「WS 断开则重连」的健康探查，不拉取任何数据。
   connectWS()

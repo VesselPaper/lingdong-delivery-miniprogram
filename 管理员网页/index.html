@@ -200,26 +200,37 @@
     <!-- ========== 页面 04：设置 ========== -->
     <section class="page" id="page-settings">
       <div class="tabs" id="settingsTabs">
-        <button class="tab active" data-tab="token">令牌</button>
+        <button class="tab active" data-tab="token">账号</button>
         <button class="tab" data-tab="control">控制权与点位</button>
         <button class="tab" data-tab="danger">危险操作</button>
       </div>
 
       <div class="tab-panel" id="settingsPanelToken">
         <section class="card col-12">
-          <div class="card-head"><h2><svg class="h-ico"><use href="#i-key"/></svg>管理员令牌</h2></div>
+          <div class="card-head"><h2><svg class="h-ico"><use href="#i-key"/></svg>当前账号</h2></div>
           <div class="token-box">
-            <label class="token-label" for="token">令牌：</label>
+            <label class="token-label" for="accountName">账号：</label>
             <div class="token-input-wrap">
-              <input id="token" type="password" placeholder="请输入令牌" autocomplete="off" spellcheck="false">
-              <span class="token-state" id="tokenState" hidden></span>
+              <b id="accountName" class="account-name">—</b>
+              <span class="mini" id="accountRole"></span>
             </div>
-            <button id="saveToken" class="btn">保存</button>
+            <button id="logoutBtn" class="btn danger ghost">退出登录</button>
+          </div>
+          <div class="token-box" style="margin-top:14px;">
+            <label class="token-label" for="np1">修改密码</label>
+            <div class="token-input-wrap">
+              <input id="oldPass" type="password" placeholder="原密码" autocomplete="off" spellcheck="false">
+            </div>
+          </div>
+          <div class="token-box">
+            <label class="token-label" for="np1"></label>
+            <div class="token-input-wrap">
+              <input id="np1" type="password" placeholder="新密码（至少 8 位）" autocomplete="new-password" spellcheck="false">
+              <input id="np2" type="password" placeholder="再次输入新密码" autocomplete="new-password" spellcheck="false">
+            </div>
+            <button id="savePass" class="btn">修改密码</button>
           </div>
           <div class="token-msg" id="tokenMsg"></div>
-          <div class="token-change" id="tokenChange" hidden>
-            <button id="changeToken" class="btn ghost">更改令牌</button>
-          </div>
         </section>
       </div>
 
@@ -266,6 +277,23 @@
 </div>
 
     </div><!-- /page-scroll -->
+
+<!-- 管理员登录（方案A：账号密码 → session token） -->
+<div class="login-mask" id="loginMask">
+  <div class="login-card">
+    <div class="login-brand"><svg><use href="#i-box"/></svg></div>
+    <h2>零栋送餐 · 调度台</h2>
+    <div class="login-field">
+      <input id="loginUser" placeholder="管理员账号" autocomplete="username" spellcheck="false" autofocus>
+    </div>
+    <div class="login-field">
+      <input id="loginPass" type="password" placeholder="密码" autocomplete="current-password" spellcheck="false">
+    </div>
+    <div class="login-err" id="loginErr" hidden></div>
+    <button id="loginBtn" class="btn btn-block">登 录</button>
+    <div class="login-hint">登录后获得调度台操作权限；操作均按账号留痕审计</div>
+  </div>
+</div>
 
 <script src="vendor/leaflet.js"></script>
 <script src="admin.js"></script>

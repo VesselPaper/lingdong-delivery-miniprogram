@@ -263,9 +263,9 @@
     if (cache === 'loading') inner = '<div class="skel">批次订单加载中…</div>'
     else if (!cache || !cache.length) inner = '<div class="empty">该批次暂无订单</div>'
     else {
-      inner = '<div class="tblwrap"><table class="mini-tbl"><thead><tr><th>ID</th><th>订单号</th><th>状态</th><th>点位</th><th>金额</th><th>取餐码</th><th>创建时间</th></tr></thead><tbody>'
+      inner = '<div class="tblwrap"><table class="mini-tbl"><thead><tr><th>短号</th><th>订单号</th><th>状态</th><th>商品</th><th>点位</th><th>金额</th><th>取餐码</th><th>创建时间</th></tr></thead><tbody>'
         + cache.map(function (o) {
-          return '<tr><td>' + o.id + '</td><td>' + esc(o.order_no) + '</td><td>' + orderTag(o) + '</td><td>' + esc(o.landmark_name || '—') + '</td><td>' + (o.total_amount || 0) + '</td><td class="num">' + esc(o.pickup_code || '—') + '</td><td>' + esc(o.created_at || '—') + '</td></tr>'
+          return '<tr><td><b>' + esc(o.code_short || o.id) + '</b></td><td>' + esc(o.order_no) + '</td><td>' + orderTag(o) + '</td><td>' + orderGoods(o) + '</td><td>' + esc(o.landmark_name || '—') + '</td><td>' + (o.total_amount || 0) + '</td><td class="num">' + esc(o.pickup_code || '—') + '</td><td>' + esc(o.created_at || '—') + '</td></tr>'
         }).join('')
         + '</tbody></table></div>'
     }

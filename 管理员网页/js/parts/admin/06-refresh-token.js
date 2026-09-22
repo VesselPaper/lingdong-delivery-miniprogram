@@ -1,10 +1,10 @@
 
-  // ---------- 刷新与认证 ----------
+  // ---------- 刷新与认证（方案A：账号密码 → 随机 session token） ----------
   function refresh() {
     var tk = token()
     if (!tk) {
-      setAuthBanner('未认证：请输入管理员令牌并保存后才能查看和管理', false)
-      $('conn').textContent = '未认证'
+      setAuthBanner('未登录：请使用管理员账号登录', false)
+      $('conn').textContent = '未登录'
       return
     }
     if (busy) return
@@ -20,7 +20,7 @@
       $('conn').textContent = ''
       if (isUnauthorized(e)) {
         state = null
-        setAuthBanner('令牌无效：无法认证，不能查看和管理', true)
+        setAuthBanner('登录已过期：请重新登录', true)
         log('认证失败：' + e.message, 'bad')
       } else {
         setAuthBanner('')
@@ -29,76 +29,88 @@
     }).then(function () { busy = false })
   }
 
-  // ---------- 令牌（设置页） ----------
-  function verifyToken(t) {
-    return fetch('/api/admin/verify', { headers: { 'x-admin-token': t } })
-      .then(function (r) { return r.status === 200 })
-      .catch(function () { return false })
+  // ---------- 登录 / 会话（方案A） ----------
+  function showLogin() {
+    var m = $('loginMask')
+    if (m) m.hidden = false
+    var u = $('loginUser')
+    if (u) { u.value = ''; try { u.focus() } catch (e) {} }
+    var p = $('loginPass'); if (p) p.value = ''
+    var e = $('loginErr'); if (e) { e.hidden = true; e.textContent = '' }
+    setAuthBanner('')
+    $('conn').textContent = '未登录'
   }
+  function hideLogin() { var m = $('loginMask'); if (m) m.hidden = true }
 
-  function renderTokenUI() {
-    var inp = $('token'), st = $('tokenState'), msg = $('tokenMsg'), chg = $('tokenChange'), btn = $('saveToken')
-    if (tokenVerified) {
-      inp.value = ''
-      inp.placeholder = '••••••'
-      inp.disabled = true
-      inp.classList.add('ok'); inp.classList.remove('err')
-      st.innerHTML = '<svg class="ok-ico"><use href="#i-check"/></svg><span class="ok-txt">正确</span>'
-      st.hidden = false
-      msg.innerHTML = ''
-      msg.className = 'token-msg ok'
-      chg.hidden = false
-      btn.hidden = true
-    } else {
-      inp.disabled = false
-      inp.classList.remove('ok', 'err')
-      if (!inp.value) inp.placeholder = '请输入令牌'
-      st.hidden = true
-      msg.className = 'token-msg'
-      chg.hidden = true
-      btn.hidden = false
-    }
-  }
-
-  $('saveToken').onclick = function () {
-    var t = $('token').value.trim()
-    var inp = $('token'), msg = $('tokenMsg'), st = $('tokenState')
-    if (!t) {
-      msg.className = 'token-msg err'
-      msg.innerHTML = '请输入令牌'
-      inp.classList.add('err'); inp.classList.remove('ok')
-      return
-    }
-    verifyToken(t).then(function (ok) {
-      if (ok) {
-        localStorage.setItem(TOKEN_KEY, t)
-        tokenVerified = true
-        renderTokenUI()
-        log('令牌验证通过', 'green')
-        toast('令牌验证通过', 'ok')
-        refresh()
-        connectWS() // 用新令牌重建实时推送连接
-      } else {
-        tokenVerified = false
-        inp.classList.add('err'); inp.classList.remove('ok')
-        st.innerHTML = '<svg class="err-ico"><use href="#i-close"/></svg>'
-        st.hidden = false
-        msg.className = 'token-msg err'
-        msg.innerHTML = '令牌不正确'
-        log('令牌验证失败：不匹配', 'bad')
-      }
+  function adminLogin() {
+    var username = $('loginUser').value.trim()
+    var password = $('loginPass').value
+    var err = $('loginErr')
+    if (!username || !password) { err.textContent = '请输入账号和密码'; err.hidden = false; return }
+    $('loginBtn').disabled = true
+    err.textContent = ''
+    api('/login', 'POST', { username: username, password: password }).then(function (d) {
+      localStorage.setItem(TOKEN_KEY, d.token)
+      currentAdmin = d.admin
+      hideLogin()
+      renderAccountUI()
+      log('管理员 ' + d.admin.username + ' 登录成功', 'green')
+      refresh()
+      connectWS()
+    }).catch(function (e) {
+      $('loginBtn').disabled = false
+      err.textContent = (e && e.message) || '登录失败'
+      err.hidden = false
+      log('登录失败：' + ((e && e.message) || ''), 'bad')
     })
   }
 
-  $('changeToken').onclick = function () {
+  function logout() {
+    var tk = token()
+    if (tk) api('/logout', 'POST', {}).catch(function () {})
     localStorage.removeItem(TOKEN_KEY)
-    tokenVerified = false
-    $('token').value = ''
-    $('tokenMsg').innerHTML = ''
-    renderTokenUI()
-    $('token').focus()
+    currentAdmin = null
     state = null
-    refresh()
-    connectWS() // 旧令牌连接立即断开；输入新令牌并保存后由 connectWS 重建
-    log('已清除令牌，等待重新输入', 'warn')
+    if (ws) { try { ws.close() } catch (e) {} ws = null }
+    showLogin()
+    log('已退出登录', 'warn')
   }
+
+  function changePassword() {
+    var oldP = $('oldPass').value, np1 = $('np1').value, np2 = $('np2').value
+    var msg = $('tokenMsg')
+    if (!oldP || !np1) { msg.className = 'token-msg err'; msg.innerHTML = '请填写原密码与新密码'; return }
+    if (np1 !== np2) { msg.className = 'token-msg err'; msg.innerHTML = '两次输入的新密码不一致'; return }
+    if (np1.length < 8) { msg.className = 'token-msg err'; msg.innerHTML = '新密码至少 8 位'; return }
+    api('/password', 'POST', { old_password: oldP, new_password: np1 }).then(function () {
+      msg.className = 'token-msg ok'
+      msg.innerHTML = '密码已修改，请重新登录'
+      setTimeout(logout, 800)
+    }).catch(function (e) {
+      msg.className = 'token-msg err'
+      msg.innerHTML = (e && e.message) || '修改失败'
+    })
+  }
+
+  function renderAccountUI() {
+    var a = $('accountName'), r = $('accountRole')
+    if (a) a.textContent = currentAdmin ? currentAdmin.username : '—'
+    if (r) r.textContent = currentAdmin
+      ? (currentAdmin.nickname ? currentAdmin.nickname + ' · ' : '') + (currentAdmin.role || 'admin')
+      : ''
+    var msg = $('tokenMsg'); if (msg) { msg.className = 'token-msg'; msg.innerHTML = '' }
+    ;[$('oldPass'), $('np1'), $('np2')].forEach(function (x) { if (x) x.value = '' })
+  }
+
+  // 会话失效（任意接口 401）统一回调 → 弹登录页
+  onUnauthorized = function () {
+    currentAdmin = null
+    showLogin()
+  }
+
+  // 登录页 / 账号页事件
+  $('loginBtn').onclick = adminLogin
+  $('loginPass').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') adminLogin() })
+  $('loginUser').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { var p = $('loginPass'); if (p) p.focus() } })
+  $('logoutBtn').onclick = logout
+  $('savePass').onclick = changePassword

@@ -35,9 +35,10 @@
   var batchOrdersCache = {}        // 批次 id -> 订单数组 | 'loading'
   var statusFilter = { tasks: '', history: '' }
   var searchQ = { tasks: '', history: '' }
-  var tokenVerified = false
   var toastTimer = null
   var busy = false                // 状态轮询防重入
+  var currentAdmin = null         // 当前登录的管理员（方案A：账号密码登录）
+  var onUnauthorized = null       // 会话失效回调（由登录模块设置 → 弹登录页）
 
   // ---------- 基础工具 ----------
   function esc(s) { return String(s === undefined || s === null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;') }
@@ -60,7 +61,8 @@
     toastTimer = setTimeout(function () { t.hidden = true }, 3400)
   }
 
-  function token() { return $('token').value.trim() || localStorage.getItem(TOKEN_KEY) || '' }
+  // 管理员会话 token（方案A：登录签发的随机 session token，存 localStorage；不再有「输入令牌」框）
+  function token() { return localStorage.getItem(TOKEN_KEY) || '' }
 
   function api(path, method, body) {
     return fetch('/api/admin' + path, {
@@ -72,6 +74,8 @@
         var err = new Error(j.msg || ('HTTP ' + r.status))
         err.status = r.status
         err.code = j.code
+        // 登录接口自身的 401（密码错误）不触发全局会话失效回调，否则会清空用户刚输入的账号密码
+        if (r.status === 401 && path !== '/login') { if (onUnauthorized) onUnauthorized(); throw err }
         if (r.status === 401) throw err
         if (j.code !== 0 && j.code !== undefined) throw err
         return j.data

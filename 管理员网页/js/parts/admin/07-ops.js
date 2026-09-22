@@ -182,22 +182,16 @@
   wireSearch('historySearch', 'history')
 
   var saved = localStorage.getItem(TOKEN_KEY)
-  renderTokenUI()
   if (saved) {
-    verifyToken(saved).then(function (ok) {
-      if (ok) {
-        tokenVerified = true
-        renderTokenUI()
-        refresh()
-      } else {
-        localStorage.removeItem(TOKEN_KEY)
-        tokenVerified = false
-        renderTokenUI()
-        refresh()
-      }
-    })
+    // 方案A：有会话 token → 调 /admin/me 校验；失效/过期由 onUnauthorized 弹登录页
+    api('/me').then(function (d) {
+      currentAdmin = d.admin
+      renderAccountUI()
+      hideLogin()   // 有效会话：loginMask 默认可见，必须显式隐藏，否则每次刷新都被登录遮罩挡住
+      refresh()
+    }).catch(function () { /* onUnauthorized 已弹登录页 */ })
   } else {
-    refresh()
+    showLogin()
   }
   // 事件驱动（WS 推送）更新数据，无轮询：本定时器只做「WS 断开则重连」的健康探查，不拉取任何数据。
   connectWS()
