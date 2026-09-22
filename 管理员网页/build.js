@@ -16,17 +16,20 @@ const path = require('path')
 const ROOT = __dirname
 
 // 输出文件 ← 有序 parts 清单（顺序即拼接顺序，务必与你拆块边界一致）
+// 注意：IIFE 的开头在 01-core.js、收尾（启动 + `})()`）在 09-ops.js，因此 09 必须排在最后。
 const TARGETS = [
   {
     out: 'admin.js',
     parts: [
-      'js/parts/admin/01-core.js',           // 头部/IIFE/常量/基础工具(esc/log/toast/api/状态字典)
-      'js/parts/admin/02-nav.js',            // 导航 + 标签页 + 搜索/筛选 + 批次自动展开
-      'js/parts/admin/03-select.js',         // 选择与批量操作 + 右键菜单 + 复制 + 批次展开
-      'js/parts/admin/04-overview-ws.js',    // 总览页渲染 + 机器人卡片 + WebSocket 事件驱动 + 导航计数
-      'js/parts/admin/05-render-tables.js',  // 任务页 + 批次/订单/本地任务/平台任务 各表格渲染
-      'js/parts/admin/06-refresh-token.js',  // 刷新与认证 + 令牌设置页
-      'js/parts/admin/07-ops.js',            // 单项危险操作 + 召唤/开关舱弹窗 + 批量按钮 + 启动
+      'js/parts/admin/01-core.js',           // 头部/IIFE/常量/基础工具(esc/log/toast/api/状态字典/配色)
+      'js/parts/admin/02-nav.js',            // 导航(3 项) + 标签页 + 活跃/历史/全部分段 + 搜索/筛选
+      'js/parts/admin/03-menu.js',           // 右键菜单(破坏性操作唯一入口) + 更多操作 + 复制 + 路线文本
+      'js/parts/admin/04-overview-ws.js',    // 总览渲染 + 机器人卡片 + WebSocket 事件驱动 + 导航计数
+      'js/parts/admin/05-render-cards.js',   // 配送数据卡片渲染（批次卡包裹订单子卡 / 订单卡 / 任务卡）
+      'js/parts/admin/06-refresh-token.js',  // 刷新与认证 + 账号页
+      'js/parts/admin/07-drawer.js',         // 详情抽屉：状态时间线 + 实时位置 + 商品明细
+      'js/parts/admin/08-audit.js',          // 操作日志（服务端 audit_logs：成功与失败都在）
+      'js/parts/admin/09-ops.js',            // 单项操作 + 召唤/开关舱弹窗 + 启动 + IIFE 收尾
     ],
   },
   {
@@ -41,10 +44,12 @@ const TARGETS = [
   },
 ]
 
-// 每个输出文件：parts 各自切块的「最后一行号」(1-based)；行号即边界，切块单调递增
+// 每个输出文件：parts 各自切块的「最后一行号」(1-based)；行号即边界，切块单调递增。
+// 注意：cut_i = 前 i 个 parts 的行数之和（拼接时用 '\n' 相连，分隔符被行边界吸收，不再额外 +1）。
+// 仅 `--gen` 用到；正向构建只依赖 TARGETS。改过 parts 后若要用 --gen，请先按上式刷新本表。
 const CUTS = {
-  'admin.js': [130, 268, 542, 653, 999, 1116, 1314],
-  'admin-map.js': [100, 158, 220, 273, 370],
+  'admin.js': [161, 281, 432, 555, 786, 904, 1093, 1185, 1382],
+  'admin-map.js': [100, 158, 220, 273, 382],
 }
 
 function readLines(name) {

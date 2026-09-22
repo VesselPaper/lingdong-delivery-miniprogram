@@ -1,15 +1,20 @@
 /* ============================================================
-   零栋送餐 · 调度台 —— 管理员前端逻辑 v3
+   零栋送餐 · 调度台 —— 管理员前端逻辑 v4
    ------------------------------------------------------------
-   · 配送任务页：只展示「正在执行」的任务（配送中[含批次待上货/订单配送中] / 待取货 / 配送异常），
-     支持右键菜单 + 多选批量操作（删除订单 / 清理批次 / 关闭任务）；
-     本地批次 / 订单 / 配送任务 / 平台任务 分标签页单表展示。
-   · 历史记录页：批次 / 订单 / 任务 三标签切换单表；批次可点击下箭头展开查看内部订单。
-   · 两页均支持按订单号或批次号搜索 + 按状态筛选。
-   · 设置页：令牌（输入框 + 正确打勾 + 不显示位数 + 更改令牌）/ 控制权与点位 / 危险操作 分标签。
-   · 总览页新增校园实时地图（拖动 / 缩放 / 雷达底图叠加），见 admin-map.js。
-   一致性铁律：所有删除 / 清理 / 关闭操作均走后端统一落账（作废任务 + 回补库存 +
-   摘批次 + 平台召回关任务），保证机器人状态、用户端、商家端同步，杜绝死锁。
+   本文件是 IIFE 的第一片（01-core）：头部注释、常量、基础工具。
+   收尾（启动 + `})()`）在最后一片 09-ops.js。
+
+   页面结构（2026-09 重构）：
+   · 总览：机器人（卡片 + 校园实时地图 + 异常告警）/ 操作日志（服务端审计 + 状态字典 + 会话回显）
+   · 配送数据：批次 / 订单 / 任务 三标签 × 活跃 / 历史 / 全部 三分段，卡片式展示
+   · 设置：账号 / 机器人控制 / 危险操作
+
+   交互约定（铁律）：
+   · 破坏性操作（删除订单 / 清理批次 / 关闭并作废 / 仅作废）只从右键菜单进入，无行内按钮；
+     卡片整卡点击 = 打开详情抽屉。
+   · 所有删除 / 清理 / 关闭操作均走后端统一落账（作废任务 + 回补库存 + 摘批次 + 平台召回），
+     保证机器人状态、用户端、商家端同步，杜绝死锁。
+   · 操作日志读服务端 audit_logs（成功与失败都在），前端内存日志只作会话回显。
    ============================================================ */
 (function () {
   'use strict'
@@ -28,17 +33,20 @@
   var ORDER_STATUS = { 0: '待支付', 1: '待接单', 2: '配送中', 3: '已送达', 4: '已完成', 5: '已取消', 6: '配送异常', 7: '已退款' }
   var BATCH_STATUS = { 0: '组单中', 1: '待上货', 2: '配送中', 3: '已完成', 4: '已取消' }
 
+  // 各实体的「活跃」判定（与后端 admin 域 history 口径一致）
+  var ACTIVE_STATUS = { batch: [0, 1, 2], order: [2, 3, 6], task: null }
+
   var $ = function (id) { return document.getElementById(id) }
-  var state = null
-  var sel = { order: {}, batch: {}, task: {}, plat: {} }
-  var expandedSet = new Set()      // 已展开的批次 id
-  var batchOrdersCache = {}        // 批次 id -> 订单数组 | 'loading'
-  var statusFilter = { tasks: '', history: '' }
-  var searchQ = { tasks: '', history: '' }
+  var state = null                // GET /api/admin/state 的聚合结果
+  var dataTab = 'batch'           // batch | order | task
+  var dataScope = 'active'        // active | history | all
+  var searchQ = ''
+  var statusFilter = ''
+  var liveRobots = []             // 最近一次 WS live 推送的机器人位置（供抽屉显示实时位置）
   var toastTimer = null
-  var busy = false                // 状态轮询防重入
+  var busy = false                // 状态拉取防重入
   var currentAdmin = null         // 当前登录的管理员（方案A：账号密码登录）
-  var onUnauthorized = null       // 会话失效回调（由登录模块设置 → 弹登录页）
+  var onUnauthorized = null       // 会话失效回调（由 06 片设置 → 弹登录页）
 
   // ---------- 基础工具 ----------
   function esc(s) { return String(s === undefined || s === null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;') }
@@ -61,7 +69,7 @@
     toastTimer = setTimeout(function () { t.hidden = true }, 3400)
   }
 
-  // 管理员会话 token（方案A：登录签发的随机 session token，存 localStorage；不再有「输入令牌」框）
+  // 管理员会话 token（方案A：登录签发的随机 session token，存 localStorage）
   function token() { return localStorage.getItem(TOKEN_KEY) || '' }
 
   function api(path, method, body) {
@@ -87,10 +95,11 @@
 
   function setAuthBanner(text, isError) {
     var box = $('authBanner')
+    if (!box) return
     if (!text) { box.hidden = true; box.innerHTML = ''; return }
     box.hidden = false
     box.innerHTML = '<svg><use href="#i-warn"/></svg><span>' + esc(text) + '</span>'
-      + (isError ? '<span class="hint">请在上方输入正确的管理员令牌后保存</span>' : '')
+      + (isError ? '<span class="hint">请重新登录后再操作</span>' : '')
   }
 
   // ---------- 状态色（不同状态不同颜色） ----------
@@ -113,6 +122,19 @@
     return tag(txt, cls)
   }
 
+  // 批次卡整行头部的底色（按状态取色；与 .bcard-head 的 --bh 变量配合）
+  function batchHeadColor(b) {
+    var s = Number(b.status)
+    return s === 2 ? 'var(--blue)' : s === 3 ? 'var(--ok)' : (s === 0 || s === 1) ? 'var(--amber)' : 'var(--ink-3)'
+  }
+  // 时间线节点圆点配色
+  function statusDotClass(type, status) {
+    var s = Number(status)
+    if (type === 'order') return s === 4 ? 'ok' : s === 2 ? 'busy' : s === 3 ? 'wait' : (s === 5 || s === 7 || s === 6) ? 'bad' : 'warn'
+    if (type === 'batch') return s === 3 ? 'ok' : s === 2 ? 'busy' : s === 4 ? 'bad' : 'warn'
+    return s === 80 ? 'ok' : [90, 100, 120].indexOf(s) >= 0 ? 'bad' : [1, 110, 150].indexOf(s) >= 0 ? 'bad' : (s >= 50 && s < 80 ? 'wait' : 'busy')
+  }
+
   function ageLabel(dtStr) {
     if (!dtStr) return { text: '—', cls: '' }
     var t = new Date(String(dtStr).replace(' ', 'T')).getTime()
@@ -129,4 +151,10 @@
   function ageCell(dtStr) {
     var a = ageLabel(dtStr)
     return a.cls ? '<span class="' + a.cls + '">' + a.text + '</span>' : esc(a.text)
+  }
+
+  // 「最近变更」摘要：来自 status_events 的最新一条
+  function lastEventText(e) {
+    if (!e) return '—'
+    return esc(e.created_at || '') + ' · ' + esc(e.status_text || '')
   }

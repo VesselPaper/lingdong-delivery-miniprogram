@@ -1,11 +1,23 @@
 
-  // ---------- 单项操作（保留原语义，走后端统一落账） ----------
+  // ---------- 单项操作（走后端统一落账） ----------
+  function opFail(e, label) {
+    if (isUnauthorized(e)) {
+      setAuthBanner('登录已失效：无法认证，不能查看和管理', true)
+      log('认证失败：' + e.message, 'bad')
+    } else {
+      toast(label + ' 失败：' + e.message, 'err')
+      log(label + ' 失败：' + e.message, 'bad')
+    }
+  }
+
   function run(label, p, body, successMsg) {
     log(label + ' …')
     api(p, 'POST', body).then(function () {
       log(successMsg || label + ' 成功', 'green')
       toast(successMsg || label + ' 成功', 'ok')
       refresh()
+      if (overviewTab === 'log') loadAudit(true)   // 操作日志页正开着就顺带刷新
+      if (drawerCtx) window.drawerRefresh()
     }).catch(function (e) { opFail(e, label) })
   }
   function confirmRun(label, p, body, confirmText, successMsg) {
@@ -13,24 +25,22 @@
     run(label, p, body, successMsg)
   }
 
-  window.actCancel = function (pid) { run('取消排队任务 ' + pid, '/task/cancel', { platform_task_id: pid }) }
-  window.actClose = function (sn, pid) {
-    if (!sn && state && state.robot && state.robot.device_sn) sn = state.robot.device_sn
-    if (!sn) {
-      var m = '关闭任务 ' + pid + ' 失败：缺少设备编号（该任务未记录设备，且当前无机器人在线）'
-      log(m, 'bad'); toast(m, 'err'); return
-    }
-    run('关闭任务 ' + pid, '/task/close', { device_sn: sn, platform_task_id: pid })
-  }
+  // 删除订单：作废任务 + 回补库存 + 摘批次 + 平台召回（order 域统一落账）
   window.actCancelOrder = function (oid) {
-    confirmRun('删除订单 ' + oid, '/order/cancel', { order_id: oid }, '删除订单 ' + oid + '？将关闭其平台任务并同步取消本地订单，防止机器人卡死。', '订单 ' + oid + ' 已删除')
+    confirmRun('删除订单 ' + oid, '/order/cancel', { order_id: oid },
+      '删除订单 ' + oid + '？将关闭其平台任务并同步取消本地订单，防止机器人卡死。', '订单 ' + oid + ' 已删除')
   }
+  // 关闭平台任务 + 本地作废（一键）
   window.actCloseVoid = function (tid) {
-    confirmRun('关闭并作废任务 ' + tid, '/task/close-void', { task_id: tid }, '关闭平台任务并作废本地任务 ' + tid + '？', '任务 ' + tid + ' 已删除')
+    confirmRun('关闭并作废任务 ' + tid, '/task/close-void', { task_id: tid },
+      '关闭平台任务并作废本地任务 ' + tid + '？', '任务 ' + tid + ' 已删除')
   }
+  // 仅本地作废（不动平台任务）
   window.actVoid = function (tid) { run('本地作废任务 ' + tid, '/task/void', { task_id: tid }) }
+  // 清理批次：删批内活跃订单（平台召回+本地取消）+ 释放控制权 + 批次置 4
   window.actCancelBatch = function (bid) {
-    confirmRun('清理批次 ' + bid, '/batch/cancel', { batch_id: bid }, '清理批次 ' + bid + '？将删除批次内全部订单（含平台任务）并释放控制权。', '批次 ' + bid + ' 已清理')
+    confirmRun('清理批次 ' + bid, '/batch/cancel', { batch_id: bid },
+      '清理批次 ' + bid + '？将删除批次内全部订单（含平台任务）并释放控制权。', '批次 ' + bid + ' 已清理')
   }
 
   // ---------- 选择弹窗（召唤目标点 / 开关舱） ----------
@@ -73,7 +83,7 @@
       var targets = (d && d.targets) || []
       if (!targets.length) { toast('无可召唤点位（请先在设置页同步点位）', 'err'); return }
       var groups = { loadingPoint: [], chargePoint: [], deliverPoint: [] }
-      targets.forEach(function (t) { (groups[t.type] || (groups.deliverPoint = groups.deliverPoint)).push(t) })
+      targets.forEach(function (t) { (groups[t.type] || (groups[t.type] = [])).push(t) })
       var order = [['loadingPoint', '上货点'], ['chargePoint', '充电点'], ['deliverPoint', '取货点']]
       var html = ''
       order.forEach(function (g) {
@@ -102,35 +112,38 @@
     })
   }
 
-  // 停止 / 继续工作 / 停止并取消任务
+  // ---------- 机器人卡「更多操作」里的三个设备级动作 ----------
+  // 停止：平台驻停 30 秒后自动恢复，任务/订单/批次均不变
   window.actStop = function () {
     var sn = state && state.robot ? state.robot.device_sn : ''
     if (!sn) { toast('当前无机器人信息', 'err'); return }
-    confirmRun('驻停机器人 ' + sn, '/robot/stop', { device_sn: sn, stop_time: 30 }, '确定停止机器人 ' + sn + '？将原地驻停 30 秒。', '已发送驻停指令')
+    confirmRun('驻停机器人 ' + sn, '/robot/stop', { device_sn: sn, stop_time: 30 },
+      '确定停止机器人 ' + sn + '？将原地驻停 30 秒后自动恢复。', '已发送驻停指令')
   }
+  // 继续工作：恢复该设备当前（挂起）任务
   window.actRecover = function () {
     var sn = state && state.robot ? state.robot.device_sn : ''
     if (!sn) { toast('当前无机器人信息', 'err'); return }
-    confirmRun('恢复机器人 ' + sn, '/robot/recover', { device_sn: sn }, '确定让机器人 ' + sn + ' 继续工作？将恢复其任务执行。', '已发送恢复指令')
+    confirmRun('恢复机器人 ' + sn, '/robot/recover', { device_sn: sn },
+      '确定让机器人 ' + sn + ' 继续工作？将恢复其当前任务执行。', '已发送恢复指令')
   }
+  // 停止并取消任务：关闭该设备全部活跃平台任务 + 关联本地订单统一落账 + 批次置 4
   window.actStopCancel = function () {
     var sn = state && state.robot ? state.robot.device_sn : ''
     if (!sn) { toast('当前无机器人信息', 'err'); return }
-    confirmRun('停止并取消任务 ' + sn, '/robot/stop-cancel', { device_sn: sn },
-      '确定停止机器人 ' + sn + ' 并取消正在执行的任务？\n将关闭其当前平台任务（舱内有货会自动开舱）并驻停，不可撤销。', '已停止并取消任务')
+    confirmRun('取消机器人 ' + sn + ' 的全部任务', '/robot/cancel-tasks', { device_sn: sn },
+      '确定取消机器人 ' + sn + ' 当前的全部任务？\n将关闭其全部平台任务、取消关联订单（回补库存、摘批次），不可撤销。',
+      '已取消该机器人的全部任务')
   }
-  window.actDelPre = function () {
-    var sn = state && state.robot ? state.robot.device_sn : ''
-    run('删除预创建 ' + sn, '/precreate/del', { device_sn: sn }, '已删除预创建任务（舱门关闭）')
-  }
+
+  // ---------- 设置页：控制权 / 点位 ----------
   window.actGrant = function () {
     var sn = state && state.robot ? state.robot.device_sn : ''
-    run('获取控制权 ' + sn, '/control/grant', { device_sn: sn }, '控制权已获取')
+    run('获取控制权 ' + sn, '/control/grant', { device_sn: sn }, '控制权已获取（系统已记住控制权 ID）')
   }
   window.actRelease = function () {
     var sn = state && state.robot ? state.robot.device_sn : ''
-    var id = $('ctrlId').value.trim()
-    run('释放控制权 ' + id, '/control/release', { device_sn: sn, ctrl_id: id }, '控制权已释放')
+    run('释放控制权 ' + sn, '/control/release', { device_sn: sn }, '控制权已释放')
   }
   window.actSyncLm = function () { run('同步点位', '/landmarks/sync', {}, '点位已同步') }
 
@@ -151,35 +164,19 @@
       log(msg, failed.length ? 'warn' : 'green')
       toast(msg, failed.length ? 'warn' : 'ok')
       refresh()
+      if (overviewTab === 'log') loadAudit(true)
     }).catch(function (e) { opFail(e, '一键初始化') })
   }
 
-  // ---------- 批量按钮绑定 ----------
-  $('tasksBulkOrder').onclick = function () { runBulkOrder('tasks') }
-  $('tasksBulkBatch').onclick = function () { runBulkBatch('tasks') }
-  $('tasksBulkClear').onclick = function () { clearSel(); renderTasksPage() }
-  $('historyBulkOrder').onclick = function () { runBulkOrder('history') }
-  $('historyBulkBatch').onclick = function () { runBulkBatch('history') }
-  $('historyBulkTask').onclick = function () { runBulkTask('history') }
-  $('historyBulkClear').onclick = function () { clearSel(); renderHistoryPage() }
-
-  // 筛选下拉
-  $('tasksStatus').addEventListener('change', function () {
-    statusFilter.tasks = this.value
-    renderTasksPage()
-  })
-  $('historyStatus').addEventListener('change', function () {
-    statusFilter.history = this.value
-    renderHistoryPage()
-  })
-
+  // ---------- 其他控件绑定 ----------
   $('refresh').onclick = refresh
+  var moreBtn = $('robotMoreBtn')
+  if (moreBtn) moreBtn.addEventListener('click', function (ev) { ev.stopPropagation(); window.showRobotMenu(ev) })
 
   // ---------- 启动 ----------
-  fillStatusOptions('tasksStatus', tasksKind(tasksTab))
-  fillStatusOptions('historyStatus', historyKind(historyTab))
-  wireSearch('tasksSearch', 'tasks')
-  wireSearch('historySearch', 'history')
+  fillStatusOptions('batch')
+  wireSearch('dataSearch')
+  showPanel('dataPanel', 'batch', ['batch', 'order', 'task'])
 
   var saved = localStorage.getItem(TOKEN_KEY)
   if (saved) {

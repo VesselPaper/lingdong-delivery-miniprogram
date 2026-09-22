@@ -1,37 +1,43 @@
+
   // ---------- 主渲染 ----------
   function render() {
     if (!state) return
     renderOverview()
-    renderTasksPage()
-    renderHistoryPage()
+    renderDataPage()
     renderNavCount()
   }
 
   function renderOverview() {
-    // 告警
+    // 异常与死锁告警（运维信息，与机器人同屏）
     var alerts = state.alerts || []
-    $('alertCount').textContent = alerts.length
-    $('alertCount').className = 'tag ' + (alerts.some(function (a) { return a.level === 'bad' }) ? 'red' : (alerts.length ? 'orange' : 'green'))
-    $('alertsBox').innerHTML = alerts.length
-      ? alerts.map(function (a) { return '<div class="alert ' + a.level + '">' + esc(a.text) + '</div>' }).join('')
-      : '<div class="alert ok">未检测到异常或死锁</div>'
-
-    // 机器人（单独抽出：WS live 事件会原地刷新该卡片，不整页重渲染）
+    var ac = $('alertCount')
+    if (ac) {
+      ac.textContent = alerts.length
+      ac.className = 'tag ' + (alerts.some(function (a) { return a.level === 'bad' }) ? 'red' : (alerts.length ? 'orange' : 'green'))
+    }
+    var ab = $('alertsBox')
+    if (ab) {
+      ab.innerHTML = alerts.length
+        ? alerts.map(function (a) { return '<div class="alert ' + a.level + '">' + esc(a.text) + '</div>' }).join('')
+        : '<div class="alert ok">未检测到异常或死锁</div>'
+    }
     renderRobotCard()
-
-    // 状态字典
-    $('dictBox').innerHTML = Object.keys(TASK_STATUS).map(function (k) { return '<span>' + k + ' <b>' + TASK_STATUS[k] + '</b></span>' }).join('')
-      + '<span class="divider">机器状态</span>'
-      + Object.keys(MACHINE_TEXT).map(function (k) { return '<span>' + k + ' <b>' + MACHINE_TEXT[k] + '</b></span>' }).join('')
+    // 状态字典（折叠卡内，低频参考）
+    var dict = $('dictBox')
+    if (dict) {
+      dict.innerHTML = Object.keys(TASK_STATUS).map(function (k) { return '<span>' + k + ' <b>' + TASK_STATUS[k] + '</b></span>' }).join('')
+        + '<span class="divider">机器状态</span>'
+        + Object.keys(MACHINE_TEXT).map(function (k) { return '<span>' + k + ' <b>' + MACHINE_TEXT[k] + '</b></span>' }).join('')
+    }
   }
 
   // 机器人卡片渲染（独立函数：WS live 事件每 ~2.5s 推机器状态，原地刷新卡片不整页重绘）
   function renderRobotCard() {
     var r = state && state.robot
-    var tag = $('robotTag')
-    if (tag) {
-      tag.textContent = r ? (r.online ? '在线' : '离线') : '无设备'
-      tag.className = 'tag ' + (r && r.online ? 'green' : 'red')
+    var tagEl = $('robotTag')
+    if (tagEl) {
+      tagEl.textContent = r ? (r.online ? '在线' : '离线') : '无设备'
+      tagEl.className = 'tag ' + (r && r.online ? 'green' : 'red')
     }
     var snEl = $('rSn')
     if (snEl) snEl.textContent = r ? r.device_sn : ((state && state.robot_error) || '—')
@@ -58,8 +64,8 @@
 
   // ---------- 实时推送（WebSocket 事件驱动，替代轮询） ----------
   // 前端不轮询：连 /ws 订阅 admin/live，后端推送：
-  //   {type:'live', robots, robot}        → 原地更新地图小车 + 机器人卡片
-  //   {type:'state_changed'}              → 数据有变，拉一次 /api/admin/state
+  //   {type:'live', robots, robot}  → 原地更新地图小车 + 机器人卡片 + 抽屉实时位置
+  //   {type:'state_changed'}        → 数据有变，拉一次 /api/admin/state
   var ws = null
   var wsReconnectTimer = null
 
@@ -84,8 +90,13 @@
       try { m = JSON.parse(ev.data) } catch (e) { return }
       if (!m || !m.type) return
       if (m.type === 'live') {
+        if (Array.isArray(m.robots)) {
+          liveRobots = m.robots
+          if (window.mapOnLive) window.mapOnLive(m.robots)
+          // 抽屉若正开着，原地刷新它的实时位置段（不整页重绘）
+          if (drawerCtx && typeof renderDrawerLive === 'function') renderDrawerLive()
+        }
         if (m.robot && state) { state.robot = m.robot; renderRobotCard() }
-        if (Array.isArray(m.robots) && window.mapOnLive) window.mapOnLive(m.robots)
       } else if (m.type === 'state_changed') {
         if (!busy && state) refresh()
       }
@@ -98,6 +109,7 @@
     wsReconnectTimer = setTimeout(connectWS, 4000)
   }
 
+  // 侧栏「配送数据」徽标：活跃批次 + 活跃订单 + 未完成任务的合计
   function renderNavCount() {
     var activeTotal = (state.batches || []).filter(function (b) { return [0, 1, 2].indexOf(Number(b.status)) >= 0 }).length
       + (state.orders || []).filter(function (o) { return [2, 3, 6].indexOf(Number(o.status)) >= 0 }).length

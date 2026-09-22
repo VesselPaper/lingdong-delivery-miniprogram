@@ -38,7 +38,7 @@
     var p = $('loginPass'); if (p) p.value = ''
     var e = $('loginErr'); if (e) { e.hidden = true; e.textContent = '' }
     setAuthBanner('')
-    $('conn').textContent = '未登录'
+    var c = $('conn'); if (c) c.textContent = '未登录'
   }
   function hideLogin() { var m = $('loginMask'); if (m) m.hidden = true }
 
@@ -72,6 +72,7 @@
     currentAdmin = null
     state = null
     if (ws) { try { ws.close() } catch (e) {} ws = null }
+    closeDrawer()
     showLogin()
     log('已退出登录', 'warn')
   }
