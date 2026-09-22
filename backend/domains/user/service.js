@@ -8,20 +8,32 @@ const q = require('./queries')
 const invite = require('../../services/merchantInvite')
 const promotion = require('../../services/promotion')
 
-// 登录限流（按来源 IP/端口）：防止对邀请码做暴力试错。
+// 登录限流（按来源 IP）：防止对邀请码做暴力试错。
 // 内存级、单进程足够；多副本需换 Redis。
 const LOGIN_LIMIT = 20
 const LOGIN_WIN = 10 * 60 * 1000
+const LOGIN_MAP_MAX = 10000   // 条目上限：超过就先清掉过期项，避免这张表无界增长
 const loginFail = {
   _m: new Map(),
+  _prune(t) {
+    if (this._m.size <= LOGIN_MAP_MAX) return
+    for (const [k, v] of this._m) if (t - v.t >= LOGIN_WIN) this._m.delete(k)
+  },
   count(ip) { const t = Date.now(), r = this._m.get(ip); return (r && t - r.t < LOGIN_WIN) ? r.c : 0 },
-  add(ip) { const t = Date.now(), r = this._m.get(ip); if (!r || t - r.t >= LOGIN_WIN) this._m.set(ip, { t, c: 1 }); else r.c++ },
+  add(ip) { const t = Date.now(); this._prune(t); const r = this._m.get(ip); if (!r || t - r.t >= LOGIN_WIN) this._m.set(ip, { t, c: 1 }); else r.c++ },
   ok(ip) { const t = Date.now(), r = this._m.get(ip); if (r && t - r.t < LOGIN_WIN) r.c = Math.max(0, r.c - 2) }
 }
 
-// 客户端来源 IP（登录限流键）
+// 客户端来源 IP（登录限流键）：默认只信 socket 对端地址。
+// X-Forwarded-For 是客户端可随意伪造的请求头 —— 采信它会让限流形同虚设
+// （每次换一个假 IP 就是全新的 20 次额度），并让上面的 Map 被任意撑大。
+// 只有确实部署在反向代理之后时，才在 .env 设 TRUST_PROXY=1 采信 XFF。
 function clientIp(req) {
-  return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || 'local'
+  if (process.env.TRUST_PROXY === '1') {
+    const xff = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+    if (xff) return xff
+  }
+  return (req.socket && req.socket.remoteAddress) || 'local'
 }
 
 // 演示模式 openid = demo_ + sha1(code)（RUN_MODE=production 下启动守卫会拒绝这种配置）

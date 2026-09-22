@@ -12,6 +12,14 @@ const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
 const clients = new Set() // 每个元素：{ socket }
 
+// 资源上限：手写 WS 必须自己设闸，否则单连接即可顶爆单进程内存。
+// 实测（未加限制时）：一个声明 1TB 帧长的连接持续推数据，进程 RSS 涨到 356MB 且不被拒绝，
+// 直到 Buffer.concat 触顶 OOM —— 而该进程同时承担派车调度与平台回调接收，OOM 等于全站停摆。
+const MAX_FRAME_BYTES = 64 * 1024        // 单帧上限（业务只收订阅帧，几十字节足够）
+const MAX_BUFFER_BYTES = 256 * 1024      // 单连接接收缓冲上限
+const MAX_CLIENTS = 200                  // 并发连接上限
+const IDLE_TIMEOUT_MS = 10 * 60 * 1000   // 空闲连接回收（客户端掉网无 FIN 时避免永久驻留；客户端会自动重连）
+
 // 单帧编码（server→client 不掩码）：opcode 0x1 文本
 function encodeFrame(payload, opcode) {
   const buf = Buffer.isBuffer(payload) ? payload : Buffer.from(String(payload))
@@ -46,6 +54,8 @@ function attach(server, opts) {
       const url = req.url || ''
       // 只接受 /ws 路径
       if (!/^\/ws(\?|$)/.test(url)) { socket.destroy(); return }
+      // 并发上限：防止连接数无上限堆积
+      if (clients.size >= MAX_CLIENTS) { socket.destroy(); return }
       const key = req.headers['sec-websocket-key']
       if (!key) { socket.destroy(); return }
       // 鉴权：Bearer token（兼容 query ?token=，便于排查）
@@ -72,7 +82,11 @@ function attach(server, opts) {
 
       let buffer = Buffer.alloc(0)
       const cleanup = () => { clients.delete(client); if (!socket.destroyed) { try { socket.destroy() } catch (e) {} } }
+      // 空闲回收：半开连接（客户端掉网无 FIN）不会自己消失，会永久占住 socket 与 clients 条目
+      socket.setTimeout(IDLE_TIMEOUT_MS, cleanup)
       const onData = (chunk) => {
+        // 单连接缓冲上限：不设限时客户端可声明超大帧长并持续发送，直到 Buffer.concat 把内存顶爆
+        if (buffer.length + chunk.length > MAX_BUFFER_BYTES) { cleanup(); return }
         buffer = Buffer.concat([buffer, chunk])
         for (;;) {
           if (buffer.length < 2) return
@@ -90,6 +104,8 @@ function attach(server, opts) {
             if (buffer.length < 10) return
             len = Number(buffer.readBigUInt64BE(2)); offset = 10
           }
+          // 单帧上限：业务帧只可能是几十字节的订阅消息，超限直接断开
+          if (len > MAX_FRAME_BYTES) { cleanup(); return }
           if (masked) { if (buffer.length < offset + 4) return; maskKey = buffer.slice(offset, offset + 4); offset += 4 }
           if (buffer.length < offset + len) return // 等待完整帧
           let frame = buffer.slice(offset, offset + len)

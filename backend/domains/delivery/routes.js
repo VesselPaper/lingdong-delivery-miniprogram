@@ -466,6 +466,9 @@ module.exports = (store, deps) => {
   // 直接进入「待取货」，用户即可取餐；商家无需手动点「测试完成配送」。
   // 正式接入真机器人后由「立即配送」（/merchant/device/batch/dispatch）真实下发，本接口仅测试阶段使用。
   router.post('/merchant/device/batch/mock-dispatch', merchantGuard, (req, res) => {
+    // 非模拟档禁止：否则任何持商家 token 的人都能让整批真实订单在约 10 秒后被标成「已送达」并结算销量，
+    // 而机器人仍在真实配送 —— 订单/任务/批次三方状态分叉。与 test-complete 保持同一道守卫。
+    if (!deps.runtime.deviceMock) return res.status(404).json({ code: 404, msg: '当前运行模式不允许模拟配送' })
     const { batch_id } = req.body || {}
     const b = q.batchById(store, batch_id)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })

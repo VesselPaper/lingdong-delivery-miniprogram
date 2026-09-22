@@ -56,7 +56,8 @@ function start(store, deps) {
   setInterval(async () => {
     try {
       // P1-4：模拟配送到达处理（不依赖营业状态、不依赖内存 setTimeout，重启后按落库时间补送达）
-      s.processMockArrivals(store, deps)
+      // 仅模拟档执行：真实档若残留 mock_arrive_at（历史数据或异常调用写入），不加这层会把真实订单也推进成「已送达」。
+      if (deps.runtime.deviceMock) s.processMockArrivals(store, deps)
       // 跨域只读：店铺营业状态（goods 域；保持与原先 server.js 相同的直接读法）
       const shop = store.prepare('SELECT * FROM shops WHERE id=1').get() || {}
       if (shop.business_status !== 'open') return
