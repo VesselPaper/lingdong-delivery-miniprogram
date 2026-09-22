@@ -53,6 +53,6 @@ exit /b 1
 :open
 start "" "%BASE%/admin/"
 echo 已在默认浏览器打开管理员网页 (如未弹出请检查默认浏览器)。
-echo 首次打开需输入管理员令牌, 默认 123456。
+echo 登录方式：管理员账号密码登录（账号由 backend\tools\admin_user.js 创建/查看，初始账号见 agent\agent交接文档\会话交接文档\交接文档11.md）。
 echo.
 pause
