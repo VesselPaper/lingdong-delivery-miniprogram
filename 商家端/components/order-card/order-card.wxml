@@ -1,6 +1,6 @@
 <view class="order-card card" bindtap="onTap">
   <view class="order-top">
-    <text class="order-title">订单 {{order.daily_seq}}</text>
+    <text class="order-title">订单 {{order.code_short || order.daily_seq}}</text>
     <view class="order-top-right">
       <view class="tag tag-green" wx:if="{{order.payed}}">已收款</view>
       <status-text cls="{{order.stClass}}" text="{{order.displayStatus || order.status_text}}" />
@@ -21,7 +21,7 @@
     </view>
     <view class="order-line">
       <text class="line-label">批次</text>
-      <text class="line-value">{{order.batch ? '批次 ' + order.batch.daily_seq : '未组单'}}</text>
+      <text class="line-value">{{order.batch ? '批次 ' + (order.batch.code_short || order.batch.daily_seq) : '未组单'}}</text>
     </view>
     <view class="order-line">
       <text class="line-label">下单时间</text>

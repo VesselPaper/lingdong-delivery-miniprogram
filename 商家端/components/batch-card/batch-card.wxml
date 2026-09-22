@@ -1,7 +1,7 @@
-<view class="card batch-card">
+<view class="card batch-card" bindtap="onCardTap" hover-class="batch-card-hover" hover-stay-time="80">
   <view class="batch-head">
     <view class="batch-title-wrap">
-      <text class="batch-title">批次 {{b.daily_seq}}</text>
+      <text class="batch-title">批次 {{b.code_short || b.daily_seq}}</text>
       <text class="batch-no-full" wx:if="{{showNo && b.batch_no}}">{{b.batch_no}}</text>
     </view>
     <view class="batch-tags">
@@ -32,7 +32,7 @@
   <view class="batch-orders">
     <view class="b-order {{orderTap ? 'tappable' : ''}}" wx:for="{{b.orders}}" wx:for-item="o" wx:key="id" data-o="{{o}}" catchtap="onOrderTap">
       <view class="b-order-head">
-        <text class="b-order-title">订单 {{o.daily_seq}}</text>
+        <text class="b-order-title">订单 {{o.code_short || o.daily_seq}}</text>
         <text class="b-order-landmark">{{o.landmark_name}}</text>
         <text class="recall-tag" wx:if="{{o.task && o.task.recall_status === 2}}">召回失败·需人工</text>
         <text class="b-order-status st-{{o.stClass}}">{{o.displayStatus || o.status_text}}</text>

@@ -439,11 +439,17 @@
   gap: 16rpx;
 }
 
+.picker-sub {
+  text-align: center;
+  margin: -24rpx 0 20rpx;
+}
+
+/* 优惠卡片：左=面额大字，中=标题/门槛/有效期，右=推荐/勾选（淘宝/京东式单选券） */
 .coupon-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 26rpx 30rpx;
+  gap: 18rpx;
+  padding: 22rpx 24rpx;
   border-radius: 12rpx;
   background: #F5F7FA;
   border: 2rpx solid transparent;
@@ -462,34 +468,86 @@
 .coupon-desc {
   font-size: 30rpx;
   font-weight: 600;
-  color: #E64340;
+  color: #111111;
 }
 
 .coupon-name {
   margin-top: 4rpx;
 }
 
+/* 左：面额大字块 */
+.coupon-amount {
+  flex-shrink: 0;
+  width: 132rpx;
+  height: 132rpx;
+  border-radius: 14rpx;
+  background: #E64340;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.coupon-amount-main {
+  font-size: 34rpx;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.coupon-amount-main.zhe {
+  font-size: 42rpx;
+}
+
+.coupon-amount-sub {
+  margin-top: 4rpx;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 20rpx;
+}
+
+/* 中：标题 / 门槛 / 有效期 */
+.coupon-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.coupon-info-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #111111;
+}
+
+.coupon-info-desc {
+  margin-top: 4rpx;
+}
+
+.coupon-info-valid {
+  margin-top: 4rpx;
+}
+
+/* 右：推荐 / 勾选 */
 .coupon-right {
   display: flex;
   align-items: center;
-  gap: 14rpx;
-}
-
-.coupon-reduce {
-  font-size: 26rpx;
-  font-weight: 600;
-  color: #111111;
+  gap: 12rpx;
+  flex-shrink: 0;
 }
 
 .coupon-check {
   width: 40rpx;
   height: 40rpx;
   border-radius: 50%;
-  background: #E64340;
-  border: 2rpx solid #E64340;
+  background: #ffffff;
+  border: 2rpx solid #C0C0C0;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.coupon-check.on {
+  background: #E64340;
+  border-color: #E64340;
 }
 
 .coupon-rec {
@@ -499,9 +557,14 @@
   border-radius: 6rpx;
   padding: 2rpx 10rpx;
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .coupon-empty {
   text-align: center;
   padding: 40rpx 0;
+}
+
+.text-xs {
+  font-size: 22rpx;
 }

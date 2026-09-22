@@ -7,7 +7,8 @@
 //   showGoods    是否显示订单内商品明细行
 //   action       '' | 'select'(选择该批次上货) | 'dispatch'(派车配送)
 //   selectText   select 按钮文案（默认「选择该批次上货」）
-// events: select(b) / dispatch(b) / ordertap(order)
+// events: select(b) / dispatch(b) / ordertap(order) / cardtap(b)
+//   整卡点击（cardtap）：上货配单页用来「点卡面看批次详情」；订单子卡与按钮用 catchtap 阻止冒泡，不会误触发
 Component({
   properties: {
     b: { type: Object, value: {} },
@@ -19,6 +20,9 @@ Component({
     selectText: { type: String, value: '选择该批次上货' }
   },
   methods: {
+    onCardTap() {
+      this.triggerEvent('cardtap', this.data.b)
+    },
     onSelect() {
       this.triggerEvent('select', this.data.b)
     },

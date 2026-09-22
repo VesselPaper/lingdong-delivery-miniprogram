@@ -67,7 +67,7 @@
       <view class="text-weak text-sm" style="margin:4rpx 0 16rpx;">请打开舱门，把以下订单的商品<text class="text-strong">一起</text>取走，然后点「关闭舱门」即可一次性确认全部订单取完。</view>
       <view class="group-order" wx:for="{{order.my_batch_orders}}" wx:key="id">
         <view class="group-order-head">
-          <text class="batch-order-no">订单 {{item.daily_seq}}</text>
+          <text class="batch-order-no">订单 {{item.code_short || item.daily_seq}}</text>
           <text class="batch-order-lm text-weak text-sm">{{item.landmark_name}}</text>
           <text class="pickup-code text-sm">{{item.pickup_code}}</text>
         </view>
@@ -86,7 +86,7 @@
     <view class="card" wx:if="{{order.batch_order_count > 1}}">
       <view class="section-title">本车共 {{order.batch_order_count}} 单</view>
       <view class="batch-order-row" wx:for="{{order.batch_orders}}" wx:key="id">
-        <text class="batch-order-no {{item.id === order.order_id ? 'mine' : ''}}">订单 {{item.daily_seq}}</text>
+        <text class="batch-order-no {{item.id === order.order_id ? 'mine' : ''}}">订单 {{item.code_short || item.daily_seq}}</text>
         <text class="batch-order-lm text-weak text-sm">{{item.landmark_name}}</text>
         <text class="batch-order-tag" wx:if="{{item.id === order.order_id}}">本单</text>
       </view>

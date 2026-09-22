@@ -28,14 +28,16 @@
     <batch-card
       wx:for="{{openBatches}}" wx:key="id"
       b="{{item}}" action="select" selectText="{{'上货（' + item.total_items + '件）'}}" showGoods="{{true}}"
-      bind:select="selectBatch" />
+      orderTap="{{true}}"
+      bind:cardtap="goBatchDetail" bind:ordertap="goOrderDetail" bind:select="selectBatch" />
   </block>
 
   <!-- 待上货批次：上货（商品数） -->
   <batch-card
     wx:for="{{readyBatches}}" wx:key="id"
     b="{{item}}" action="select" selectText="{{'上货（' + item.total_items + '件）'}}" showGoods="{{true}}"
-    bind:select="selectBatch" />
+    orderTap="{{true}}"
+    bind:cardtap="goBatchDetail" bind:ordertap="goOrderDetail" bind:select="selectBatch" />
 
   <empty-view
     show="{{!loadingList && !openBatches.length && !readyBatches.length && !keyword}}"

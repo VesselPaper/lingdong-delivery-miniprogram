@@ -31,6 +31,7 @@ Page({
     const filtered = kw
       ? this.data.orders.filter((o) =>
           (o.order_no || '').toLowerCase().includes(kw) ||
+          (o.code_short || '').toLowerCase().includes(kw) ||
           String(o.daily_seq || '') === kw ||
           (o.landmark_name || '').toLowerCase().includes(kw) ||
           (o.items || []).some((it) => (it.goods_name || '').toLowerCase().includes(kw)))

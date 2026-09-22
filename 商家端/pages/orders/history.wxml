@@ -6,7 +6,7 @@
       <view class="order-card card" bindtap="goDetail" data-id="{{item.id}}">
         <view class="order-top">
           <view class="order-no-col">
-            <text class="order-title">订单 {{item.daily_seq}}</text>
+            <text class="order-title">订单 {{item.code_short || item.daily_seq}}</text>
             <text class="order-time-sub">{{item.created_time}}</text>
           </view>
           <view class="order-top-right">
@@ -24,7 +24,7 @@
 
         <view class="order-foot">
           <view class="foot-left">
-            <text class="foot-meta">{{item.batch ? '批次 ' + item.batch.daily_seq : '未组单批次'}}</text>
+            <text class="foot-meta">{{item.batch ? '批次 ' + (item.batch.code_short || item.batch.daily_seq) : '未组单批次'}}</text>
             <text class="foot-meta">{{item.landmark_name}}</text>
           </view>
           <view class="foot-total">

@@ -164,3 +164,8 @@
 .batch-cta {
   margin-top: 20rpx;
 }
+
+/* 整卡可点（上货配单页点卡面看批次详情）的按压反馈 */
+.batch-card-hover {
+  background: #F7F9FC;
+}

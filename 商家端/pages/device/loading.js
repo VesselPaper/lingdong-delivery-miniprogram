@@ -92,9 +92,11 @@ Page({
     const hit = (b) => {
       if (!kw) return true
       if (String(b.batch_no || '').toLowerCase().indexOf(kw) > -1) return true
+      if (String(b.code_short || '').toLowerCase().indexOf(kw) > -1) return true
       if (String(b.daily_seq || '') === kw) return true
       return (b.orders || []).some((o) =>
         String(o.order_no || '').toLowerCase().indexOf(kw) > -1 ||
+        String(o.code_short || '').toLowerCase().indexOf(kw) > -1 ||
         String(o.daily_seq || '') === kw ||
         String(o.landmark_name || '').toLowerCase().indexOf(kw) > -1 ||
         String(o.contact_name || '').toLowerCase().indexOf(kw) > -1 ||
@@ -108,10 +110,25 @@ Page({
   },
 
   // 上货按钮：批次定型 + 进入上货详情页
+  selectBatch(e) {
+    this.enterBatch(e.detail || {})
+  },
+
+  // 点批次卡面 → 查看该批次详情（与「上货」同一入口：组单中批次先定型，详情页才能开舱上货）
+  goBatchDetail(e) {
+    this.enterBatch(e.detail || {})
+  },
+
+  // 点批次内订单卡面 → 查看该订单详情
+  goOrderDetail(e) {
+    const o = e.detail || {}
+    if (o && o.id) wx.navigateTo({ url: '/pages/orders/detail?id=' + o.id })
+  },
+
+  // 进入批次上货详情页
   //  - 组单中批次（status=0）：先创建配送任务定型（机器人已在上货点待命），再进入上货页
   //  - 待上货批次（status=1）：已定型，直接进入上货页
-  async selectBatch(e) {
-    const item = e.detail || {}
+  async enterBatch(item) {
     if (!item || !item.id) return
     const st = Number(item.status)
     // 问题4：待上货批次指派车正忙（配送/占用）时，禁止进入详情打断配送。

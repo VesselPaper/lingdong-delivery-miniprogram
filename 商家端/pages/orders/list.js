@@ -75,6 +75,7 @@ Page({
 
   match(o, kw) {
     return (o.order_no || '').toLowerCase().includes(kw) ||
+      (o.code_short || '').toLowerCase().includes(kw) ||
       String(o.daily_seq || '') === kw ||
       (o.landmark_name || '').toLowerCase().includes(kw) ||
       (o.first_name || '').toLowerCase().includes(kw)
@@ -131,6 +132,7 @@ Page({
           id: key,
           batch_no: o.batch ? o.batch.batch_no : '',
           daily_seq: o.batch ? o.batch.daily_seq : 0,
+          code_short: o.batch ? (o.batch.code_short || '') : '',
           status: o.batch ? o.batch.status : null,
           status_text: text,
           statusTagClass: tag,

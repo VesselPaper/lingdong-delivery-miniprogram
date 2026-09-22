@@ -37,6 +37,7 @@ Page({
     const filtered = kw
       ? this.rawList.filter((o) =>
           (o.order_no || '').toLowerCase().includes(kw) ||
+          (o.code_short || '').toLowerCase().includes(kw) ||
           String(o.daily_seq || '') === kw ||
           (o.landmark_name || '').toLowerCase().includes(kw) ||
           (o.first_name || '').toLowerCase().includes(kw))

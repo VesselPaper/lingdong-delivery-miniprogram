@@ -3,7 +3,7 @@
   <view class="status-head">
     <view class="status-dot dot-{{order.stClass}}"></view>
     <view class="status-main">
-      <view class="status-title st-{{order.stClass}}">订单 {{order.daily_seq}} · {{order.status_text}}</view>
+      <view class="status-title st-{{order.stClass}}">订单 {{order.code_short || order.daily_seq}} · {{order.status_text}}</view>
       <view class="status-sub text-sm text-sub" wx:if="{{order.status === 1}}">请尽快接单，机器人将在门店等待装货</view>
       <view class="status-sub text-sm text-sub" wx:if="{{order.status === 2}}">机器人已接单，正在配送</view>
       <view class="status-sub text-sm text-sub" wx:if="{{order.status === 3}}">机器人已到达取餐点{{pickupHint ? ' · ' + pickupHint : ''}}</view>
@@ -20,15 +20,18 @@
     <view class="info-row text-sub"><text>下单时间</text><text>{{order.created_at}}</text></view>
     <view class="info-row text-sub" wx:if="{{order.batch}}">
       <text>配送批次</text>
-      <text>批次 {{order.batch.daily_seq}} · {{order.batch.batch_no}}（{{order.batch.total_orders}}单 · {{order.batch.status_text}}）</text>
+      <text>批次 {{order.batch.code_short || order.batch.daily_seq}} · {{order.batch.batch_no}}（{{order.batch.total_orders}}单 · {{order.batch.status_text}}）</text>
     </view>
   </view>
 
   <view class="card">
     <view class="section-title">商品明细</view>
     <view class="item" wx:for="{{items}}" wx:key="id">
-      <view class="item-name">{{item.goods_name}}</view>
-      <view class="item-qty">x{{item.quantity}}</view>
+      <image wx:if="{{item.goods_image}}" class="item-pic" src="{{item.goods_image}}" mode="aspectFill" />
+      <view class="item-main">
+        <view class="item-name">{{item.goods_name}}</view>
+        <view class="item-qty">x{{item.quantity}}</view>
+      </view>
       <view class="item-price">¥{{item.price}}</view>
     </view>
     <view class="total-row">

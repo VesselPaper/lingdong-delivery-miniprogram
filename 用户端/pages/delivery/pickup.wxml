@@ -20,7 +20,7 @@
   <view class="card" wx:if="{{order.batch_order_count > 1}}">
     <view class="section-title">本车共 {{order.batch_order_count}} 单</view>
     <view class="batch-order-row" wx:for="{{order.batch_orders}}" wx:key="id">
-      <text class="batch-order-no {{item.id === orderId ? 'mine' : ''}}">订单 {{item.daily_seq}}</text>
+      <text class="batch-order-no {{item.id === orderId ? 'mine' : ''}}">订单 {{item.code_short || item.daily_seq}}</text>
       <text class="batch-order-lm text-weak text-sm">{{item.landmark_name}}</text>
       <text class="batch-order-tag" wx:if="{{item.id === orderId}}">本单</text>
     </view>

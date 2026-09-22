@@ -57,13 +57,35 @@
   font-size: 28rpx;
 }
 
-.item-name {
+.item-pic {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 12rpx;
+  background: #F5F5F5;
+  flex-shrink: 0;
+  margin-right: 20rpx;
+}
+
+.item-main {
   flex: 1;
+  min-width: 0;
+}
+
+.item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .item-qty {
   color: #999999;
-  margin-right: 24rpx;
+  margin-top: 4rpx;
+}
+
+.item-price {
+  color: #111111;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
 .total-row {

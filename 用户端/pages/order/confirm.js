@@ -49,7 +49,7 @@ Page({
         const quantity = Number(options.quantity || 1)
         const priceNow = g.sale_price || g.price
         this.setData({
-          items: [{ goods_id: g.id, name: g.name, price: g.price, price_now: priceNow, quantity, total: (priceNow * quantity).toFixed(2), orig: (g.price * quantity).toFixed(2) }],
+          items: [{ goods_id: g.id, name: g.name, image: g.image || '', price: g.price, price_now: priceNow, quantity, total: (priceNow * quantity).toFixed(2), orig: (g.price * quantity).toFixed(2) }],
           total: (priceNow * quantity).toFixed(2),
           subtotal: (g.price * quantity).toFixed(2)
         })
@@ -62,7 +62,7 @@ Page({
         for (const it of cached) {
           const g = await request.get(api.goodsDetail + '?id=' + it.goods_id)
           const priceNow = g.sale_price || g.price
-          items.push({ goods_id: g.id, name: g.name, price: g.price, price_now: priceNow, quantity: it.quantity, total: (priceNow * it.quantity).toFixed(2), orig: (g.price * it.quantity).toFixed(2) })
+          items.push({ goods_id: g.id, name: g.name, image: g.image || '', price: g.price, price_now: priceNow, quantity: it.quantity, total: (priceNow * it.quantity).toFixed(2), orig: (g.price * it.quantity).toFixed(2) })
         }
         const total = items.reduce((s, it) => s + Number(it.total), 0)
         const subtotal = items.reduce((s, it) => s + Number(it.orig), 0)
@@ -79,6 +79,21 @@ Page({
     this.loadShopStatus()
     this.buildTimeOptions()
     this.ready = true
+  },
+
+  // 活动起止时间 → 优惠面板上的有效期文案（仅当设置了时间窗时展示）
+  promoValidText(a) {
+    const at = (t) => (t ? new Date(String(t).replace(' ', 'T')).getTime() : NaN)
+    const pad = (n) => String(n).padStart(2, '0')
+    const fmt = (x) => x ? pad(x.getMonth() + 1) + '-' + pad(x.getDate()) : ''
+    const s = at(a && a.start_at), e = at(a && a.end_at)
+    if (isNaN(s) && isNaN(e)) return ''
+    if (!isNaN(s) && !isNaN(e)) {
+      const sd = new Date(s), ed = new Date(e)
+      return '活动期 ' + fmt(sd) + ' ~ ' + fmt(ed)
+    }
+    if (!isNaN(e)) return '有效期至 ' + fmt(new Date(e))
+    return '活动进行中'
   },
 
   // 估算优惠：生成可选优惠候选列表 + 自动推荐优惠最大的一个
@@ -101,7 +116,7 @@ Page({
           }
           const zhe = (Number(a.config.discount) * 10).toFixed(1).replace(/\.0$/, '')
           const r = round2(est)
-          if (r > 0) candidates.push({ id: a.id, type: 'discount', title: a.title || '', desc: `商品${zhe}折`, reduce: r })
+          if (r > 0) candidates.push({ id: a.id, type: 'discount', title: a.title || '', desc: `商品${zhe}折`, reduce: r, zhe, valid: this.promoValidText(a) })
         } else if (a.type === 'full_reduce') {
           const tiers = (a.config && a.config.tiers || []).filter((t) => Number(t.threshold) > 0)
           let scopeSubtotal = subtotal
@@ -113,7 +128,7 @@ Page({
           let reduce = 0
           for (const t of tiers) if (scopeSubtotal >= Number(t.threshold)) reduce = Math.max(reduce, Number(t.reduce))
           const r = round2(reduce)
-          if (r > 0) candidates.push({ id: a.id, type: 'full_reduce', title: a.title || '', desc: tiers.map((t) => '满' + t.threshold + '减' + t.reduce).join(' / '), reduce: r })
+          if (r > 0) candidates.push({ id: a.id, type: 'full_reduce', title: a.title || '', desc: tiers.map((t) => '满' + t.threshold + '减' + t.reduce).join(' / '), reduce: r, valid: this.promoValidText(a) })
         }
       }
       // 无任何可用的优惠时：仅标记折扣差异展示
@@ -122,21 +137,37 @@ Page({
       candidates.sort((x, y) => y.reduce - x.reduce)
       const best = candidates[0]
       this.setData({
-        promoCandidates: candidates.map((c) => Object.assign({}, c, { reduceTxt: c.reduce.toFixed(2), payable: (subtotal - c.reduce).toFixed(2), selected: c.id === best.id })),
+        // 面额大字：折扣显示「X折」、满减显示「-¥X」；recommend=系统推荐最优；selected=当前选中
+        promoCandidates: candidates.map((c) => Object.assign({}, c, {
+          reduceTxt: c.reduce.toFixed(2),
+          payable: (subtotal - c.reduce).toFixed(2),
+          amountText: c.type === 'discount' ? (c.zhe || '') + '折' : '-¥' + c.reduce.toFixed(2),
+          selected: c.id === best.id,
+          recommend: c.id === best.id
+        })),
         selectedActivityId: best.id
       })
       this.pickPromo(best.id, subtotal)
     } catch (e) { /* handled */ }
   },
 
-  // 用户切换所选优惠活动
+  // 勾选/取消勾选优惠：点已选中的优惠再点一次 = 取消勾选（回到无优惠）；点其它 = 切换选中
+  // 面板不自动关闭，用户可反复勾选/取消，点遮罩或右上角关闭
   chooseCoupon(e) {
     const id = Number(e.currentTarget.dataset.id)
     const subtotal = Number(this.data.subtotal || 0)
+    if (this.data.selectedActivityId === id) {
+      // 已选中 → 取消勾选，恢复无优惠（recommend 角标一并清除，避免「未使用优惠」时还残留推荐标记）
+      this.setData({
+        promoCandidates: this.data.promoCandidates.map((c) => Object.assign({}, c, { selected: false, recommend: false })),
+        selectedActivityId: null
+      })
+      this.clearPromo(subtotal)
+      return
+    }
     this.setData({
       promoCandidates: this.data.promoCandidates.map((c) => Object.assign({}, c, { selected: c.id === id })),
-      selectedActivityId: id,
-      couponShow: false
+      selectedActivityId: id
     })
     this.pickPromo(id, subtotal)
   },
@@ -378,7 +409,8 @@ Page({
         contact_name: contactName,
         contact_phone: contactPhone,
         address_id: selectedAddress ? selectedAddress.id : undefined,
-        activity_id: this.data.selectedActivityId || undefined,
+        // 0 = 不使用优惠；null（无候选）也按 0 处理，后端不再自动套用活动
+        activity_id: this.data.selectedActivityId || 0,
         items: items.map((it) => ({ goods_id: it.goods_id, quantity: it.quantity }))
       })
       wx.removeStorageSync('checkout_items')

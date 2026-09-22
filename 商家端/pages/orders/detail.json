@@ -1,6 +1,4 @@
 {
   "navigationBarTitleText": "订单详情",
-  "usingComponents": {
-    "t-qrcode": "tdesign-miniprogram/qrcode/qrcode"
-  }
+  "usingComponents": {}
 }
