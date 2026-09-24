@@ -236,10 +236,27 @@
   }
 
   // ---------- 状态筛选 ----------
+  // 所选状态是否属于「活跃」口径（batch [0,1,2]、order [2,3,6]、task task_status<80）
+  function statusFitsActive(kind, statusStr) {
+    var sets = { batch: [0, 1, 2], order: [2, 3, 6] }
+    if (kind === 'task') return Number(statusStr) < 80
+    return (sets[kind] || []).indexOf(Number(statusStr)) >= 0
+  }
   var statusSel = $('dataStatus')
   if (statusSel) {
     statusSel.addEventListener('change', function () {
       statusFilter = this.value
+      // 「活跃」分段下选了「全部状态」或某个终态状态（如已完成/已取消）时，
+      // 这些记录必然不在活跃里 → 自动切到「全部」分段，让「全部状态」名副其实；
+      // 历史/全部分段与「活跃分段选活跃状态」不干预。
+      var needAll = statusFilter === '' || !statusFitsActive(dataTab, statusFilter)
+      if (needAll && dataScope === 'active') {
+        dataScope = 'all'
+        var scopeRoot = $('dataScope')
+        if (scopeRoot) scopeRoot.querySelectorAll('.seg-btn').forEach(function (b) {
+          b.classList.toggle('active', b.dataset.scope === 'all')
+        })
+      }
       renderDataPage()
     })
   }
