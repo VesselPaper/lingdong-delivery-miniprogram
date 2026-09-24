@@ -1196,6 +1196,37 @@
     }
   }
 
+  // ---------- 确认对话框（替代浏览器原生 confirm；危险操作二次确认） ----------
+  var confirmCtx = null
+  window.openConfirmModal = function (title, bodyHtml, onOk) {
+    confirmCtx = { onOk: onOk || null }
+    $('confirmTitle').textContent = title
+    $('confirmBody').innerHTML = bodyHtml
+    $('confirmOk').disabled = false
+    $('confirmModal').hidden = false
+    // 危险操作默认焦点放「取消」，避免误回车直接执行
+    var cancel = $('confirmCancel')
+    if (cancel) cancel.focus()
+  }
+  window.closeConfirmModal = function () {
+    $('confirmModal').hidden = true
+    confirmCtx = null
+  }
+  window.confirmOkClick = function () {
+    if (!confirmCtx || !confirmCtx.onOk) { closeConfirmModal(); return }
+    var onOk = confirmCtx.onOk
+    closeConfirmModal()
+    onOk()
+  }
+  $('confirmOk').addEventListener('click', confirmOkClick)
+  // Esc 关闭；点遮罩关闭（与 ctxMenu 的 Esc 监听互不冲突，只在确认框打开时生效）
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !$('confirmModal').hidden) closeConfirmModal()
+  })
+  $('confirmModal').addEventListener('click', function (e) {
+    if (e.target === $('confirmModal')) closeConfirmModal()
+  })
+
   function run(label, p, body, successMsg) {
     log(label + ' …')
     api(p, 'POST', body).then(function () {
@@ -1207,8 +1238,9 @@
     }).catch(function (e) { opFail(e, label) })
   }
   function confirmRun(label, p, body, confirmText, successMsg) {
-    if (!window.confirm(confirmText)) return
-    run(label, p, body, successMsg)
+    window.openConfirmModal('确认操作',
+      '<p class="confirm-body warn">' + esc(confirmText) + '</p>',
+      function () { run(label, p, body, successMsg) })
   }
 
   // 删除订单：作废任务 + 回补库存 + 摘批次 + 平台召回（order 域统一落账）
@@ -1335,23 +1367,26 @@
 
   // 一键初始化（危险）：关闭全部平台任务 + 释放全部控制权 + 删除全部活跃订单 + 批次置4
   $('reset').onclick = function () {
-    var confirmText = '一键初始化将执行：\n'
-      + '1) 关闭全部平台活跃任务\n'
-      + '2) 释放全部设备控制权\n'
-      + '3) 删除全部活跃订单（作废任务 + 回补库存 + 平台召回）\n'
-      + '4) 全部批次置已取消\n\n'
-      + '此操作会作用于真实机器人，不可撤销。确认继续？'
-    if (!window.confirm(confirmText)) return
-    log('一键初始化 …（可能耗时，请等待）')
-    api('/reset', 'POST', {}).then(function (d) {
-      var failed = d.failed && d.failed.length ? d.failed : []
-      var msg = '一键初始化完成：关闭任务 ' + d.closed + '，释放控制权 ' + d.released + '，删除订单 ' + d.cancelled + '，清理批次 ' + d.batch_cleaned
-        + (failed.length ? '，失败 ' + failed.length + ' 项（' + failed.slice(0, 5).join('；') + '）' : '')
-      log(msg, failed.length ? 'warn' : 'green')
-      toast(msg, failed.length ? 'warn' : 'ok')
-      refresh()
-      if (overviewTab === 'log') loadAudit(true)
-    }).catch(function (e) { opFail(e, '一键初始化') })
+    var steps = [
+      '关闭全部平台活跃任务',
+      '释放全部设备控制权',
+      '删除全部活跃订单（作废任务 + 回补库存 + 平台召回）',
+      '全部批次置已取消'
+    ]
+    var html = '<p class="confirm-body warn">此操作会作用于真实机器人，不可撤销。确认继续？</p>'
+      + '<ol class="confirm-steps">' + steps.map(function (s) { return '<li>' + esc(s) + '</li>' }).join('') + '</ol>'
+    window.openConfirmModal('一键初始化状态', html, function () {
+      log('一键初始化 …（可能耗时，请等待）')
+      api('/reset', 'POST', {}).then(function (d) {
+        var failed = d.failed && d.failed.length ? d.failed : []
+        var msg = '一键初始化完成：关闭任务 ' + d.closed + '，释放控制权 ' + d.released + '，删除订单 ' + d.cancelled + '，清理批次 ' + d.batch_cleaned
+          + (failed.length ? '，失败 ' + failed.length + ' 项（' + failed.slice(0, 5).join('；') + '）' : '')
+        log(msg, failed.length ? 'warn' : 'green')
+        toast(msg, failed.length ? 'warn' : 'ok')
+        refresh()
+        if (overviewTab === 'log') loadAudit(true)
+      }).catch(function (e) { opFail(e, '一键初始化') })
+    })
   }
 
   // ---------- 其他控件绑定 ----------

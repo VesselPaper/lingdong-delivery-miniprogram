@@ -302,6 +302,18 @@
   </div>
 </div>
 
+<!-- 确认对话框（危险操作二次确认，替代浏览器原生 confirm） -->
+<div class="modal-mask" id="confirmModal" hidden>
+  <div class="modal">
+    <div class="modal-head"><h3 id="confirmTitle">确认操作</h3><button class="modal-x" onclick="closeConfirmModal()" title="关闭"><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body" id="confirmBody"></div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="confirmCancel" onclick="closeConfirmModal()">取消</button>
+      <button class="btn danger" id="confirmOk">确认</button>
+    </div>
+  </div>
+</div>
+
 <!-- 管理员登录（方案A：账号密码 → session token） -->
 <div class="login-mask" id="loginMask">
   <div class="login-card">
