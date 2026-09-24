@@ -1,13 +1,18 @@
 <view class="qr-page">
   <view class="qr-card card">
     <view class="qr-canvas-box">
-      <canvas type="2d" id="qrCanvas" class="qr-canvas"></canvas>
+      <image wx:if="{{ready}}" class="qr-image" src="{{qrUrl}}" mode="aspectFit" show-menu-by-longpress />
+      <view wx:elif="{{loading}}" class="qr-empty text-weak text-sm">正在生成取餐二维码…</view>
+      <view wx:elif="{{errMsg}}" class="qr-empty">
+        <view class="text-weak text-sm" style="margin-bottom:16rpx;">{{errMsg}}</view>
+        <view class="btn btn-sm" bindtap="loadWxacode">重新生成</view>
+      </view>
     </view>
     <view class="qr-sn text-weak text-sm">无人车编号：{{sn}}</view>
-    <view class="qr-tip text-weak text-sm">商家扫此码可配单上货；用户扫此码后输入取餐码取餐</view>
+    <view class="qr-tip text-weak text-sm">顾客微信扫此码直达取餐校验；商家在小程序内扫此码配单上货</view>
   </view>
 
   <view class="foot-actions">
-    <view class="btn btn-block {{ready && !saving ? '' : 'btn-disabled'}}" bindtap="saveQr">保存二维码（打印后贴于无人车）</view>
+    <view class="btn btn-block {{ready && !loading ? '' : 'btn-disabled'}}" bindtap="saveQr">保存二维码（打印后贴于无人车）</view>
   </view>
 </view>

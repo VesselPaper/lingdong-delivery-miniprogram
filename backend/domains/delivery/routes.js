@@ -177,7 +177,8 @@ module.exports = (store, deps) => {
   })
 
   // 扫码自动校验（需求 2026-09-17）：扫无人车二维码后，先按登录账号自动匹配本人在该车上的待取餐订单。
-  // 匹配到 → 免输取餐码直接取餐；匹配不到 → 前端回退到「输入取餐码」流程（方便代取）。
+  // 匹配到 → 免输取餐码直接取餐；匹配不到 → 区分「配送中」与「无订单」两种提示（需求 2026-09-24），
+  // 前端据此分流：配送中 → 提示等待送达；无订单 → 回退「输入取餐码 / 查看我的订单 / 去商城」。
   router.post('/delivery/pickup-by-scan', auth, (req, res) => {
     const { device_sn = '' } = req.body || {}
     if (!device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
@@ -190,8 +191,20 @@ module.exports = (store, deps) => {
       ORDER BY o.id DESC LIMIT 1`).get(req.user.id, device_sn, device_sn)
     if (order) {
       ok(res, Object.assign({ auto_matched: true }, s.pickupContext(store, order)))
+      return
+    }
+    // 未匹配到待取餐：查该用户在该车上是否有配送中（status 1/2）订单，用于前端提示「正在配送中」
+    const delivering = store.prepare(`
+      SELECT o.id AS order_id, o.order_no, o.landmark_name FROM orders o
+      LEFT JOIN delivery_batches b ON b.id = o.batch_id
+      WHERE o.user_id=? AND o.status IN (1,2)
+        AND (EXISTS(SELECT 1 FROM delivery_tasks d WHERE d.order_id=o.id AND d.void_at IS NULL AND d.device_sn=?)
+             OR (b.device_sn=? AND b.device_sn<>''))
+      ORDER BY o.id DESC LIMIT 1`).get(req.user.id, device_sn, device_sn)
+    if (delivering) {
+      ok(res, { auto_matched: false, status_hint: 'delivering', order_id: delivering.order_id, order_no: delivering.order_no, landmark_name: delivering.landmark_name })
     } else {
-      ok(res, { auto_matched: false })
+      ok(res, { auto_matched: false, status_hint: 'none' })
     }
   })
 
@@ -491,6 +504,32 @@ module.exports = (store, deps) => {
       return res.status(502).json({ code: 502, msg: r.msg || '获取机器人失败' })
     }
     ok(res, r.robots)
+  })
+
+  // 无人车取餐小程序码（需求：微信扫一扫直达用户端取餐页）：
+  // scene 只放纯设备号（≤32 可见字符），page 固定用户端 pages/delivery/scanPickup；
+  // 商家在小程序内 wx.scanCode 扫同一个码，得到的就是设备号（parseDeviceSn 对纯编号原样返回），
+  // 配单上货流程零改动 —— 一个码两端用。
+  // 生成后落盘 uploads/robot-qr/<sn>.png（同 sn 复用文件），返回可展示/保存的图片 URL。
+  router.post('/merchant/device/wxacode', merchantGuard, async (req, res) => {
+    const { device_sn = '' } = req.body || {}
+    if (!device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
+    const sn = String(device_sn).trim()
+    const fs = require('fs')
+    const path = require('path')
+    const QR_DIR = path.join(__dirname, '..', '..', 'uploads', 'robot-qr')
+    const file = path.join(QR_DIR, sn + '.png')
+    if (!fs.existsSync(file)) {
+      const r = await deps.wxmp.getWxacodeUnlimit({ scene: sn, page: 'pages/delivery/scanPickup' })
+      if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg || '生成二维码失败' })
+      try {
+        fs.mkdirSync(QR_DIR, { recursive: true })
+        fs.writeFileSync(file, r.buffer)
+      } catch (e) {
+        return res.status(500).json({ code: 500, msg: '保存二维码图片失败' })
+      }
+    }
+    ok(res, { image_url: '/uploads/robot-qr/' + encodeURIComponent(sn) + '.png' })
   })
 
   // ---------- 配送监控 ----------

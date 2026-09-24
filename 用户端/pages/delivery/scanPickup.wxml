@@ -6,12 +6,31 @@
       <view class="pickup-status">扫无人车上的二维码，自动校验您的订单；代取请输取餐码</view>
     </view>
 
-    <!-- 扫码自动校验未匹配到本人订单 → 引导「输入取餐码 / 再次扫码」 -->
+    <!-- 扫码自动校验未匹配到本人待取餐订单 → 按 statusHint 分流提示（配送中 / 无订单），并可回退「输入取餐码 / 再次扫码」 -->
     <view class="card fallback-card" wx:if="{{scanFail && !order}}">
-      <view class="section-title">未匹配到您的订单</view>
-      <view class="text-weak text-sm" style="margin-bottom:16rpx;">可能是代取或订单识别不到，可输入取餐码或重新扫码无人车</view>
-      <view class="btn btn-block" style="margin-bottom:16rpx;" bindtap="scanRobot">再次扫码</view>
+      <!-- 配送中：用户其实有订单，只是还没送达 -->
+      <block wx:if="{{statusHint === 'delivering'}}">
+        <view class="section-title">您的订单正在配送中</view>
+        <view class="text-weak text-sm" style="margin-bottom:16rpx;">
+          <block wx:if="{{hintOrder}}">订单 {{hintOrder.order_no}}（{{hintOrder.landmark_name}}）还在路上，请等待送达后再来取餐。</block>
+          <block wx:else>您在本车有订单正在配送中，请等待送达后再来取餐。</block>
+        </view>
+        <view class="btn btn-block" style="margin-bottom:16rpx;" bindtap="goOrder">查看订单</view>
+      </block>
+      <!-- 无订单 -->
+      <block wx:elif="{{statusHint === 'none'}}">
+        <view class="section-title">该无人车暂无您的待取餐订单</view>
+        <view class="text-weak text-sm" style="margin-bottom:16rpx;">可能是代取、订单不在此车或尚未下单。可以查看我的订单，或输入取餐码帮他人取餐。</view>
+        <view class="btn btn-block" style="margin-bottom:16rpx;" bindtap="goOrders">查看我的订单</view>
+        <view class="btn btn-outline btn-block" style="margin-bottom:16rpx;" bindtap="goShop">去商城下单</view>
+      </block>
+      <!-- 兜底（接口异常等）：仍给「输入取餐码 / 再次扫码」回退 -->
+      <block wx:else>
+        <view class="section-title">未匹配到您的订单</view>
+        <view class="text-weak text-sm" style="margin-bottom:16rpx;">可能是代取或订单识别不到，可输入取餐码或重新扫码无人车</view>
+      </block>
       <view class="btn btn-outline btn-block" bindtap="focusCode">输入取餐码</view>
+      <view class="btn btn-outline btn-block" style="margin-top:16rpx;" bindtap="scanRobot">再次扫码</view>
     </view>
 
     <view class="card" wx:else>

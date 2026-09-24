@@ -26,6 +26,21 @@
   height: 480rpx;
 }
 
+.qr-image {
+  width: 480rpx;
+  height: 480rpx;
+}
+
+.qr-empty {
+  width: 480rpx;
+  height: 480rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
 .qr-sn {
   margin-top: 24rpx;
 }

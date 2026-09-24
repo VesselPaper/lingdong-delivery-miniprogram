@@ -32,6 +32,7 @@ const runtime = require('./services/runtime')
 runtime.assertBootable()
 const platform = require('./services/platform')
 const wxpay = require('./services/wxpay')
+const wxmp = require('./services/wxmp')
 const batch = require('./services/batch')
 const orderCancel = require('./services/orderCancel')
 // 商家邀请码：登录校验在 user 域 service 内；此处用于启动日志统计有效码数
@@ -124,7 +125,7 @@ app.use('/api', orderRoutes(store, {
 }))
 app.use('/api', deliveryRoutes(store, {
   runtime, platform, batch, orderCancel,
-  goods: goodsService, order: orderService
+  goods: goodsService, order: orderService, wxmp
 }))
 // 召唤多单配送推进钩子：批次内任一订单被取走（order.fulfillOrder→batch.countPicked→notify），
 // 由 delivery 域判断「当前楼栋是否全取完 → 停 5s → 召唤下一栋 / 全部送完召回完成」。

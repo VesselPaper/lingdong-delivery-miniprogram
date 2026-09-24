@@ -1,66 +1,47 @@
-const qrcode = require('../../utils/vendor/qrcode')
+const api = require('../../utils/api')
+const request = require('../../utils/request')
 
-// 无人车二维码页：展示本车二维码（内容 LD-R:<deviceSn>），供打印贴于车身。
-// 商家扫该码 → 配单上货；用户扫该码 → 输入取餐码取餐。
+// 无人车二维码页：展示本车「取餐小程序码」（微信扫一扫直达用户端取餐页），供打印贴于车身。
+// 一个码两端用：微信扫 → 进用户端取餐校验；商家在商家端小程序内 wx.scanCode 扫同一码
+// （scene=纯设备号）→ parseDeviceSn 原样返回 → 配单上货流程不变。
 Page({
   data: {
     sn: '',
-    qrText: '',
+    qrUrl: '',
     ready: false,
-    saving: false
+    loading: false,
+    errMsg: ''
   },
-  canvasNode: null,
 
   onLoad(options) {
     const sn = String(options.sn || '').trim()
-    this.setData({ sn, qrText: sn ? 'LD-R:' + sn : '' })
+    this.setData({ sn })
+    if (sn) this.loadWxacode()
   },
 
-  onReady() {
-    this.drawQr()
-  },
-
-  drawQr() {
-    const text = this.data.qrText
-    if (!text) return
-    const qr = qrcode(0, 'M')
-    qr.addData(text)
-    qr.make()
-    const n = qr.getModuleCount()
-    wx.createSelectorQuery().in(this).select('#qrCanvas').fields({ node: true, size: true }).exec((res) => {
-      const f = res && res[0]
-      if (!f || !f.node) return
-      const canvas = f.node
-      this.canvasNode = canvas
-      const dpr = (wx.getSystemInfoSync().pixelRatio) || 2
-      const size = Math.min(f.width || 240, f.height || 240)
-      canvas.width = size * dpr
-      canvas.height = size * dpr
-      const ctx = canvas.getContext('2d')
-      ctx.scale(dpr, dpr)
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, size, size)
-      const cell = size / (n + 8)
-      ctx.fillStyle = '#000000'
-      for (let r = 0; r < n; r++) {
-        for (let c = 0; c < n; c++) {
-          if (qr.isDark(r, c)) {
-            ctx.fillRect(Math.floor((c + 4) * cell), Math.floor((r + 4) * cell), Math.ceil(cell), Math.ceil(cell))
-          }
-        }
-      }
-      this.setData({ ready: true })
-    })
+  // 调后端生成/获取本车取餐小程序码（图片落盘 uploads/robot-qr/<sn>.png）
+  async loadWxacode() {
+    if (this.data.loading) return
+    this.setData({ loading: true, errMsg: '' })
+    try {
+      const r = await request.post(api.deviceWxacode, { device_sn: this.data.sn })
+      this.setData({ qrUrl: r.image_url, ready: true })
+    } catch (e) {
+      this.setData({ errMsg: (e && e.message) || '生成二维码失败，请稍后重试' })
+    } finally {
+      this.setData({ loading: false })
+    }
   },
 
   // 保存到相册，方便打印贴车
   saveQr() {
-    if (this.data.saving || !this.canvasNode) return
-    this.setData({ saving: true })
-    wx.canvasToTempFilePath({
-      canvas: this.canvasNode,
+    if (!this.data.qrUrl || this.data.loading) return
+    wx.showLoading({ title: '保存中' })
+    wx.downloadFile({
+      url: this.data.qrUrl,
       success: (r) => {
-        this.setData({ saving: false })
+        wx.hideLoading()
+        if (r.statusCode !== 200) { wx.showToast({ title: '下载二维码失败', icon: 'none' }); return }
         wx.saveImageToPhotosAlbum({
           filePath: r.tempFilePath,
           success: () => wx.showToast({ title: '已保存到相册，可打印贴于无人车', icon: 'none' }),
@@ -80,8 +61,8 @@ Page({
         })
       },
       fail: () => {
-        this.setData({ saving: false })
-        wx.showToast({ title: '生成图片失败', icon: 'none' })
+        wx.hideLoading()
+        wx.showToast({ title: '下载二维码失败，请重试', icon: 'none' })
       }
     })
   }

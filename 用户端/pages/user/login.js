@@ -27,6 +27,14 @@ Page({
       wx.setStorageSync('runtimeFlags', res.runtime || {})
       wx.showToast({ title: '登录成功', icon: 'success' })
       setTimeout(() => {
+        // 扫码直达场景：登录前在 scanPickup 页暂存了待校验设备号（pending_pickup_sn），
+        // 登录成功后回跳取餐页继续校验（不丢扫码上下文）；否则回首页。
+        const sn = wx.getStorageSync('pending_pickup_sn')
+        if (sn) {
+          wx.removeStorageSync('pending_pickup_sn')
+          wx.reLaunch({ url: '/pages/delivery/scanPickup?sn=' + encodeURIComponent(sn), fail: () => undefined })
+          return
+        }
         // 登录成功后回到首页，不再强制切到“我的”（否则入口总落在“我的”）
         wx.switchTab({ url: '/pages/index/index', fail: () => undefined })
       }, 500)
