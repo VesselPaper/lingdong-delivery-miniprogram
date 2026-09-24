@@ -206,7 +206,7 @@ git push origin main         # 再推送（普通推送，不要加 --force）
 ```
 
 - **有冲突时**：`git pull` 会提示冲突文件，手动改好 → `git add .` → `git commit -m "解决冲突"` → `git push origin main`。
-- 改文件前建议先 `git pull` 再动手，减少冲突；`config.js` 的 baseUrl、`backend/.env` 这类本机配置尽量不提交（如已提交，成员用 `git stash` 保留本机值）。
+- **改文件前建议先 `git pull` 再动手，减少冲突**；`config.js` 的 baseUrl（IP 是成员本机配置，**一律不提交**——提交代码时用 `git add` 指定文件，不要把 config.js 用 `git add .` 带进去）、`backend/.env` 这类本机配置尽量不提交（如已提交，成员用 `git stash` 保留本机值）。
 - 提交信息写清楚改了什么（一句话中文即可），方便成员快速了解每次变更。
 
 ## 三、部署到服务器后如何访问（管理员网页与大屏）
