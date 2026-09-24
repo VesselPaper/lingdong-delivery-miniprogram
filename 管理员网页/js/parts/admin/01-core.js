@@ -135,24 +135,6 @@
     return s === 80 ? 'ok' : [90, 100, 120].indexOf(s) >= 0 ? 'bad' : [1, 110, 150].indexOf(s) >= 0 ? 'bad' : (s >= 50 && s < 80 ? 'wait' : 'busy')
   }
 
-  function ageLabel(dtStr) {
-    if (!dtStr) return { text: '—', cls: '' }
-    var t = new Date(String(dtStr).replace(' ', 'T')).getTime()
-    if (isNaN(t)) return { text: esc(dtStr), cls: '' }
-    var mins = Math.floor((Date.now() - t) / 60000)
-    if (mins < 1) return { text: '刚刚', cls: '' }
-    if (mins < 60) return { text: mins + ' 分钟', cls: mins > 20 ? 'stale-soft' : '' }
-    var hrs = Math.floor(mins / 60)
-    if (hrs < 24) return { text: hrs + ' 小时 ' + (mins % 60) + ' 分', cls: 'stale' }
-    var days = Math.floor(hrs / 24)
-    return { text: days + ' 天 ' + (hrs % 24) + ' 小时', cls: 'stale' }
-  }
-
-  function ageCell(dtStr) {
-    var a = ageLabel(dtStr)
-    return a.cls ? '<span class="' + a.cls + '">' + a.text + '</span>' : esc(a.text)
-  }
-
   // 「最近变更」摘要：来自 status_events 的最新一条
   function lastEventText(e) {
     if (!e) return '—'

@@ -135,24 +135,6 @@
     return s === 80 ? 'ok' : [90, 100, 120].indexOf(s) >= 0 ? 'bad' : [1, 110, 150].indexOf(s) >= 0 ? 'bad' : (s >= 50 && s < 80 ? 'wait' : 'busy')
   }
 
-  function ageLabel(dtStr) {
-    if (!dtStr) return { text: '—', cls: '' }
-    var t = new Date(String(dtStr).replace(' ', 'T')).getTime()
-    if (isNaN(t)) return { text: esc(dtStr), cls: '' }
-    var mins = Math.floor((Date.now() - t) / 60000)
-    if (mins < 1) return { text: '刚刚', cls: '' }
-    if (mins < 60) return { text: mins + ' 分钟', cls: mins > 20 ? 'stale-soft' : '' }
-    var hrs = Math.floor(mins / 60)
-    if (hrs < 24) return { text: hrs + ' 小时 ' + (mins % 60) + ' 分', cls: 'stale' }
-    var days = Math.floor(hrs / 24)
-    return { text: days + ' 天 ' + (hrs % 24) + ' 小时', cls: 'stale' }
-  }
-
-  function ageCell(dtStr) {
-    var a = ageLabel(dtStr)
-    return a.cls ? '<span class="' + a.cls + '">' + a.text + '</span>' : esc(a.text)
-  }
-
   // 「最近变更」摘要：来自 status_events 的最新一条
   function lastEventText(e) {
     if (!e) return '—'
@@ -478,13 +460,10 @@
       var mt = r.machine_text || MACHINE_TEXT[r.machine_status] || r.machine_status || '未知'
       var mCls = r.machine_status === 'exception' ? 'stale' : (r.machine_status === 'charging' ? 'stale-soft' : '')
       $('rMachine').innerHTML = '<span class="' + mCls + '">' + esc(r.machine_status + '（' + mt + '）') + '</span>'
-      var age = ageLabel(r.status_update_time)
-      $('rMachineAge').innerHTML = age.cls ? '<span class="' + age.cls + '">' + age.text + '</span>' : esc(age.text)
       $('rStatusTime').textContent = r.status_update_time || '—'
       $('rFloor').textContent = (r.floor || '—') + ' · ' + esc(r.building || '—')
     } else {
       $('rMachine').textContent = '—'
-      $('rMachineAge').textContent = '—'
       $('rStatusTime').textContent = '—'
       $('rFloor').textContent = '—'
     }
@@ -777,7 +756,6 @@
         + '<div class="tcard-line"><span class="k">批次</span><span class="v mono">' + esc(batchNo[t.batch_id] || (t.batch_id ? '#' + t.batch_id : '—')) + '</span></div>'
         + '<div class="tcard-line"><span class="k">平台任务</span><span class="v mono">' + esc(t.platform_task_id || '—') + '</span></div>'
         + '<div class="tcard-line"><span class="k">设备</span><span class="v mono">' + esc(t.device_sn || '—') + '</span></div>'
-        + '<div class="tcard-line"><span class="k">停留</span><span class="v">' + ageCell(t.updated_at) + '</span></div>'
         + '<div class="tcard-line"><span class="k">最近变更</span><span class="v weak">' + lastEventText(t.last_event) + '</span></div>'
         + (voided ? '<div class="tcard-line"><span class="k">作废于</span><span class="v weak">' + esc(t.void_at) + '</span></div>' : '')
         + '</div>'

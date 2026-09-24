@@ -45,13 +45,10 @@
       var mt = r.machine_text || MACHINE_TEXT[r.machine_status] || r.machine_status || '未知'
       var mCls = r.machine_status === 'exception' ? 'stale' : (r.machine_status === 'charging' ? 'stale-soft' : '')
       $('rMachine').innerHTML = '<span class="' + mCls + '">' + esc(r.machine_status + '（' + mt + '）') + '</span>'
-      var age = ageLabel(r.status_update_time)
-      $('rMachineAge').innerHTML = age.cls ? '<span class="' + age.cls + '">' + age.text + '</span>' : esc(age.text)
       $('rStatusTime').textContent = r.status_update_time || '—'
       $('rFloor').textContent = (r.floor || '—') + ' · ' + esc(r.building || '—')
     } else {
       $('rMachine').textContent = '—'
-      $('rMachineAge').textContent = '—'
       $('rStatusTime').textContent = '—'
       $('rFloor').textContent = '—'
     }

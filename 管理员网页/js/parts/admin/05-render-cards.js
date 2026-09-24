@@ -221,7 +221,6 @@
         + '<div class="tcard-line"><span class="k">批次</span><span class="v mono">' + esc(batchNo[t.batch_id] || (t.batch_id ? '#' + t.batch_id : '—')) + '</span></div>'
         + '<div class="tcard-line"><span class="k">平台任务</span><span class="v mono">' + esc(t.platform_task_id || '—') + '</span></div>'
         + '<div class="tcard-line"><span class="k">设备</span><span class="v mono">' + esc(t.device_sn || '—') + '</span></div>'
-        + '<div class="tcard-line"><span class="k">停留</span><span class="v">' + ageCell(t.updated_at) + '</span></div>'
         + '<div class="tcard-line"><span class="k">最近变更</span><span class="v weak">' + lastEventText(t.last_event) + '</span></div>'
         + (voided ? '<div class="tcard-line"><span class="k">作废于</span><span class="v weak">' + esc(t.void_at) + '</span></div>' : '')
         + '</div>'
