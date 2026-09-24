@@ -26,6 +26,12 @@ function clearLoginState() {
 let redirecting = false
 function toLogin() {
   if (redirecting) return
+  // 当前已在登录页（例如 app 层已 reLaunch 过去）则不再重复跳，避免叠层
+  try {
+    const pages = getCurrentPages()
+    const cur = pages && pages.length ? pages[pages.length - 1] : null
+    if (cur && cur.route === 'pages/user/login') return
+  } catch (e) { /* 忽略 */ }
   redirecting = true
   wx.navigateTo({
     url: '/pages/user/login',

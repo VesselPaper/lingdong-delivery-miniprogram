@@ -12,10 +12,13 @@ App({
       this.globalData.token = token
       this.globalData.userInfo = userInfo || null
     }
-    // 不再强制跳登录页：未登录可浏览（首页/商城等公开接口），
-    // 需要登录的操作（下单/取餐/我的页头像区）会引导去登录页。
-    // 冷启动入口已固定为首页（pages[0]）；仅补一道保险。
-    this._landOnHomeIfNeeded()
+    // 未登录：自动跳到登录页（登录成功后会 switchTab 回首页，闭环由 login 页处理）。
+    // 已登录：冷启动入口固定为首页（pages[0]）；仅补一道保险。
+    if (!token) {
+      this._goLogin()
+    } else {
+      this._landOnHomeIfNeeded()
+    }
   },
 
   // 记录离开小程序的时间，用于在 onShow 区分“重新打开”与“快速切回”
@@ -24,14 +27,33 @@ App({
   },
 
   onShow() {
-    // 冷启动（首次 onShow）：首页本就在，无需处理
+    // 冷启动（首次 onShow）：登录态已在 onLaunch 处理过，无需重复
     if (!this._hideAt) return
     const gap = Date.now() - this._hideAt
     this._hideAt = 0
-    // 本次进入距上次离开超过阈值 → 视为“重新打开小程序”，回首页；
+    // 本次进入距上次离开超过阈值 → 视为“重新打开小程序”；
     // 很快切回（<2.5s，例如在系统层一闪而过）则不打断当前页面。
     if (gap < 2500) return
+    // 重新打开时若登录态已丢失（例如被清缓存），同样先回登录页
+    if (!wx.getStorageSync('token')) {
+      this._goLogin()
+      return
+    }
     this._goHome()
+  },
+
+  // 自动跳登录页：带锁防 onLaunch/onShow 并发叠跳；已是登录页则不重复跳。
+  // 登录页非 tabBar 页，必须用 reLaunch（switchTab 会找不到页面）。
+  _goLogin() {
+    if (this._loginJumping || typeof getCurrentPages !== 'function') return
+    this._loginJumping = true
+    setTimeout(() => {
+      this._loginJumping = false
+      const pages = getCurrentPages()
+      const cur = pages && pages.length ? pages[pages.length - 1] : null
+      if (cur && cur.route === 'pages/user/login') return
+      wx.reLaunch({ url: '/pages/user/login', fail: () => undefined })
+    }, 0)
   },
 
   _landOnHomeIfNeeded() {
