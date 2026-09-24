@@ -15,7 +15,14 @@
 // 逐个改会触碰派车/配送/取餐核心链路，与「改配送订单代码后必须回归全绿」的铁律冲突。
 'use strict'
 
-// 状态码 → 中文（与 domains/order/service.js、domains/delivery/queries.js、admin/service.js 的字典一致）
+// 状态码 → 中文，用于 status_events.status_text 快照（写入那一刻的文案）。
+// 说明：这是**面向管理页展示的精简字典**，与各域内部字典并非逐字等价：
+//   · 订单与 admin 域一致；
+//   · 批次 4 写「已取消」（batch.js 内部基准文案是「异常」，而 delivery_batches.status_text
+//     实际入库还可能是「批次已取消」/「测试清理已取消」——这里取管理页口径）；
+//   · 任务沿用管理页前端的口径（80「完成」、110「已取消」、120「挂起」；admin/service.js 的
+//     ADMIN_TASK_STATUS 写的是「任务完成 / 任务取消 / 上货流程挂起」），并多出 1、71；
+//     未覆盖的码（如 91~95 / 101~106 / 130~132 / 140）落库时兜底为「状态 n」。
 const ORDER_STATUS_TEXT = { 0: '待支付', 1: '待接单', 2: '配送中', 3: '已送达', 4: '已完成', 5: '已取消', 6: '配送异常', 7: '已退款' }
 const BATCH_STATUS_TEXT = { 0: '组单中', 1: '待上货', 2: '配送中', 3: '已完成', 4: '已取消' }
 const TASK_STATUS_TEXT = {

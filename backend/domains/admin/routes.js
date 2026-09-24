@@ -328,6 +328,17 @@ module.exports = (store, deps) => {
       } catch (e) { out.failed.push('平台任务 ' + pid + '：' + e.message) }
     }
 
+    // ③b 把「经订单统一落账关闭」的平台任务也计入 closed —— 否则会出现
+    //     「取消了 N 单但 closed=0」这种看起来像没关任务的误导（recall_status=1 表示平台召回成功）
+    if (handled.size) {
+      const hids = [...handled]
+      const ph = hids.map(() => '?').join(',')
+      try {
+        out.closed += store.prepare(
+          `SELECT COUNT(*) c FROM delivery_tasks WHERE platform_task_id IN (${ph}) AND recall_status=1`).get(...hids).c
+      } catch (e) { /* 统计失败不影响主流程 */ }
+    }
+
     // ④ 该设备涉及的活跃批次置 4
     for (const b of q.activeBatchesByDevice(store, sn)) { q.cleanBatch(store, b.id); out.batch_cleaned++ }
 
