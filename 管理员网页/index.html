@@ -41,6 +41,7 @@
   <symbol id="i-shield" viewBox="0 0 24 24"><path stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/><path stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M9 12.5l2 2 4-4"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><rect fill="currentColor" stroke="none" x="6" y="5" width="4" height="14" rx="1"/><rect fill="currentColor" stroke="none" x="14" y="5" width="4" height="14" rx="1"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M8 5.5v13a1 1 0 0 0 1.53.85l10-6.5a1 1 0 0 0 0-1.7l-10-6.5A1 1 0 0 0 8 5.5z"/></symbol>
+  <symbol id="i-shop" viewBox="0 0 24 24"><path stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 9l1.5-5h13L20 9"/><path stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 9a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0"/><path stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M5 12v8h14v-8"/><path stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M9 20v-5h6v5"/></symbol>
 </svg>
 
 <div class="layout">
@@ -53,6 +54,7 @@
     <div class="nav-item active" data-page="overview" onclick="navTo('overview')"><svg><use href="#i-grid"/></svg><span class="lbl">总览</span></div>
     <div class="nav-item" data-page="data" onclick="navTo('data')"><svg><use href="#i-truck"/></svg><span class="lbl">配送数据</span><span class="nav-count" id="navTaskCount">0</span></div>
     <div class="nav-item" data-page="settings" onclick="navTo('settings')"><svg><use href="#i-gear"/></svg><span class="lbl">设置</span></div>
+    <div class="nav-item" data-page="merchants" onclick="navTo('merchants')"><svg><use href="#i-shop"/></svg><span class="lbl">商家管理</span></div>
     <div class="foot">更新 <b id="conn">—</b></div>
   </nav>
 
@@ -264,6 +266,48 @@
               <button id="reset" class="btn danger"><svg><use href="#i-power"/></svg><span>一键初始化状态</span></button>
               <p class="danger-note">关闭全部平台任务，释放全部控制权，删除全部活跃订单，批次置为已取消。作用于真实机器人，不可撤销。</p>
             </div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 页面 04：商家管理（商家入驻邀请码） ========== -->
+    <section class="page" id="page-merchants">
+      <div class="page-head">
+        <div class="toolbar">
+          <span class="mini" id="merchantCount"></span>
+          <span class="spacer"></span>
+          <button class="btn ghost sm" id="merchantReload"><svg><use href="#i-refresh"/></svg><span>刷新</span></button>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="grid">
+          <!-- 创建商家邀请码 -->
+          <section class="card col-6">
+            <div class="card-head"><h2><svg class="h-ico"><use href="#i-key"/></svg>创建商家邀请码</h2></div>
+            <p class="card-note">为一家店铺生成一次性邀请码，线下发给该店商家；商家在商家端登录页填写邀请码并绑定自己的微信（一码一店、首绑、可吊销）。明文码只显示这一次。</p>
+            <div class="token-box">
+              <span class="token-label">店名</span>
+              <div class="token-input-wrap"><input id="merchantName" placeholder="如：东苑1栋 / 零栋铺子" autocomplete="off" spellcheck="false"></div>
+            </div>
+            <div class="token-box">
+              <span class="token-label">自定义码</span>
+              <div class="token-input-wrap"><input id="merchantCode" placeholder="留空自动生成（推荐）" autocomplete="off" spellcheck="false"></div>
+            </div>
+            <div class="token-box">
+              <span class="token-label">备注</span>
+              <div class="token-input-wrap"><input id="merchantNote" placeholder="如：负责人/电话/位置（选填）" autocomplete="off" spellcheck="false"></div>
+            </div>
+            <div class="row">
+              <button id="merchantCreate" class="btn">生成邀请码</button>
+            </div>
+            <div class="token-msg" id="merchantCreateMsg"></div>
+          </section>
+
+          <!-- 邀请码列表 -->
+          <section class="card col-6">
+            <div class="card-head"><h2><svg class="h-ico"><use href="#i-shop"/></svg>已创建商家</h2><span class="tag" id="merchantTag">—</span></div>
+            <div class="merchant-list" id="merchantList"><span class="mini">加载中…</span></div>
           </section>
         </div>
       </div>

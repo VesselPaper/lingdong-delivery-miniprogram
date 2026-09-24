@@ -29,6 +29,7 @@ const TARGETS = [
       'js/parts/admin/06-refresh-token.js',  // 刷新与认证 + 账号页
       'js/parts/admin/07-drawer.js',         // 详情抽屉：状态时间线 + 实时位置 + 商品明细
       'js/parts/admin/08-audit.js',          // 操作日志（服务端 audit_logs：成功与失败都在）
+      'js/parts/admin/09-merchants.js',      // 商家管理（商家入驻邀请码：创建/列表/吊销/启用/解绑）
       'js/parts/admin/09-ops.js',            // 单项操作 + 召唤/开关舱弹窗 + 启动 + IIFE 收尾
     ],
   },

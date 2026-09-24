@@ -12,9 +12,21 @@ const BASE = 'http://127.0.0.1:' + PORT + '/api'
 let child = null
 function startServer() {
   return new Promise((resolve, reject) => {
+    // env 共享码兜底已于 2026-09-24 停用：回归用的 test-invite 需以「表码」形式预置进临时库
+    try {
+      const { DatabaseSync } = require('node:sqlite')
+      const inviteSvc = require('./services/merchantInvite')
+      const db0 = new DatabaseSync(TMP_DB)
+      db0.exec(`CREATE TABLE IF NOT EXISTS merchant_invites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code_hash TEXT UNIQUE, name TEXT, note TEXT,
+        bound_openid TEXT DEFAULT '', active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT (datetime('now','localtime')))`)
+      db0.prepare('INSERT OR IGNORE INTO merchant_invites (code_hash, name) VALUES (?,?)').run(inviteSvc.sha('test-invite'), '测试商家')
+      db0.close()
+    } catch (e) { /* 预置失败不阻断：server 启动时表已存在则跳过 */ }
     child = spawn(process.execPath, ['server.js'], {
       cwd: __dirname,
-      env: { ...process.env, RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB, PAY_MOCK: 'true', BATCH_WAIT_MS: '100000', MERCHANT_INVITE_CODE: 'test-invite', WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '', SUMMON_DELIVERY: 'false' },
+      env: { ...process.env, RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB, PAY_MOCK: 'true', BATCH_WAIT_MS: '100000', WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '', SUMMON_DELIVERY: 'false' },
       stdio: ['ignore', 'pipe', 'pipe']
     })
     let log = ''
@@ -255,10 +267,21 @@ function assert(cond, msg) {
     // 独立起一个临时 server（端口 3101 + 独立临时库 + 极小超时窗口），用 test-complete 即时送达，不依赖 mock 到达计时。
     const PORT2 = 3101
     const TMP_DB2 = path.join(os.tmpdir(), 'lingdong_pickup_test_' + Date.now() + '.db')
+    try { // env 码停用后回归码以表码形式预置（与主流程一致）
+      const { DatabaseSync } = require('node:sqlite')
+      const inviteSvc = require('./services/merchantInvite')
+      const db0 = new DatabaseSync(TMP_DB2)
+      db0.exec(`CREATE TABLE IF NOT EXISTS merchant_invites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code_hash TEXT UNIQUE, name TEXT, note TEXT,
+        bound_openid TEXT DEFAULT '', active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT (datetime('now','localtime')))`)
+      db0.prepare('INSERT OR IGNORE INTO merchant_invites (code_hash, name) VALUES (?,?)').run(inviteSvc.sha('test-invite'), '测试商家')
+      db0.close()
+    } catch (e) { /* 忽略 */ }
     const child2 = spawn(process.execPath, ['server.js'], {
       cwd: __dirname,
       env: { ...process.env, RUN_MODE: 'demo', PORT: String(PORT2), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB2, PAY_MOCK: 'true',
-        BATCH_WAIT_MS: '100000', MERCHANT_INVITE_CODE: 'test-invite', WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '',
+        BATCH_WAIT_MS: '100000', WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '',
         PICKUP_TIMEOUT_MS: '1500', PICKUP_RETRY_TIMEOUT_MS: '1500', PICKUP_PICKING_GUARD_MS: '60000', PICKUP_SCAN_MS: '300', BATCH_SCAN_MS: '300', MOCK_ARRIVE_MS: '300', SUMMON_DELIVERY: 'false' },
       stdio: ['ignore', 'pipe', 'pipe']
     })

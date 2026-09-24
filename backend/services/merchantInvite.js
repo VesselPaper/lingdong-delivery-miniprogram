@@ -4,10 +4,10 @@
 //   - 按商家一条，存于 merchant_invites 表，仅保存 sha256 哈希，明文不落库；
 //   - 首次登录绑定 openid —— 一个码只能绑一个微信账号，多台设备/他人无法复用；
 //   - 可逐个吊销（active=0）或 解绑（unbind，重置后可由新账号绑定）；
-//   - 保留 MERCHANT_INVITE_CODE 作为旧的单一码兜底（无绑定，向后兼容测试）。
+//   - 创建入口：管理员网页「商家管理」页（/api/admin/merchants/*）或维护脚本 tools/merchant_invite.js。
+// 2026-09-24：停用 env 共享码兜底（MERCHANT_INVITE_CODE）。理由：公共口令不符合真实商家入驻做法，
+// 任何人拿到码就能自助成为商家；商家权限只认 merchant_invites 表（一码一店、可吊销、可审计）。
 const crypto = require('crypto')
-
-const LEGACY_ENV_VAR = 'MERCHANT_INVITE_CODE'
 
 // 统一归一化：大小写不敏感
 function norm(code) {
@@ -48,23 +48,20 @@ function verify(store, code, openid, bind) {
     return { ok: true, reason: 'ok', name: row.name } // demo 档：跳过绑定
   }
 
-  // 2) 旧版单一码兜底（env，向后兼容；不启用 openid 绑定）
-  const legacy = process.env[LEGACY_ENV_VAR] || ''
-  if (legacy && ctEq(sha(given), sha(legacy))) {
-    return { ok: true, reason: 'ok', name: 'ME' }
-  }
+  // 2) 旧单一码兜底已于 2026-09-24 停用（公共口令不符合真实商家入驻做法）。
+  //    商家权限只认 merchant_invites 表；env 里的 MERCHANT_INVITE_CODE 不再被信任。
+  //    若线上曾有 env 码对应的商家，需用 tools/merchant_invite.js add --code <原码> 迁移为表码。
 
   return { ok: false, reason: 'invalid' }
 }
 
-// 是否配置了任何有效邀请码（DB 有效条数 + env 旧码）
+// 是否配置了任何有效邀请码（仅统计 merchant_invites 表有效条数；env 旧码不再计入）
 function configuredCount(store) {
   let n = 0
   try {
     const r = store.prepare('SELECT COUNT(*) AS c FROM merchant_invites WHERE active=1').get()
     n = r ? r.c : 0
   } catch (e) { n = 0 }
-  if (process.env[LEGACY_ENV_VAR]) n += 1
   return n
 }
 

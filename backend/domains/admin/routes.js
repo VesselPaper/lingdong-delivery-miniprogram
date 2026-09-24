@@ -8,6 +8,8 @@ const q = require('./queries')
 const s = require('./service')
 // 管理员账号服务（方案A）：scrypt 密码 + 随机 session token
 const adminAuth = require('../../services/adminAuth')
+// 商家邀请码（商家入驻入口：管理员网页「商家管理」页创建/吊销/解绑，详见 merchantInvite.js）
+const invite = require('../../services/merchantInvite')
 
 // 登录限流（内存）：同一「账号+IP」连续失败 ADMIN_LOGIN_MAX 次后锁定窗口
 // f = { count: 失败次数, until: 锁定截止时间戳（0 = 未锁定） }
@@ -558,6 +560,91 @@ module.exports = (store, deps) => {
     q.voidTask(store, taskId, '管理员作废')
     audit(req, 'admin/task-void', 'task#' + taskId, '仅本地作废（不关平台任务）')
     ok(res, { task_id: taskId })
+  })
+
+  // ---------- 商家邀请码管理（商家入驻：管理员网页「商家管理」页） ----------
+  // 2026-09-24 起商家权限只认 merchant_invites 表（一码一店、首绑 openid、可吊销），env 共享码已停用。
+  // 列表：只给 id/店名/备注/绑定状态/有效状态/创建时间，绝不回明文码（库里只存哈希，明文只在创建时出现一次）。
+
+  // 商家邀请码列表
+  router.get('/admin/merchants', adminGuard, (req, res) => {
+    const rows = store.prepare(
+      `SELECT id, name, note, bound_openid, active, created_at
+       FROM merchant_invites ORDER BY active DESC, id DESC`).all()
+    ok(res, {
+      merchants: rows.map((r) => ({
+        id: r.id,
+        name: r.name || '',
+        note: r.note || '',
+        bound: !!r.bound_openid,
+        bound_openid: r.bound_openid ? String(r.bound_openid).slice(0, 10) + '…' : '',
+        active: Number(r.active) === 1,
+        created_at: r.created_at || ''
+      })),
+      // 商家端登录是否需要邀请码（表里有有效码则不需要提示）
+      configured: invite.configuredCount(store) > 0
+    })
+  })
+
+  // 创建商家邀请码：店名必填，可带备注；不传 --code 等价物（body.code）则自动生成随机码。
+  // 明文码只在本次响应返回一次（库里只存哈希），管理员线下交给该商家。
+  router.post('/admin/merchants/create', adminGuard, (req, res) => {
+    const { name = '', note = '', code = '' } = req.body || {}
+    if (!String(name).trim()) return res.status(400).json({ code: 400, msg: '请填写店名' })
+    let finalCode = String(code || '').trim()
+    if (finalCode && finalCode.length < 4) return res.status(400).json({ code: 400, msg: '自定义邀请码至少 4 位' })
+    if (!finalCode) finalCode = invite.generate()
+    // 防撞库：同一明文码只能存在一条有效记录（与 tools/merchant_invite.js add 同一套逻辑）
+    const h = invite.sha(finalCode)
+    const exist = store.prepare('SELECT id, active FROM merchant_invites WHERE code_hash=?').get(h)
+    if (exist) {
+      if (Number(exist.active) === 1) {
+        return res.status(400).json({ code: 400, msg: '该邀请码已存在且有效（id=' + exist.id + '），请换一个或先吊销旧的' })
+      }
+      // 已吊销的同码：重新启用 + 清空绑定 + 更新店名/备注
+      store.prepare("UPDATE merchant_invites SET active=1, bound_openid='', name=?, note=? WHERE id=?")
+        .run(String(name).trim(), String(note || '').trim(), exist.id)
+      audit(req, 'admin/merchant-create', 'invite#' + exist.id, '重新启用已吊销的邀请码，店名=' + name)
+      return ok(res, { id: exist.id, code: finalCode, reactivated: true })
+    }
+    const r = store.prepare('INSERT INTO merchant_invites (code_hash, name, note) VALUES (?,?,?)')
+      .run(h, String(name).trim(), String(note || '').trim())
+    audit(req, 'admin/merchant-create', 'invite#' + r.lastInsertRowid, '创建商家邀请码，店名=' + name)
+    ok(res, { id: r.lastInsertRowid, code: finalCode, reactivated: false })
+  })
+
+  // 吊销（作废，无法再登录）
+  router.post('/admin/merchants/revoke', adminGuard, (req, res) => {
+    const id = Number((req.body || {}).id || 0)
+    if (!id) return res.status(400).json({ code: 400, msg: '缺少邀请码编号' })
+    const row = store.prepare('SELECT name FROM merchant_invites WHERE id=?').get(id)
+    if (!row) return res.status(404).json({ code: 404, msg: '邀请码不存在' })
+    store.prepare('UPDATE merchant_invites SET active=0 WHERE id=?').run(id)
+    audit(req, 'admin/merchant-revoke', 'invite#' + id, '吊销商家邀请码（店名 ' + (row.name || '') + '）')
+    ok(res, { id })
+  })
+
+  // 重新启用
+  router.post('/admin/merchants/activate', adminGuard, (req, res) => {
+    const id = Number((req.body || {}).id || 0)
+    if (!id) return res.status(400).json({ code: 400, msg: '缺少邀请码编号' })
+    const row = store.prepare('SELECT name FROM merchant_invites WHERE id=?').get(id)
+    if (!row) return res.status(404).json({ code: 404, msg: '邀请码不存在' })
+    store.prepare('UPDATE merchant_invites SET active=1 WHERE id=?').run(id)
+    audit(req, 'admin/merchant-activate', 'invite#' + id, '重新启用商家邀请码（店名 ' + (row.name || '') + '）')
+    ok(res, { id })
+  })
+
+  // 解绑（清空已绑定 openid，允许另一账号重新使用该码）
+  router.post('/admin/merchants/unbind', adminGuard, (req, res) => {
+    const id = Number((req.body || {}).id || 0)
+    if (!id) return res.status(400).json({ code: 400, msg: '缺少邀请码编号' })
+    const row = store.prepare('SELECT name, bound_openid FROM merchant_invites WHERE id=?').get(id)
+    if (!row) return res.status(404).json({ code: 404, msg: '邀请码不存在' })
+    if (!row.bound_openid) return res.status(400).json({ code: 400, msg: '该邀请码尚未绑定，无需解绑' })
+    store.prepare("UPDATE merchant_invites SET bound_openid='' WHERE id=?").run(id)
+    audit(req, 'admin/merchant-unbind', 'invite#' + id, '解绑商家邀请码（店名 ' + (row.name || '') + '）')
+    ok(res, { id })
   })
 
   return router

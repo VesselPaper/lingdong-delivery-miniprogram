@@ -1,9 +1,10 @@
 
-  // ---------- 导航（三项：总览 / 配送数据 / 设置） ----------
+  // ---------- 导航（总览 / 配送数据 / 设置 / 商家管理） ----------
   var PAGE_META = {
     overview: { title: '总览', sub: '机器人状态、异常与死锁监控' },
     data: { title: '配送数据', sub: '批次 / 订单 / 任务的搜索、状态与详情' },
-    settings: { title: '设置', sub: '账号、控制权、点位与危险操作' }
+    settings: { title: '设置', sub: '账号、控制权、点位与危险操作' },
+    merchants: { title: '商家管理', sub: '商家入驻邀请码：创建 / 绑定状态 / 吊销' }
   }
   function navTo(page) {
     if (!PAGE_META[page]) return
@@ -24,6 +25,7 @@
       if (window.invalidateAdminMap) window.invalidateAdminMap()
       if (overviewTab === 'log') loadAudit()
     }
+    if (page === 'merchants') loadMerchants()
   }
   window.navTo = navTo
 

@@ -13,13 +13,25 @@ const WAIT = (ms) => new Promise((r) => setTimeout(r, ms))
 let child = null
 function startServer() {
   return new Promise((resolve, reject) => {
+    // env 共享码兜底已于 2026-09-24 停用：回归用的 test-invite 需以「表码」形式预置进临时库
+    try {
+      const { DatabaseSync } = require('node:sqlite')
+      const inviteSvc = require('./services/merchantInvite')
+      const db0 = new DatabaseSync(TMP_DB)
+      db0.exec(`CREATE TABLE IF NOT EXISTS merchant_invites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code_hash TEXT UNIQUE, name TEXT, note TEXT,
+        bound_openid TEXT DEFAULT '', active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT (datetime('now','localtime')))`)
+      db0.prepare('INSERT OR IGNORE INTO merchant_invites (code_hash, name) VALUES (?,?)').run(inviteSvc.sha('test-invite'), '测试商家')
+      db0.close()
+    } catch (e) { /* 预置失败不阻断 */ }
     child = spawn(process.execPath, ['server.js'], {
       cwd: __dirname,
       env: {
         ...process.env,
         RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true',
         LINGDONG_DB: TMP_DB, PAY_MOCK: 'true', BATCH_WAIT_MS: '100000',
-        MERCHANT_INVITE_CODE: 'test-invite', WX_APPID: '', WX_SECRET: '',
+        WX_APPID: '', WX_SECRET: '',
         MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '',
         SUMMON_DELIVERY: 'true', SUMMON_STOP_ADVANCE_MS: '1200'
       },
