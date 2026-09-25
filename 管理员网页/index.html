@@ -53,8 +53,8 @@
     </div>
     <div class="nav-item active" data-page="overview" onclick="navTo('overview')"><svg><use href="#i-grid"/></svg><span class="lbl">总览</span></div>
     <div class="nav-item" data-page="data" onclick="navTo('data')"><svg><use href="#i-truck"/></svg><span class="lbl">配送数据</span><span class="nav-count" id="navTaskCount">0</span></div>
-    <div class="nav-item" data-page="settings" onclick="navTo('settings')"><svg><use href="#i-gear"/></svg><span class="lbl">设置</span></div>
     <div class="nav-item" data-page="merchants" onclick="navTo('merchants')"><svg><use href="#i-shop"/></svg><span class="lbl">商家管理</span></div>
+    <div class="nav-item" data-page="settings" onclick="navTo('settings')"><svg><use href="#i-gear"/></svg><span class="lbl">设置</span></div>
     <div class="foot">更新 <b id="conn">—</b></div>
   </nav>
 
@@ -271,42 +271,52 @@
       </div>
     </section>
 
-    <!-- ========== 页面 04：商家管理（商家入驻邀请码） ========== -->
+    <!-- ========== 页面 04：商家管理（商家账号：创建 / 列表 / 改角色 / 重置密码 / 停用启用） ========== -->
     <section class="page" id="page-merchants">
       <div class="page-head">
-        <div class="toolbar">
-          <span class="mini" id="merchantCount"></span>
-          <span class="spacer"></span>
-          <button class="btn ghost sm" id="merchantReload"><svg><use href="#i-refresh"/></svg><span>刷新</span></button>
+        <div class="tabs" id="merchantsTabs">
+          <button class="tab active" data-tab="create">创建</button>
+          <button class="tab" data-tab="list">已创建</button>
         </div>
       </div>
       <div class="page-body">
-        <div class="grid">
-          <!-- 创建商家邀请码 -->
-          <section class="card col-6">
-            <div class="card-head"><h2><svg class="h-ico"><use href="#i-key"/></svg>创建商家邀请码</h2></div>
-            <p class="card-note">为一家店铺生成一次性邀请码，线下发给该店商家；商家在商家端登录页填写邀请码并绑定自己的微信（一码一店、首绑、可吊销）。明文码只显示这一次。</p>
+        <div class="tab-panel" id="merchantsPanelCreate">
+          <section class="card col-12">
+            <div class="card-head"><h2><svg class="h-ico"><use href="#i-key"/></svg>创建商家账号</h2></div>
+            <div class="token-box">
+              <span class="token-label">用户名</span>
+              <div class="token-input-wrap"><input id="merchantUsername" placeholder="2~32 位字母/数字/下划线" autocomplete="off" spellcheck="false"></div>
+            </div>
+            <div class="token-box">
+              <span class="token-label">密码</span>
+              <div class="token-input-wrap"><input id="merchantPassword" type="password" placeholder="至少 6 位" autocomplete="new-password" spellcheck="false"></div>
+            </div>
             <div class="token-box">
               <span class="token-label">店名</span>
-              <div class="token-input-wrap"><input id="merchantName" placeholder="如：东苑1栋 / 零栋铺子" autocomplete="off" spellcheck="false"></div>
+              <div class="token-input-wrap"><input id="merchantName" placeholder="选填（如：东苑1栋）" autocomplete="off" spellcheck="false"></div>
             </div>
             <div class="token-box">
-              <span class="token-label">自定义码</span>
-              <div class="token-input-wrap"><input id="merchantCode" placeholder="留空自动生成（推荐）" autocomplete="off" spellcheck="false"></div>
-            </div>
-            <div class="token-box">
-              <span class="token-label">备注</span>
-              <div class="token-input-wrap"><input id="merchantNote" placeholder="如：负责人/电话/位置（选填）" autocomplete="off" spellcheck="false"></div>
+              <span class="token-label">角色</span>
+              <div class="row-radio">
+                <label class="radio"><input type="radio" name="merchantRole" value="staff" checked><span>店员</span></label>
+                <label class="radio"><input type="radio" name="merchantRole" value="owner"><span>店主</span></label>
+              </div>
             </div>
             <div class="row">
-              <button id="merchantCreate" class="btn">生成邀请码</button>
+              <button id="merchantCreate" class="btn">创建账号</button>
             </div>
             <div class="token-msg" id="merchantCreateMsg"></div>
           </section>
+        </div>
 
-          <!-- 邀请码列表 -->
-          <section class="card col-6">
-            <div class="card-head"><h2><svg class="h-ico"><use href="#i-shop"/></svg>已创建商家</h2><span class="tag" id="merchantTag">—</span></div>
+        <div class="tab-panel" id="merchantsPanelList" hidden>
+          <section class="card col-12">
+            <div class="card-head">
+              <h2><svg class="h-ico"><use href="#i-shop"/></svg>商家账号</h2>
+              <span class="mini" id="merchantCount"></span>
+              <span class="spacer"></span>
+              <button class="btn ghost sm" id="merchantReload"><svg><use href="#i-refresh"/></svg><span>刷新</span></button>
+            </div>
             <div class="merchant-list" id="merchantList"><span class="mini">加载中…</span></div>
           </section>
         </div>
