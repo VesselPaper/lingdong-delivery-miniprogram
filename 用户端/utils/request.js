@@ -6,7 +6,8 @@ const config = require('./config')
 function normalize(v) { return v }
 
 // 退出登录 / 登录失效的统一清理清单：
-// userInfo 是后端 users 表整行（含 openid、手机号），last_confirm 含收餐人姓名/电话/备注 ——
+// userInfo 是后端 users 表行（安全审计 M1 起不再下发 openid；含手机号等个人信息），
+// last_confirm 含收餐人姓名/电话/备注 ——
 // 不清干净等于把个人信息留在本机缓存里（合规问题），换人登录还会看到上一位用户的状态。
 const SESSION_KEYS = [
   'token', 'userInfo', 'runtimeFlags', 'last_confirm', 'checkout_items', 'user_point',

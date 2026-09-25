@@ -3,22 +3,22 @@
     <!-- 头像本身是可点的：已登录时用微信 chooseAvatar（选择器里默认就是微信头像），未登录时点它去登录 -->
     <button
       class="id-avatar-btn"
-      open-type="{{user.openid ? 'chooseAvatar' : ''}}"
+      open-type="{{user.id ? 'chooseAvatar' : ''}}"
       bind:chooseavatar="onChooseAvatar"
       catch:tap="onAvatarTap"
     >
-      <view class="id-avatar {{user.openid ? '' : 'id-avatar-off'}}">
+      <view class="id-avatar {{user.id ? '' : 'id-avatar-off'}}">
         <image wx:if="{{user.avatar}}" class="id-avatar-img" src="{{user.avatar}}" mode="aspectFill" />
-        <text wx:elif="{{user.openid}}" class="id-avatar-text">{{userInitial}}</text>
+        <text wx:elif="{{user.id}}" class="id-avatar-text">{{userInitial}}</text>
         <t-icon wx:else name="user" size="26" color="#9AA6B2" />
       </view>
-      <view class="id-avatar-edit" wx:if="{{user.openid}}">
+      <view class="id-avatar-edit" wx:if="{{user.id}}">
         <t-icon name="camera" size="11" color="#ffffff" />
       </view>
     </button>
 
     <view class="id-body">
-      <block wx:if="{{user.openid}}">
+      <block wx:if="{{user.id}}">
         <view class="id-name ellipsis">{{user.nickname || '零栋用户'}}</view>
         <view class="id-meta" wx:if="{{roleText || phoneText}}">
           <view wx:if="{{roleText}}" class="id-role">{{roleText}}</view>
@@ -32,7 +32,7 @@
     </view>
 
     <view class="id-action">
-      <text class="id-action-text">{{user.openid ? '编辑' : '登录'}}</text>
+      <text class="id-action-text">{{user.id ? '编辑' : '登录'}}</text>
       <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
   </view>

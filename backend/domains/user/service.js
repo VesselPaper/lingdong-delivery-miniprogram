@@ -41,6 +41,18 @@ function demoOpenid(code) {
   return 'demo_' + crypto.createHash('sha1').update(String(code)).digest('hex').slice(0, 24)
 }
 
+// 客户端可见用户字段白名单（安全审计 2026-09-26 M1）：
+// 绝不返回 password_hash / token / openid —— openid 同时是用户端会话凭据，
+// password_hash 是凭据哈希，都不该离开服务端；手机号属 PII，仅本人可见故保留。
+function sanitizeUser(u) {
+  if (!u) return null
+  const out = {}
+  for (const k of ['id', 'username', 'nickname', 'avatar', 'phone', 'role', 'merchant_role', 'status', 'landmark_id', 'landmark_name', 'created_at']) {
+    if (u[k] !== undefined) out[k] = u[k]
+  }
+  return out
+}
+
 // 登录：用户端走真实微信 code2session（凭据就绪时）；商家端走账号密码（管理员网页创建）。
 // 返回 { error: {status, msg} } 或 { data }；HTTP 状态码由 routes 层翻译。
 // 商家账号规则（2026-09-24）：
@@ -75,7 +87,7 @@ async function login(store, deps, body, ip) {
     return {
       data: {
         token,
-        user: q.findById(store, row.id),
+        user: sanitizeUser(q.findById(store, row.id)),
         runtime: { mode: rt.mode, device_mock: rt.deviceMock, pay_mock: !rt.realPay, login: rt.loginMode(clientKey) }
       }
     }
@@ -95,7 +107,12 @@ async function login(store, deps, body, ip) {
         + '&grant_type=authorization_code'
       const resp = await fetch(u)
       const data = await resp.json()
-      if (!data.openid) { loginFail.add(ip); return { error: { status: 401, msg: '微信登录失败：' + (data.errmsg || '未知错误') } } }
+      if (!data.openid) {
+        loginFail.add(ip)
+        // 安全审计 L15：外部服务错误详情只进服务端日志，客户端只给通用文案
+        console.warn('[login] 微信 code2session 失败：' + (data.errmsg || '未知错误') + '（appid=' + creds.appid + '）')
+        return { error: { status: 401, msg: '微信登录失败，请稍后重试' } }
+      }
       openid = data.openid
     } catch (e) {
       loginFail.add(ip)
@@ -122,7 +139,7 @@ async function login(store, deps, body, ip) {
   return {
     data: {
       token: user.openid,
-      user,
+      user: sanitizeUser(user),
       runtime: { mode: rt.mode, device_mock: rt.deviceMock, pay_mock: !rt.realPay, login: rt.loginMode(clientKey) }
     }
   }
@@ -151,4 +168,4 @@ function removeCartItems(store, userId, goodsIds) {
   q.removeCartItems(store, userId, goodsIds)
 }
 
-module.exports = { login, clientIp, cartListWithPrice, removeCartItems }
+module.exports = { login, clientIp, cartListWithPrice, removeCartItems, sanitizeUser }

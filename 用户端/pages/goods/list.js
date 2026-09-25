@@ -187,9 +187,8 @@ Page({
                 has_promo: hasPromo,
                 discount_label: hasPromo ? (d > 0 && d < 1 ? (Math.round(d * 1000) / 10) + '折' : '活动价') : '',
                 save_amount: hasPromo ? (price - sale).toFixed(2) : '',
-                // 库存与销量文案（销量为 0 时不显示「已售 0」，改为「暂无销量」更自然）
-                sales_text: sales > 0 ? '已售 ' + sales : '暂无销量',
-                stock_text: stock > 0 ? '库存 ' + stock : '售罄'
+                // 销量文案（销量为 0 时不显示「已售 0」，改为「暂无销量」更自然）
+                sales_text: sales > 0 ? '已售 ' + sales : '暂无销量'
               })
             })
         }))

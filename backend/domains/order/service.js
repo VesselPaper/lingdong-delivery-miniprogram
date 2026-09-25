@@ -10,6 +10,8 @@ const promotion = require('../../services/promotion')
 const seqSvc = require('../../services/seq')
 
 // ---------- 状态字典与常量（05 方案：ORDER_STATUS/REFUND_STATUS/CANCEL_REQ_STATUS/FREE_CANCEL_WINDOW_MS/PICKUP_*/DELIVERY_* 归 order 域） ----------
+// 按数据项分层：orders 是 order 域专属表，订单状态字典与迁移守卫只在本域定义；
+// 跨域（delivery / platform）要迁移订单状态，一律调本域收口函数或经 server.js 注入的钩子。
 const ORDER_STATUS = {
   0: '待支付', 1: '待接单', 2: '配送中', 3: '已送达', 4: '已完成', 5: '已取消', 6: '配送异常', 7: '已退款'
 }
@@ -57,10 +59,10 @@ function orderStuckDelivering(store, order) {
   return !isNaN(t) && Date.now() - t > DELIVERY_TIMEOUT_MS
 }
 
-// ---------- 订单状态推进收口（召唤多单配送 + 取餐关舱路径：写 orders 的唯一咽喉） ----------
-// 数据项归属：orders 是 order 域专属表，故「到点待取货」「取走已完成」两类状态迁移在此收口，delivery 域调本域 service。
-// 状态守卫与 platform.js 的 canMoveOrderStatus 语义保持一致（终态不回退、只允许前向迁移）；
-// 平台回调 applyStatus/onTaskStatus 里直接写 orders 属历史遗留，另立 commit 收尾，本文件只负责召唤路径+pickup-close。
+// ---------- 订单状态推进收口（orders 状态迁移的唯一入口，按数据项分层归属 order 域） ----------
+// 数据项归属：orders 是 order 域专属表，故订单状态迁移在此收口；delivery 域调本域 service
+// （跨域写走 deps.order），platform 回调经 server.js 注入的钩子（platform.setOrderStateSink）调本域收口。
+// 收口函数全部带 canAdvanceOrderStatus 守卫 + CAS，全系统不再有第二处 orders.status 直写。
 const _ORDER_TERMINAL = [4, 5, 7]
 const _ORDER_RANK = { 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 0, 6: 5, 7: 0 }
 
@@ -78,33 +80,88 @@ function canAdvanceOrderStatus(from, to) {
   return rt > rf
 }
 
-// 到点待取货：机器人召唤到达某点位，把该点位订单 2→3（已送达/待取货）。
-// 只负责 orders 写 + 结算销量（走 goods 域 service）；批次/点位推进仍由 delivery 域驱动。
-function arriveOrder(store, deps, order) {
-  if (!order) return { ok: false, msg: '订单不存在' }
-  const row = store.prepare('SELECT * FROM orders WHERE id=?').get(order.id) || order
-  const st = Number(row.status)
-  if (st === 3 || st === 4) return { ok: true, already: true } // 重复召唤/重复回调幂等
-  if (!canAdvanceOrderStatus(st, 3)) return { ok: false, msg: '订单状态不允许置待取货（当前 ' + st + '）' }
-  store.prepare("UPDATE orders SET status=3, delivered_at=COALESCE(delivered_at, datetime('now','localtime')), updated_at=datetime('now','localtime') WHERE id=?")
-    .run(row.id)
-  try { if (deps.goods && deps.goods.settleSales) deps.goods.settleSales(store, row.id) } catch (e) { /* 结算失败不阻断状态推进 */ }
+// 挂接配送任务（不迁移状态）：写 delivery_task_id
+function attachTaskToOrder(store, orderId, taskId) {
+  store.prepare("UPDATE orders SET delivery_task_id=?, updated_at=datetime('now','localtime') WHERE id=?")
+    .run(Number(taskId), Number(orderId))
   return { ok: true }
 }
 
-// 取走已完成：用户关舱取走，订单 →4(已完成)。写 orders 后，批次计数/完成判定交 delivery 域（deps.batch.countPicked）。
-function fulfillOrder(store, deps, order) {
-  if (!order) return { ok: false, msg: '订单不存在' }
-  const row = store.prepare('SELECT * FROM orders WHERE id=?').get(order.id)
+// 开始配送（单订单）：1/2 → 2（派车/建任务时使用；幂等）
+function markOrderStarted(store, orderId) {
+  const r = store.prepare("UPDATE orders SET status=2, updated_at=datetime('now','localtime') WHERE id=? AND status IN (1,2)").run(Number(orderId))
+  return { ok: true, already: r.changes === 0 }
+}
+
+// 开始配送（批次内批量兜底）：批次内 status=1 → 2
+function markOrderInBatchStart(store, batchId) {
+  store.prepare("UPDATE orders SET status=2, updated_at=datetime('now','localtime') WHERE batch_id=? AND status=1").run(Number(batchId))
+  return { ok: true }
+}
+
+// 已送达（待取货）：2 → 3；已是 3 幂等返回 already
+function markOrderDelivered(store, orderId) {
+  const row = store.prepare('SELECT status FROM orders WHERE id=?').get(Number(orderId))
+  if (!row) return { ok: false, msg: '订单不存在' }
+  const f = Number(row.status)
+  if (f === 3) return { ok: true, already: true }
+  if (!canAdvanceOrderStatus(f, 3)) return { ok: false, msg: '订单状态不允许置待取货（当前 ' + f + '）' }
+  const r = store.prepare("UPDATE orders SET status=3, delivered_at=COALESCE(delivered_at, datetime('now','localtime')), updated_at=datetime('now','localtime') WHERE id=? AND status IN (2,3)")
+    .run(Number(orderId))
+  return r.changes === 1 ? { ok: true } : { ok: true, already: true }
+}
+
+// 配送异常：1/2/3 → 6（CAS 防并发）
+function markOrderException(store, orderId) {
+  const row = store.prepare('SELECT status FROM orders WHERE id=?').get(Number(orderId))
+  if (!row) return { ok: false, msg: '订单不存在' }
+  const f = Number(row.status)
+  if (f === 6) return { ok: true, already: true }
+  if (!canAdvanceOrderStatus(f, 6)) return { ok: false, msg: '订单状态不允许置配送异常（当前 ' + f + '）' }
+  store.prepare("UPDATE orders SET status=6, updated_at=datetime('now','localtime') WHERE id=? AND status IN (1,2,3)").run(Number(orderId))
+  return { ok: true }
+}
+
+// 取走已完成：2/3/4 → 4 + picked_up_at（守卫：非终态取消/退款且未取走过，CAS 防并发）。
+// 允许 2→4：平台任务 80 直接完成（等价任务完成即取走，测试/真实边界路径）；
+// 正常链路为 3→4（送达后取走）。与 canAdvanceOrderStatus 前向语义一致。
+function markOrderPicked(store, orderId) {
+  const row = store.prepare('SELECT status, cancelled_at, picked_up_at FROM orders WHERE id=?').get(Number(orderId))
   if (!row) return { ok: false, msg: '订单不存在' }
   if (row.picked_up_at) return { ok: true, already: true }
   if ([5, 7].includes(Number(row.status)) || row.cancelled_at) {
     return { ok: false, msg: '已取消/退款订单不可标记已完成' }
   }
-  store.prepare("UPDATE orders SET picked_up_at=datetime('now','localtime'), status=4, updated_at=datetime('now','localtime') WHERE id=?")
-    .run(row.id)
+  const f = Number(row.status)
+  if (f === 4) return { ok: true, already: true } // 已是已完成
+  if (![2, 3].includes(f)) return { ok: false, msg: '订单状态不允许标记已完成（当前 ' + f + '）' }
+  const r = store.prepare("UPDATE orders SET picked_up_at=datetime('now','localtime'), status=4, updated_at=datetime('now','localtime') WHERE id=? AND status IN (2,3) AND picked_up_at IS NULL")
+    .run(Number(orderId))
+  return r.changes === 1 ? { ok: true } : { ok: true, already: true }
+}
+
+// 到点待取货：机器人召唤到达某点位，把该点位订单 2→3（已送达/待取货）。
+// 只负责 orders 状态迁移 + 结算销量（走 goods 域 service）；批次/点位推进仍由 delivery 域驱动。
+function arriveOrder(store, deps, order) {
+  if (!order) return { ok: false, msg: '订单不存在' }
+  const row = store.prepare('SELECT * FROM orders WHERE id=?').get(Number(order.id)) || order
+  const r = markOrderDelivered(store, row.id)
+  if (!r.ok) return { ok: false, msg: r.msg }
+  if (r.already) return { ok: true, already: true }
+  try { if (deps.goods && deps.goods.settleSales) deps.goods.settleSales(store, row.id) } catch (e) { /* 结算失败不阻断状态推进 */ }
+  return { ok: true }
+}
+
+// 取走已完成：用户关舱取走，订单 →4(已完成)。迁移走 markOrderPicked；写后结算销量，
+// 批次计数/完成判定交 delivery 域（deps.batch.countPicked）。
+function fulfillOrder(store, deps, order) {
+  if (!order) return { ok: false, msg: '订单不存在' }
+  const r = markOrderPicked(store, order.id)
+  if (!r.ok) return { ok: false, msg: r.msg }
+  if (r.already) return { ok: true, already: true }
+  const row = store.prepare('SELECT * FROM orders WHERE id=?').get(Number(order.id))
   try { if (deps.goods && deps.goods.settleSales) deps.goods.settleSales(store, row.id) } catch (e) { /* 结算失败不阻断 */ }
-  try { if (row.batch_id && deps.batch && deps.batch.countPicked) deps.batch.countPicked(store, row) } catch (e) { /* 批次计数失败不阻断 */ }
+  try { if (row && row.batch_id && deps.batch && deps.batch.countPicked) deps.batch.countPicked(store, row) } catch (e) { /* 批次计数失败不阻断 */ }
   return { ok: true }
 }
 
@@ -251,7 +308,11 @@ function createOrder(store, deps, body, userId) {
     ? 1
     : Math.max(0, Math.round(Number(feeRaw) * 100) / 100)
   const { landmark_id, landmark_name, remark = '', items = [], contact_name = '', contact_phone = '', address_id, activity_id } = body || {}
-  if (!items.length) return { error: { status: 400, msg: '订单不能为空' } }
+  if (!Array.isArray(items) || !items.length) return { error: { status: 400, msg: '订单不能为空' } }
+  // 安全审计 L6：限制单笔订单商品行数，防超大请求空耗（每行数量另有 1~99 校验）
+  if (items.length > 30) return { error: { status: 400, msg: '单笔订单商品行数不能超过 30' } }
+  // 安全审计 L5：订单备注截断，防无界文本撑库/审计放大
+  const cleanRemark = String(remark || '').slice(0, 100)
   // 收餐人落库（P0-3）：姓名 trim 非空 ≤20；手机号必须校验
   const cname = String(contact_name || '').trim()
   const cphone = String(contact_phone || '').trim()
@@ -320,7 +381,7 @@ function createOrder(store, deps, body, userId) {
       originalAmount: Number(originalTotal).toFixed(2), discountAmount: Number(discountAmount).toFixed(2),
       activityId: promo.activity ? promo.activity.id : null,
       deliveryFee: Number(chunkFee).toFixed(2),
-      remark, pickupCode, seq, seqDate: seqDay
+      remark: cleanRemark, pickupCode, seq, seqDate: seqDay
     })
     for (const { goods, quantity } of chunk) {
       q.insertItem(store, { orderId, goodsId: goods.id, goodsName: goods.name, goodsImage: goods.image, price: goods.price, quantity })
@@ -382,8 +443,9 @@ module.exports = {
   // 状态机辅助
   orderTrulyDelivering, orderStuckDelivering, maybeAutoAccept, withinFreeCancelWindow,
   applyOrderCancelled, realRefundOrLocal, splitOrderChunks,
-  // 状态推进收口（召唤配送 / 取餐关舱）
-  canAdvanceOrderStatus, arriveOrder, fulfillOrder,
+  // 状态推进收口（orders 状态迁移唯一入口：守卫 + 收口函数族，跨域经 deps.order 或 server 注入钩子调用）
+  canAdvanceOrderStatus, attachTaskToOrder, markOrderStarted, markOrderInBatchStart,
+  markOrderDelivered, markOrderException, markOrderPicked, arriveOrder, fulfillOrder,
   // 业务
   createOrder, payOrder, computeStats
 }

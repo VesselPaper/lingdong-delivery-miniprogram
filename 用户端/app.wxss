@@ -406,3 +406,54 @@ page {
   transform: scale(0.86);
   opacity: 0.9;
 }
+
+/* ===== 详情页码复制按钮（订单号 / 取餐码 / 批次号） =====
+   通用三段：info-row 值侧容器、行内小复制按钮、取餐码大卡片下方的圆角复制按钮 */
+/* info-row 全局兜底：部分详情页（取餐/退款/取消申请等）原为纯文本行，
+   值侧接入 info-value 容器后需要 flex 布局才能同行显示 */
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10rpx 0;
+  font-size: 26rpx;
+  color: #666666;
+}
+.info-value {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-left: 24rpx;
+}
+.info-value .info-text {
+  min-width: 0;
+  word-break: break-all;
+}
+.copy-btn {
+  flex-shrink: 0;
+  margin-left: 16rpx;
+  padding: 4rpx 16rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: #3078C0;
+  background: rgba(48, 120, 192, 0.08);
+  border: 1rpx solid rgba(48, 120, 192, 0.35);
+  border-radius: 8rpx;
+}
+.copy-btn-hover {
+  opacity: 0.7;
+}
+.pickup-copy {
+  display: inline-flex;
+  align-items: center;
+  margin: 8rpx auto 4rpx;
+  padding: 8rpx 32rpx;
+  font-size: 24rpx;
+  color: #3078C0;
+  background: rgba(48, 120, 192, 0.08);
+  border: 1rpx solid rgba(48, 120, 192, 0.35);
+  border-radius: 999rpx;
+}
+.pickup-copy-hover {
+  opacity: 0.7;
+}

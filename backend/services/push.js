@@ -6,6 +6,8 @@
 // 只做「服务端 → 客户端」单向广播：客户端无需发送业务数据。读取侧仅需处理
 // ping(9)/pong/close(8) 帧保持连接健康，业务帧(文本/二进制)直接忽略。
 // 连接鉴权：upgrade 时校验 Authorization: Bearer <token>（沿用登录 token），未通过即断连。
+// 安全审计 2026-09-26 H2：validateToken 可返回角色 'admin' / 'user'（或 truthy 任意值=普通用户），
+// 主题订阅按角色过滤 —— 'admin/live' 只允许管理员订阅，杜绝学生/店员 token 偷看机器人实时数据。
 
 const crypto = require('crypto')
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -58,26 +60,35 @@ function attach(server, opts) {
       if (clients.size >= MAX_CLIENTS) { socket.destroy(); return }
       const key = req.headers['sec-websocket-key']
       if (!key) { socket.destroy(); return }
-      // 鉴权：Bearer token（兼容 query ?token=，便于排查）
+      // 鉴权：Authorization: Bearer <token>（小程序端），或 Sec-WebSocket-Protocol 子协议
+      // 'bearer-<token>'（浏览器 WebSocket 无法自定义 header，管理员页用子协议携带）。
+      // 安全审计 L7：不再支持 query ?token=（会话凭据会进入访问日志/浏览器历史/代理层）。
       let token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim()
-      if (!token && url.includes('token=')) {
-        const m = url.match(/[?&]token=([^&]+)/)
-        if (m) token = decodeURIComponent(m[1])
+      let viaProtocol = false
+      if (!token) {
+        const proto = String(req.headers['sec-websocket-protocol'] || '')
+        const pm = proto.match(/bearer-([A-Za-z0-9]+)/i)
+        if (pm) { token = pm[1]; viaProtocol = true }
       }
-      if (!validateToken(token)) {
+      const v = validateToken(token)
+      if (!v) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
         socket.destroy()
         return
       }
+      // 角色：'admin'=管理员（可订阅管理主题），其余任何有效 token=普通登录用户
+      const role = v === 'admin' ? 'admin' : 'user'
       const accept = crypto.createHash('sha1').update(key + WS_GUID).digest('base64')
+      // 子协议来源的 token 必须在握手响应中回显同一子协议，否则浏览器拒绝连接
+      const respProto = viaProtocol ? '\r\nSec-WebSocket-Protocol: bearer-' + token : ''
       socket.write(
         'HTTP/1.1 101 Switching Protocols\r\n' +
         'Upgrade: websocket\r\n' +
         'Connection: Upgrade\r\n' +
-        'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n'
+        'Sec-WebSocket-Accept: ' + accept + respProto + '\r\n\r\n'
       )
       socket.setNoDelay(true)
-      const client = { socket, topics: new Set() }
+      const client = { socket, topics: new Set(), role }
       clients.add(client)
 
       let buffer = Buffer.alloc(0)
@@ -124,7 +135,12 @@ function attach(server, opts) {
             try {
               const msg = JSON.parse(frame.toString('utf8'))
               if (msg && msg.type === 'sub' && Array.isArray(msg.topics)) {
-                client.topics = new Set(msg.topics.map(String))
+                // 安全审计 H2：管理主题（admin/live）仅管理员可订阅，其余主题登录即可
+                const allowed = msg.topics.map(String).filter((t) => {
+                  if (t === 'admin/live') return client.role === 'admin'
+                  return true
+                })
+                client.topics = new Set(allowed)
               }
             } catch (e) { /* 非订阅帧忽略 */ }
           } // 其余（二进制/续帧）忽略：我们是只推送端

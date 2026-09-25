@@ -202,5 +202,11 @@ Page({
 
   done() {
     wx.navigateBack()
+  },
+
+  // 取餐凭证复制：订单号 / 取餐码
+  copyText(e) {
+    const text = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.text : ''
+    wx.setClipboardData({ data: String(text == null ? '' : text) })
   }
 })

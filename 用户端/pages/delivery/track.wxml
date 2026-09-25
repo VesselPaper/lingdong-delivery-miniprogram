@@ -97,6 +97,7 @@
     <view class="card">
       <view class="section-title">取餐凭证</view>
       <view class="pickup-code">{{order.pickup_code}}</view>
+      <view class="pickup-copy" hover-class="pickup-copy-hover" hover-stay-time="80" bindtap="copyText" data-text="{{order.pickup_code}}">复制取餐码</view>
       <view class="text-weak text-sm">机器人到达后，扫车身二维码并输入此取餐码开舱取餐（每单取餐码独立，请勿使用他人取餐码）</view>
     </view>
 

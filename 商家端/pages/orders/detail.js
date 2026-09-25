@@ -63,5 +63,11 @@ Page({
       wx.showToast({ title: '已接单，并入批次 ' + (r.batch_no || ''), icon: 'success' })
       this.load()
     } catch (e) { /* handled */ }
+  },
+
+  // 订单编号 / 批次号复制
+  copyText(e) {
+    const text = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.text : ''
+    wx.setClipboardData({ data: String(text == null ? '' : text) })
   }
 })

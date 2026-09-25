@@ -35,11 +35,29 @@ function recordLoginFail(key) {
   }
 }
 
+// 客户端来源 IP（登录限流 key）：与 user 域同一套语义（安全审计 L8）。
+// X-Forwarded-For 可被伪造，只有部署在反向代理后（TRUST_PROXY=1）才采信第一跳；
+// 否则用 socket 对端地址（nginx 反代后即为 127.0.0.1，此时应配 TRUST_PROXY=1 分流）。
+function clientIpOf(req) {
+  if (process.env.TRUST_PROXY === '1') {
+    const xff = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+    if (xff) return xff
+  }
+  return (req.socket && req.socket.remoteAddress) || 'local'
+}
+
 module.exports = (store, deps) => {
   const { adminGuard, audit, ok } = createShared(store)
   const router = express.Router()
   // 订单取消/退款统一走 order 域落账入口（orderCancel + platform 是它需要的跨域依赖）
   const orderDeps = { orderCancel: deps.orderCancel, platform: deps.platform }
+
+  // 安全审计 2026-09-26 M3：大屏只读接口（overview/map-image/tianditu）公开开关。
+  // 默认公开（兼容本地大屏展示现状）；上线设 DASHBOARD_PUBLIC=0 后改为 adminGuard（管理员登录后可见），
+  // 防止校园网内任何人查看订单金额统计与机器人实时位置。详见 doc/12_安全审计报告.md M3。
+  const dashboardPublic = process.env.DASHBOARD_PUBLIC !== '0'
+    && String(process.env.DASHBOARD_PUBLIC || '1').toLowerCase() !== 'false'
+  const dashGuard = dashboardPublic ? (req, res, next) => next() : adminGuard
 
   // ---------- 数据可视化大屏（只读聚合，免登录） ----------
   // 地图底图（同源代理）：平台签名直链几十秒就过期，交给浏览器必然间歇性 403 白图，
@@ -47,7 +65,7 @@ module.exports = (store, deps) => {
   let mapImgCache = { ts: 0, buf: null, type: 'image/png' }
   const MAP_IMG_CACHE_MS = Number(process.env.DASHBOARD_MAP_CACHE_MS || 10 * 60 * 1000)
 
-  router.get('/dashboard/map-image', async (req, res) => {
+  router.get('/dashboard/map-image', dashGuard, async (req, res) => {
     if (mapImgCache.buf && Date.now() - mapImgCache.ts < MAP_IMG_CACHE_MS) {
       res.set('Content-Type', mapImgCache.type)
       res.set('Cache-Control', 'public, max-age=300')
@@ -72,7 +90,7 @@ module.exports = (store, deps) => {
   let dashCache = { ts: 0, data: null }
   const DASH_CACHE_MS = Number(process.env.DASHBOARD_CACHE_MS || 5000)
 
-  router.get('/dashboard/overview', async (req, res) => {
+  router.get('/dashboard/overview', dashGuard, async (req, res) => {
     if (dashCache.data && Date.now() - dashCache.ts < DASH_CACHE_MS) return ok(res, dashCache.data)
     const data = await s.buildDashboard(store, deps)
     dashCache = { ts: Date.now(), data }
@@ -80,14 +98,14 @@ module.exports = (store, deps) => {
   })
 
   // 前端底图用配置（天地图浏览器端 tk，存于 .env，随页面注入，不进仓库）
-  router.get('/config/tianditu', (req, res) => {
+  router.get('/config/tianditu', dashGuard, (req, res) => {
     ok(res, { tk: process.env.TIANDITU_TK || '', ts: new Date().toISOString() })
   })
 
   // ---------- 管理员登录（方案A：用户名+密码 → 随机 session token） ----------
   router.post('/admin/login', (req, res) => {
     const { username = '', password = '' } = req.body || {}
-    const key = String(username || '').trim().toLowerCase() + ':' + (req.ip || req.socket.remoteAddress || '')
+    const key = String(username || '').trim().toLowerCase() + ':' + clientIpOf(req)
     if (loginLocked(key)) {
       return res.status(429).json({ code: 429, msg: '尝试次数过多，请 10 分钟后再试' })
     }
@@ -573,7 +591,6 @@ module.exports = (store, deps) => {
       merchants: rows.map((r) => ({
         id: r.id,
         username: r.username || '',
-        name: r.nickname || '',
         merchant_role: r.merchant_role === 'owner' ? 'owner' : 'staff',
         active: Number(r.status) === 1,
         created_at: r.created_at || ''
@@ -588,7 +605,7 @@ module.exports = (store, deps) => {
     if (!u) return res.status(400).json({ code: 400, msg: '请填写用户名' })
     if (!/^[A-Za-z0-9_]{2,32}$/.test(u)) return res.status(400).json({ code: 400, msg: '用户名限 2~32 位字母/数字/下划线' })
     if (uq.findByUsername(store, u)) return res.status(400).json({ code: 400, msg: '用户名已存在' })
-    if (!password || String(password).length < 6) return res.status(400).json({ code: 400, msg: '密码至少 6 位' })
+    if (!password || String(password).length < 8) return res.status(400).json({ code: 400, msg: '密码至少 8 位' })
     const id = uq.createMerchantAccount(store, {
       username: u,
       passwordHash: adminAuth.hashPassword(String(password)),
@@ -599,36 +616,66 @@ module.exports = (store, deps) => {
     ok(res, { id, username: u })
   })
 
-  // 修改角色（店主 <-> 店员）
+  // 修改用户名（管理员「编辑」页）：唯一性校验 + 必须是商家账号（防误改学生账号）。
+  // 安全审计 L9：目标行必须是商家账号（role='merchant' 且 username 非空）。
+  router.put('/admin/merchants/username', adminGuard, (req, res) => {
+    const id = Number((req.body || {}).id || 0)
+    const username = String((req.body || {}).username || '').trim()
+    if (!id) return res.status(400).json({ code: 400, msg: '缺少商家账号编号' })
+    if (!/^[A-Za-z0-9_]{2,32}$/.test(username)) return res.status(400).json({ code: 400, msg: '用户名限 2~32 位字母/数字/下划线' })
+    const row = store.prepare("SELECT username FROM users WHERE id=? AND role='merchant' AND username IS NOT NULL AND username!=''").get(id)
+    if (!row) return res.status(404).json({ code: 404, msg: '商家账号不存在' })
+    if (username === row.username) return ok(res, { id })
+    if (uq.findByUsername(store, username)) return res.status(400).json({ code: 400, msg: '用户名已存在' })
+    uq.updateMerchantUsername(store, id, username)
+    audit(req, 'admin/merchant-username', 'merchant-user#' + id, row.username + ' → ' + username)
+    ok(res, { id })
+  })
+
+  // 删除商家账号（管理员「编辑」页）：物理删除该登录身份，历史订单不受影响，不可恢复。
+  // 安全审计 L9：目标行必须是商家账号，防误删学生/微信用户账号。
+  router.post('/admin/merchants/delete', adminGuard, (req, res) => {
+    const id = Number((req.body || {}).id || 0)
+    if (!id) return res.status(400).json({ code: 400, msg: '缺少商家账号编号' })
+    const row = store.prepare("SELECT username FROM users WHERE id=? AND role='merchant' AND username IS NOT NULL AND username!=''").get(id)
+    if (!row) return res.status(404).json({ code: 404, msg: '商家账号不存在' })
+    uq.deleteMerchant(store, id)
+    audit(req, 'admin/merchant-delete', 'merchant-user#' + id, '删除商家账号 ' + row.username)
+    ok(res, { id })
+  })
+
+  // 修改角色（店主 <-> 店员）。安全审计 L9：目标行必须是商家账号。
   router.put('/admin/merchants/role', adminGuard, (req, res) => {
     const id = Number((req.body || {}).id || 0)
     const role = (req.body || {}).merchant_role === 'owner' ? 'owner' : 'staff'
     if (!id) return res.status(400).json({ code: 400, msg: '缺少商家账号编号' })
-    const row = store.prepare('SELECT username, merchant_role FROM users WHERE id=?').get(id)
+    const row = store.prepare("SELECT username, merchant_role FROM users WHERE id=? AND role='merchant' AND username IS NOT NULL AND username!=''").get(id)
     if (!row) return res.status(404).json({ code: 404, msg: '商家账号不存在' })
     uq.updateMerchantRole(store, id, role)
     audit(req, 'admin/merchant-role', 'merchant-user#' + id, row.username + ' 角色 ' + (row.merchant_role === 'owner' ? '店主' : '店员') + '→' + (role === 'owner' ? '店主' : '店员'))
     ok(res, { id })
   })
 
-  // 重置密码：同时吊销当前 token（强制用新密码重新登录）
+  // 重置密码：同时吊销当前 token（强制用新密码重新登录）。
+  // 安全审计 L9：目标行必须是商家账号（role='merchant' 且 username 非空），防误操作学生账号。
   router.post('/admin/merchants/password', adminGuard, (req, res) => {
     const id = Number((req.body || {}).id || 0)
     const password = String((req.body || {}).password || '')
     if (!id) return res.status(400).json({ code: 400, msg: '缺少商家账号编号' })
-    if (password.length < 6) return res.status(400).json({ code: 400, msg: '新密码至少 6 位' })
-    const row = store.prepare('SELECT username FROM users WHERE id=?').get(id)
+    if (password.length < 8) return res.status(400).json({ code: 400, msg: '新密码至少 8 位' })
+    const row = store.prepare("SELECT username FROM users WHERE id=? AND role='merchant' AND username IS NOT NULL AND username!=''").get(id)
     if (!row) return res.status(404).json({ code: 404, msg: '商家账号不存在' })
     uq.updateMerchantPassword(store, id, adminAuth.hashPassword(password))
     audit(req, 'admin/merchant-password', 'merchant-user#' + id, '重置密码 ' + row.username)
     ok(res, { id })
   })
 
-  // 禁用 / 启用（禁用同时吊销 token，商家端立即失效）
+  // 禁用 / 启用（禁用同时吊销 token，商家端立即失效）。
+  // 安全审计 L9：目标行必须是商家账号，防误操作学生账号。
   const merchantSetStatus = (active) => (req, res) => {
     const id = Number((req.body || {}).id || 0)
     if (!id) return res.status(400).json({ code: 400, msg: '缺少商家账号编号' })
-    const row = store.prepare('SELECT username FROM users WHERE id=?').get(id)
+    const row = store.prepare("SELECT username FROM users WHERE id=? AND role='merchant' AND username IS NOT NULL AND username!=''").get(id)
     if (!row) return res.status(404).json({ code: 404, msg: '商家账号不存在' })
     uq.setMerchantStatus(store, id, active ? 1 : 0)
     audit(req, active ? 'admin/merchant-enable' : 'admin/merchant-disable', 'merchant-user#' + id, (active ? '启用' : '禁用') + ' ' + row.username)

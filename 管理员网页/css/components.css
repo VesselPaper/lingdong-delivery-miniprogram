@@ -28,6 +28,8 @@
 .btn.danger:hover { background: var(--red-deep); }
 .btn.danger.ghost { background: transparent; color: var(--red); border-color: var(--red); }
 .btn.danger.ghost:hover { background: var(--red-soft); }
+.btn.ok { background: var(--ok); border-color: var(--ok); }
+.btn.ok:hover { background: #0b6140; }
 .btn.sm { padding: 5px 11px; font-size: 12px; }
 .btn.sm svg { width: 13px; height: 13px; }
 .btn-block { width: 100%; justify-content: center; padding: 10px 0; font-size: 14px; }
@@ -283,7 +285,7 @@
 .audit-row.fail:hover { background: #fbe4e9; }
 .audit-time { font: 11.5px var(--mono); color: var(--ink-3); font-variant-numeric: tabular-nums; flex: none; }
 .audit-who { font-weight: 600; color: var(--ink); flex: none; }
-.audit-act { font: 11.5px var(--mono); color: var(--ink-2); }
+.audit-act { font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
 .audit-tgt { font: 11.5px var(--mono); color: var(--blue); }
 .audit-detail { color: var(--ink-2); flex: 1; min-width: 180px; word-break: break-all; }
 .audit-badge { font-size: 10.5px; font-weight: 700; border-radius: 3px; padding: 0 5px; flex: none; }

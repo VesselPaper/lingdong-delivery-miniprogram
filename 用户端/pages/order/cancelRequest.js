@@ -37,5 +37,11 @@ Page({
       wx.hideLoading()
       wx.showToast({ title: (e && e.message) || '提交失败', icon: 'none' })
     }
+  },
+
+  // 订单号复制
+  copyText(e) {
+    const text = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.text : ''
+    wx.setClipboardData({ data: String(text == null ? '' : text) })
   }
 })

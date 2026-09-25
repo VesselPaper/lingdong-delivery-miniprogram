@@ -13,15 +13,53 @@ module.exports = (store, deps) => {
   const router = express.Router()
   const PICKUP = deps.order // PICKUP_REOPEN_WINDOW_MS / MAX_PICKUP_OPEN / ORDER_STATUS 等常量
 
+  // ---------- 取餐码枚举防护（安全审计 2026-09-26 M2） ----------
+  // 4 位取餐码只有 1 万种组合：按「用户+设备」维度限速，60 秒内最多 5 次失败尝试，
+  // 超限锁定 60 秒。成功清零。Map 有界（超 1 万先清过期，仍超删最早一条）。
+  const pickupCodeTry = new Map() // 'u<userId>:d<deviceSn>' -> { count, until }
+  const PICKUP_CODE_MAX = 5
+  const PICKUP_CODE_WIN_MS = 60 * 1000
+  function pickupCodeLocked(key) {
+    const f = pickupCodeTry.get(key)
+    if (!f) return false
+    if (f.until && Date.now() < f.until) return true
+    if (f.until && Date.now() >= f.until) pickupCodeTry.delete(key)
+    return false
+  }
+  function pickupCodeFail(key) {
+    const f = pickupCodeTry.get(key) || { count: 0, until: 0 }
+    f.count += 1
+    if (f.count >= PICKUP_CODE_MAX) f.until = Date.now() + PICKUP_CODE_WIN_MS
+    pickupCodeTry.set(key, f)
+    if (pickupCodeTry.size > 10000) {
+      const now = Date.now()
+      for (const [k, v] of pickupCodeTry) if (v.until && now > v.until) pickupCodeTry.delete(k)
+      if (pickupCodeTry.size > 10000) pickupCodeTry.delete(pickupCodeTry.keys().next().value)
+    }
+  }
+
   // ---------- 点位 ----------
   // 公开列表裁剪物流平台内部 ID（P1-13）：platform_building_id / platform_map_id / platform_landmark_id
   // 是开放物流平台的场地/点位内部编号，对匿名请求暴露等于泄露平台结构。用户端只需点位展示与选择。
+  // 安全审计 L11：平台内部字段只对商家账号/管理员可见——学生（普通登录用户）也不再放行。
   router.get('/landmarks', (req, res) => {
     const rows = q.landmarksAll(store)
-    // 有有效登录态的请求（商家点位同步等内部用途）返回全字段；匿名请求一律裁剪
+    let platformVisible = false
     const token = (req.headers.authorization || '').replace('Bearer ', '')
-    const authed = token ? !!q.userByToken(store, token) : false
-    const out = authed ? rows : rows.map((r) => {
+    if (token) {
+      try {
+        const u = store.prepare('SELECT id, role, username, status FROM users WHERE openid=? OR token=?').get(token, token)
+        if (u && u.role === 'merchant' && u.username && Number(u.status) === 1) platformVisible = true
+      } catch (e) { /* 忽略 */ }
+      if (!platformVisible) {
+        try {
+          const s = store.prepare(`SELECT 1 FROM admin_sessions s JOIN admin_users u ON u.id = s.admin_user_id
+            WHERE s.token=? AND s.expires_at > datetime('now','localtime') AND u.status=1`).get(token)
+          if (s) platformVisible = true
+        } catch (e) { /* 忽略 */ }
+      }
+    }
+    const out = platformVisible ? rows : rows.map((r) => {
       const { platform_building_id, platform_map_id, platform_landmark_id, ...rest } = r
       return rest
     })
@@ -145,8 +183,9 @@ module.exports = (store, deps) => {
     if (scan_code && String(scan_code).trim() !== order.pickup_code) {
       return res.status(400).json({ code: 400, msg: '取餐码不匹配，请扫描机器人屏幕上的取餐码' })
     }
-    store.prepare("UPDATE orders SET status=4, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
-    deps.goods.settleSales(store, order.id)
+    // 确认取走 = 订单状态迁移唯一入口（结构评审 P0-1）：置 4 + 结算销量 + 批次计数
+    const r = deps.order.fulfillOrder(store, deps, order)
+    if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg })
     ok(res)
   })
 
@@ -161,10 +200,15 @@ module.exports = (store, deps) => {
   })
 
   // 扫码取餐（需求5）：用户扫无人车二维码 → 输入取餐码 → 校验归属（本人订单、待取餐、取餐码匹配、车一致）
+  // 安全审计 M2：限速防 4 位取餐码枚举（60 秒内失败 5 次锁定 60 秒）
   router.post('/delivery/pickup-by-code', auth, (req, res) => {
     const { device_sn = '', pickup_code = '' } = req.body || {}
     if (!device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
     if (!String(pickup_code).trim()) return res.status(400).json({ code: 400, msg: '请输入取餐码' })
+    const limitKey = 'u' + req.user.id + ':d' + device_sn
+    if (pickupCodeLocked(limitKey)) {
+      return res.status(429).json({ code: 429, msg: '尝试次数过多，请一分钟后再试' })
+    }
     const order = store.prepare(`
       SELECT o.* FROM orders o
       LEFT JOIN delivery_batches b ON b.id = o.batch_id
@@ -172,7 +216,11 @@ module.exports = (store, deps) => {
         AND (EXISTS(SELECT 1 FROM delivery_tasks d WHERE d.order_id=o.id AND d.void_at IS NULL AND d.device_sn=?)
              OR (b.device_sn=? AND b.device_sn<>''))
       ORDER BY o.id DESC LIMIT 1`).get(req.user.id, String(pickup_code).trim(), device_sn, device_sn)
-    if (!order) return res.status(400).json({ code: 400, msg: '取餐码不正确或无人车不匹配' })
+    if (!order) {
+      pickupCodeFail(limitKey)
+      return res.status(400).json({ code: 400, msg: '取餐码不正确或无人车不匹配' })
+    }
+    pickupCodeTry.delete(limitKey) // 成功清零
     ok(res, s.pickupContext(store, order))
   })
 
@@ -280,9 +328,10 @@ module.exports = (store, deps) => {
       const r = await deps.platform.unloadingConfirm(task.device_sn, task.platform_task_id, { contact: order.contact_phone || '', roomNum: order.pickup_code })
       if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg })
     }
-    // 关舱 = 真正取走：清「正在取餐」标记，随后 markOrderPicked（4 已完成 + 结算销量 + 批次计数）
+    // 关舱 = 真正取走：清「正在取餐」标记，随后走 order 域收口（4 已完成 + 结算销量 + 批次计数，结构评审 P0-1）
     store.prepare("UPDATE orders SET picking_up_at=NULL, updated_at=datetime('now','localtime') WHERE id=?").run(order.id)
-    deps.batch.markOrderPicked(store, order)
+    const fr = deps.order.fulfillOrder(store, deps, order)
+    if (!fr.ok) return res.status(502).json({ code: 502, msg: fr.msg })
     ok(res, { order_id: order.id, status: 4, test: !ready })
   })
 
@@ -513,7 +562,10 @@ module.exports = (store, deps) => {
   // 生成后落盘 uploads/robot-qr/<sn>.png（同 sn 复用文件），返回可展示/保存的图片 URL。
   router.post('/merchant/device/wxacode', merchantGuard, async (req, res) => {
     const { device_sn = '' } = req.body || {}
-    if (!device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
+    // 安全审计 L3：设备号字符白名单，防止经路径拼接越权读写（写路径穿越）
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(String(device_sn || ''))) {
+      return res.status(400).json({ code: 400, msg: '设备编号不合法' })
+    }
     const sn = String(device_sn).trim()
     const fs = require('fs')
     const path = require('path')
@@ -594,9 +646,9 @@ module.exports = (store, deps) => {
       if (order.delivery_task_id) {
         q.setTaskStatus(store, order.delivery_task_id, 80, '任务完成（测试）')
       }
-      store.prepare("UPDATE orders SET status=?, delivered_at=COALESCE(delivered_at, datetime('now','localtime')), updated_at=datetime('now','localtime') WHERE id=?")
-        .run(to, id)
-      if (to === 4) deps.batch.markOrderPicked(store, order)
+      // 状态迁移走 order 域收口（结构评审 P0-1）：4=取走完成 / 3=送达待取
+      if (to === 4) deps.order.fulfillOrder(store, deps, order)
+      else deps.order.arriveOrder(store, deps, order)
       if (order.batch_id) touched.add(order.batch_id)
     }
     // 批次状态联动：全部完成 → 已完成；否则待上货批次推进为配送中（避免「待上货批次里躺着已送达订单」）

@@ -7,7 +7,8 @@
    页面结构（2026-09 重构）：
    · 总览：机器人（卡片 + 校园实时地图 + 异常告警）/ 操作日志（服务端审计 + 状态字典 + 会话回显）
    · 配送数据：批次 / 订单 / 任务 三标签 × 活跃 / 历史 / 全部 三分段，卡片式展示
-   · 设置：账号 / 机器人控制 / 危险操作
+   · 设置：账号 / 危险操作（机器人控制页 2026-09-26 移除：控制权与点位同步均由业务自动管理）
+   · 商家管理：创建账号 / 已创建列表（编辑弹窗：改用户名 / 改权限 / 重置密码 / 删除账号）
 
    交互约定（铁律）：
    · 破坏性操作（删除订单 / 清理批次 / 关闭并作废 / 仅作废）只从右键菜单进入，无行内按钮；
@@ -49,7 +50,13 @@
   var onUnauthorized = null       // 会话失效回调（由 06 片设置 → 弹登录页）
 
   // ---------- 基础工具 ----------
-  function esc(s) { return String(s === undefined || s === null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;') }
+  // 安全转义（安全审计 2026-09-26 H1）：必须覆盖 & < > " ' 五类字符，否则属性上下文（如
+  // <img src="...">）可被引号逃逸注入。顺序：& 最先（避免二次转义），引号对属性注入至关重要。
+  function esc(s) {
+    return String(s === undefined || s === null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+  }
 
   function log(msg, cls) {
     var box = $('log')
@@ -263,9 +270,9 @@
     })
   }
 
-  // ---------- 设置页标签（账号 / 机器人控制 / 危险操作） ----------
+  // ---------- 设置页标签（账号 / 危险操作；机器人控制页已移除：控制权与点位同步均由业务自动管理） ----------
   wireTabs('settingsTabs', function (tab) {
-    showPanel('settingsPanel', tab, ['account', 'robot', 'danger'])
+    showPanel('settingsPanel', tab, ['account', 'danger'])
   })
 
   // ---------- 商家管理页标签（创建 / 已创建） ----------
@@ -508,12 +515,13 @@
 
   function wsURL() {
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return proto + '//' + location.host + '/ws?token=' + encodeURIComponent(token()) + '&src=admin'
+    // 安全审计 L7：token 只走 WS 子协议（bearer-<token>），不放 URL query（避免进访问日志/浏览器历史）
+    return proto + '//' + location.host + '/ws'
   }
   function connectWS() {
     if (!token()) return
     if (ws) { try { ws.close() } catch (e) {} ws = null }
-    var sock = new WebSocket(wsURL())
+    var sock = new WebSocket(wsURL(), ['bearer-' + token()])
     ws = sock
     sock.onopen = function () {
       try { sock.send(JSON.stringify({ type: 'sub', topics: ['admin/live'] })) } catch (e) {}
@@ -1099,12 +1107,107 @@
   // ---------- 操作日志（服务端持久化审计：成功与失败都在） ----------
   // 读 GET /admin/audit（后端由 auditMw 中间件统一写入，不依赖前端上报）。
   // 前端内存日志（#log）只作「本次会话回显」，与审计无关。
+  // 人话显示（2026-09-26）：action 机器码 → 中文动作，target（order#12 等）→ 中文对象；
+  // 动作筛选从自由输入改为下拉（值即后端 action 前缀，匹配逻辑不变）。
   var auditState = { offset: 0, limit: 50, total: 0, rows: [], loading: false }
+
+  // action 机器码 → 中文动作（与后端 domains/**/routes.js 的 audit() 标注一一对应）
+  var AUDIT_TEXT = {
+    'admin/login': '登录',
+    'admin/logout': '退出登录',
+    'admin/password': '修改密码',
+    'admin/task-cancel': '取消排队任务',
+    'admin/task-close': '关闭平台任务',
+    'admin/precreate-del': '删除预创建任务',
+    'admin/drawer': '开关舱门',
+    'admin/robot-summon': '召唤机器人',
+    'admin/robot-stop': '驻停机器人',
+    'admin/robot-recover': '恢复机器人任务',
+    'admin/robot-stop-cancel': '停止并取消任务',
+    'admin/robot-cancel-tasks': '取消机器人全部任务',
+    'admin/control-grant': '获取设备控制权',
+    'admin/control-release': '释放设备控制权',
+    'admin/landmarks-sync': '同步平台点位',
+    'admin/order-cancel': '取消订单',
+    'admin/task-close-void': '关闭并作废任务',
+    'admin/batch-cancel': '清理批次',
+    'admin/orders-bulk-cancel': '批量取消订单',
+    'admin/batches-bulk-cancel': '批量取消批次',
+    'admin/tasks-bulk-close-void': '批量关闭作废任务',
+    'admin/reset': '一键初始化',
+    'admin/task-void': '作废任务',
+    'admin/merchant-create': '创建商家账号',
+    'admin/merchant-role': '修改商家权限',
+    'admin/merchant-password': '重置商家密码',
+    'admin/merchant-disable': '停用商家账号',
+    'admin/merchant-enable': '启用商家账号',
+    'admin/merchant-username': '修改商家用户名',
+    'admin/merchant-delete': '删除商家账号',
+    'batch/dispatch': '批次派车',
+    'device/batch-open': '批次开舱',
+    'device/batch-close': '批次关舱',
+    'device/batch-dispatch': '批次开始配送',
+    'test/mock-dispatch': '模拟派车',
+    'test/complete': '测试完成任务',
+    'device/scan': '商家扫码设备',
+    'device/open-bin': '打开舱门',
+    'device/close-bin': '关闭舱门',
+    'device/dispatch': '配送任务下发',
+    'shop/update': '修改店铺设置',
+    'goods/stock': '修改商品库存',
+    'goods/create': '上架商品',
+    'goods/update': '修改商品',
+    'goods/status': '商品上架停售',
+    'activity/create': '创建活动',
+    'activity/update': '修改活动',
+    'activity/status': '活动启停',
+    'activity/delete': '删除活动',
+    'cancel-request/approve': '同意取消申请',
+    'cancel-request/reject': '拒绝取消申请',
+    'refund/approve': '同意退款',
+    'refund/reject': '拒绝退款',
+    'complaint/reply': '回复投诉',
+    'order/confirm': '确认接单',
+    'order/exception-retry': '订单异常重试',
+    'order/exception-refund': '订单异常退款'
+  }
+  // 自动推导动作（后端 auditAction 兜底，形如「admin/order/cancel [POST]」）的路径段中文
+  var AUDIT_SEG = {
+    admin: '管理端', user: '用户端', merchant: '商家端', auth: '登录',
+    order: '订单', goods: '商品', batch: '批次', task: '任务', device: '设备',
+    shop: '店铺', activity: '活动', cart: '购物车', refund: '退款',
+    'cancel-request': '取消申请', complaint: '投诉', platform: '平台',
+    delivery: '配送', landmark: '点位', test: '测试'
+  }
+  var AUDIT_METHOD = { POST: '提交', PUT: '修改', DELETE: '删除', PATCH: '修改' }
+
+  // 动作码 → 人话；显式字典优先，兜底解析「路径 [方法]」形式
+  function auditText(a) {
+    var s = String(a || '')
+    if (AUDIT_TEXT[s]) return AUDIT_TEXT[s]
+    var m = s.match(/^(.*?)\s*\[\s*([A-Z]+)\s*\]$/)
+    if (m) {
+      var segs = String(m[1]).split('/').filter(Boolean)
+      var parts = segs.map(function (x) { return AUDIT_SEG[x] || x })
+      var verb = AUDIT_METHOD[m[2]] || m[2]
+      return parts.concat(verb).join(' · ')
+    }
+    return s || '未知操作'
+  }
+
+  // 对象码（order#12 等）→ 人话
+  function auditTarget(t) {
+    var s = String(t || '')
+    var m = s.match(/^([a-zA-Z_]+)#(.+)$/)
+    if (!m) return s
+    var kind = { order: '订单', batch: '批次', task: '任务', 'platform_task': '平台任务', 'merchant-user': '商家账号', device: '设备', goods: '商品', activity: '活动', refund: '退款单', 'cancel_request': '取消申请', 'one-shot': '全局' }[m[1]]
+    return kind ? kind + ' ' + m[2] : s
+  }
 
   function auditQuery() {
     var role = ($('auditRole') && $('auditRole').value) || 'admin'
     var okv = ($('auditResult') && $('auditResult').value) || ''
-    var act = ($('auditAction') && $('auditAction').value.trim()) || ''
+    var act = ($('auditAction') && $('auditAction').value) || ''
     var qs = '?limit=' + auditState.limit + '&offset=' + auditState.offset + '&role=' + encodeURIComponent(role)
     if (okv !== '') qs += '&ok=' + encodeURIComponent(okv)
     if (act) qs += '&action=' + encodeURIComponent(act)
@@ -1127,9 +1230,9 @@
   }
 
   function auditWho(r) {
-    if (r.user_role === 'admin') return '管理员' + (r.user_id ? '#' + r.user_id : '')
-    if (r.user_role === 'merchant') return '商家' + (r.user_id ? '#' + r.user_id : '')
-    if (r.user_role === 'student') return '用户' + (r.user_id ? '#' + r.user_id : '')
+    if (r.user_role === 'admin') return '管理员' + (r.user_id ? ' #' + r.user_id : '')
+    if (r.user_role === 'merchant') return '商家' + (r.user_id ? ' #' + r.user_id : '')
+    if (r.user_role === 'student') return '用户' + (r.user_id ? ' #' + r.user_id : '')
     return r.user_role || '匿名'
   }
 
@@ -1141,12 +1244,14 @@
     } else {
       box.innerHTML = auditState.rows.map(function (r) {
         var ok = Number(r.ok) === 1
+        var act = auditText(r.action)
+        var tgt = r.target ? auditTarget(r.target) : ''
         return '<div class="audit-row' + (ok ? '' : ' fail') + '">'
           + '<span class="audit-time">' + esc(r.created_at || '') + '</span>'
           + '<span class="audit-badge ' + (ok ? 'ok' : 'err') + '">' + (ok ? '成功' : '失败') + '</span>'
           + '<span class="audit-who">' + esc(auditWho(r)) + '</span>'
-          + '<span class="audit-act">' + esc(r.action || '') + '</span>'
-          + (r.target ? '<span class="audit-tgt">' + esc(r.target) + '</span>' : '')
+          + '<span class="audit-act" title="' + esc(r.action || '') + '">' + esc(act) + '</span>'
+          + (tgt ? '<span class="audit-tgt">' + esc(tgt) + '</span>' : '')
           + '<span class="audit-detail">' + esc(r.detail || '') + '</span>'
           + '<span class="audit-ip">' + esc(r.ip || '') + (Number(r.ms) ? ' · ' + Number(r.ms) + 'ms' : '') + '</span>'
           + '</div>'
@@ -1163,15 +1268,47 @@
 
   // ---------- 操作日志控件绑定 ----------
   ;(function wireAudit() {
+    // 动作筛选下拉：选项 = 常用动作（值即后端 action 前缀，显示中文）
+    var actSel = $('auditAction')
+    if (actSel) {
+      var common = [
+        ['', '全部动作'],
+        ['admin/merchant-create', '创建商家账号'],
+        ['admin/merchant-username', '修改商家用户名'],
+        ['admin/merchant-role', '修改商家权限'],
+        ['admin/merchant-password', '重置商家密码'],
+        ['admin/merchant-disable', '停用商家账号'],
+        ['admin/merchant-enable', '启用商家账号'],
+        ['admin/merchant-delete', '删除商家账号'],
+        ['admin/order-cancel', '取消订单'],
+        ['admin/orders-bulk-cancel', '批量取消订单'],
+        ['admin/batch-cancel', '清理批次'],
+        ['admin/batches-bulk-cancel', '批量取消批次'],
+        ['admin/task-close-void', '关闭并作废任务'],
+        ['admin/task-void', '作废任务'],
+        ['admin/task-close', '关闭平台任务'],
+        ['admin/drawer', '开关舱门'],
+        ['admin/robot-summon', '召唤机器人'],
+        ['admin/robot-stop', '驻停机器人'],
+        ['admin/robot-stop-cancel', '停止并取消任务'],
+        ['admin/reset', '一键初始化'],
+        ['batch/dispatch', '批次派车'],
+        ['device/dispatch', '配送任务下发'],
+        ['device/open-bin', '打开舱门'],
+        ['device/close-bin', '关闭舱门'],
+        ['goods/create', '上架商品'],
+        ['goods/status', '商品上架停售'],
+        ['refund/approve', '同意退款'],
+        ['cancel-request/approve', '同意取消申请'],
+        ['admin/login', '登录']
+      ]
+      actSel.innerHTML = common.map(function (o) {
+        return '<option value="' + esc(o[0]) + '">' + esc(o[1]) + '</option>'
+      }).join('')
+    }
     var role = $('auditRole'); if (role) role.addEventListener('change', function () { loadAudit(true) })
     var res = $('auditResult'); if (res) res.addEventListener('change', function () { loadAudit(true) })
-    var act = $('auditAction')
-    if (act) {
-      act.addEventListener('input', function () {
-        clearTimeout(act._t)
-        act._t = setTimeout(function () { loadAudit(true) }, 220)
-      })
-    }
+    if (actSel) actSel.addEventListener('change', function () { loadAudit(true) })
     var reload = $('auditReload'); if (reload) reload.addEventListener('click', function () { loadAudit(false) })
     var prev = $('auditPrev')
     if (prev) prev.addEventListener('click', function () {
@@ -1188,9 +1325,11 @@
   })()
 
 
-  // ---------- 商家管理（商家账号：创建 / 列表 / 改角色 / 重置密码 / 禁用启用，2026-09-24 起替代邀请码） ----------
+  // ---------- 商家管理（商家账号：创建 / 列表 / 编辑 / 停用启用，2026-09-24 起替代邀请码） ----------
   // 后端：/api/admin/merchants*（admin 域）。商家端登录 = 用户名+密码（scrypt），角色 owner=店主 / staff=店员。
   // 说明：密码只在创建/重置时输入；列表永不返回密码与 token。
+  // 结构（2026-09-26 调整）：列表每行只留「编辑」与「启用/停用」两个按钮（启用绿、停用红便于区分）；
+  // 修改权限 / 重置密码 / 删除账号 / 修改用户名 全部收敛进「编辑」弹窗。
   var merchantsCache = null
 
   function loadMerchants() {
@@ -1204,6 +1343,10 @@
     })
   }
   window.loadMerchants = loadMerchants
+
+  function merchantById(id) {
+    return (merchantsCache && merchantsCache.merchants || []).find(function (x) { return x.id === id })
+  }
 
   function renderMerchants() {
     var list = $('merchantList')
@@ -1222,41 +1365,38 @@
       html += '<div class="merchant-row">'
         + '<div class="merchant-main">'
         + '<div class="merchant-name">' + esc(m.username || '') + ' <span class="tag ' + roleCls + '">' + roleTxt + '</span> <span class="tag ' + stateCls + '">' + stateTxt + '</span></div>'
-        + '<div class="mini">' + (m.name ? esc(m.name) + ' · ' : '') + '创建于 ' + esc(m.created_at || '') + '</div>'
+        + '<div class="mini">创建于 ' + esc(m.created_at || '') + '</div>'
         + '</div>'
         + '<div class="merchant-ops">'
-        + '<button class="btn ghost sm" onclick="merchantRole(' + m.id + ')">改角色</button>'
-        + '<button class="btn ghost sm" onclick="merchantPassword(' + m.id + ')">重置密码</button>'
+        + '<button class="btn ghost sm" onclick="merchantEdit(' + m.id + ')">编辑</button>'
         + (m.active
-            ? '<button class="btn ghost sm" onclick="merchantDisable(' + m.id + ')">停用</button>'
-            : '<button class="btn ghost sm" onclick="merchantEnable(' + m.id + ')">启用</button>')
+            ? '<button class="btn danger sm" onclick="merchantDisable(' + m.id + ')">停用</button>'
+            : '<button class="btn ok sm" onclick="merchantEnable(' + m.id + ')">启用</button>')
         + '</div>'
         + '</div>'
     })
     list.innerHTML = html
   }
 
-  // 创建：用户名+密码+角色
+  // 创建：用户名+密码+权限（店名不再收集：单店铺模式，账号即登录身份）
   function merchantCreate() {
     var username = $('merchantUsername').value.trim()
     var password = $('merchantPassword').value
-    var nickname = $('merchantName').value.trim()
     var role = document.querySelector('input[name="merchantRole"]:checked')
     var msg = $('merchantCreateMsg')
     if (!username) { msg.className = 'token-msg err'; msg.innerHTML = '请填写用户名'; return }
-    if (password.length < 6) { msg.className = 'token-msg err'; msg.innerHTML = '密码至少 6 位'; return }
+    if (password.length < 8) { msg.className = 'token-msg err'; msg.innerHTML = '密码至少 8 位'; return }
     $('merchantCreate').disabled = true
     msg.className = 'token-msg'; msg.innerHTML = '创建中…'
     api('/merchants/create', 'POST', {
       username: username,
       password: password,
-      nickname: nickname,
       merchant_role: role && role.value === 'owner' ? 'owner' : 'staff'
     }).then(function () {
       $('merchantCreate').disabled = false
       msg.className = 'token-msg ok'
       msg.innerHTML = '已创建：' + esc(username)
-      $('merchantUsername').value = ''; $('merchantPassword').value = ''; $('merchantName').value = ''
+      $('merchantUsername').value = ''; $('merchantPassword').value = ''
       loadMerchants()
     }).catch(function (e) {
       $('merchantCreate').disabled = false
@@ -1266,37 +1406,112 @@
   }
   window.merchantCreate = merchantCreate
 
-  function merchantRole(id) {
-    var m = (merchantsCache && merchantsCache.merchants || []).find(function (x) { return x.id === id })
-    if (!m) return
-    var next = m.merchant_role === 'owner' ? 'staff' : 'owner'
-    var nextTxt = next === 'owner' ? '店主' : '店员'
-    openConfirmModal('修改角色', '将 <b>' + esc(m.username) + '</b> 的角色改为 <b>' + nextTxt + '</b>？', function () {
-      api('/merchants/role', 'PUT', { id: id, merchant_role: next }).then(function () {
-        toast('角色已改为' + nextTxt, 'ok')
-        loadMerchants()
-      }).catch(function (e) { opFail(e, '改角色') })
-    })
-  }
-  window.merchantRole = merchantRole
+  // ---------- 编辑弹窗：用户名 / 权限 / 重置密码 / 删除账号，右下角统一保存 ----------
+  var merchantEditId = null
 
-  function merchantPassword(id) {
-    var m = (merchantsCache && merchantsCache.merchants || []).find(function (x) { return x.id === id })
+  function merchantEdit(id) {
+    var m = merchantById(id)
     if (!m) return
-    var input = '<div class="token-box"><span class="token-label">新密码</span>'
-      + '<div class="token-input-wrap"><input id="merchantNewPass" type="password" placeholder="至少 6 位" autocomplete="off"></div></div>'
-    openConfirmModal('重置密码', '为 <b>' + esc(m.username) + '</b> 设置新密码（将强制重新登录）：' + input, function () {
-      var np = $('merchantNewPass') ? $('merchantNewPass').value : ''
-      if (String(np).length < 6) { toast('新密码至少 6 位', 'err'); return }
-      api('/merchants/password', 'POST', { id: id, password: np }).then(function () {
-        toast('密码已重置', 'ok')
-      }).catch(function (e) { opFail(e, '重置密码') })
+    merchantEditId = id
+    var html = ''
+      + '<div class="token-box">'
+      + '<span class="token-label">用户名</span>'
+      + '<div class="token-input-wrap"><input id="merEditUsername" value="' + esc(m.username || '') + '" placeholder="2~32 位字母/数字/下划线" autocomplete="off" spellcheck="false"></div>'
+      + '</div>'
+      + '<div class="token-box">'
+      + '<span class="token-label">权限</span>'
+      + '<div class="row-radio">'
+      + '<label class="radio"><input type="radio" name="merEditRole" value="owner" ' + (m.merchant_role === 'owner' ? 'checked' : '') + '><span>店主</span></label>'
+      + '<label class="radio"><input type="radio" name="merEditRole" value="staff" ' + (m.merchant_role !== 'owner' ? 'checked' : '') + '><span>店员</span></label>'
+      + '</div>'
+      + '</div>'
+      + '<div class="token-box">'
+      + '<span class="token-label">重置密码</span>'
+      + '<button class="btn ghost sm" type="button" onclick="merchantEditTogglePass()"><svg><use href="#i-key"/></svg><span>重置密码</span></button>'
+      + '<div class="token-input-wrap" id="merEditPassWrap" hidden>'
+      + '<input id="merEditPass" type="password" placeholder="新密码（至少 8 位）" autocomplete="new-password" spellcheck="false">'
+      + '</div>'
+      + '</div>'
+      + '<div class="token-msg" id="merchantEditMsg"></div>'
+    $('merchantEditTitle').textContent = '编辑商家账号'
+    $('merchantEditBody').innerHTML = html
+    $('merchantEditModal').hidden = false
+    var first = $('merEditUsername'); if (first) { try { first.focus() } catch (e) {} }
+  }
+  window.merchantEdit = merchantEdit
+  window.closeMerchantEdit = function () { $('merchantEditModal').hidden = true; merchantEditId = null }
+  $('merchantEditModal').addEventListener('click', function (e) {
+    if (e.target === $('merchantEditModal')) closeMerchantEdit()
+  })
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !$('merchantEditModal').hidden) closeMerchantEdit()
+  })
+
+  // 重置密码按钮：点击展开新密码输入框（再次点击收起）
+  function merchantEditTogglePass() {
+    var wrap = $('merEditPassWrap')
+    if (wrap) wrap.hidden = !wrap.hidden
+    if (!wrap.hidden) { var p = $('merEditPass'); if (p) { try { p.focus() } catch (e) {} } }
+  }
+  window.merchantEditTogglePass = merchantEditTogglePass
+
+  // 统一保存：用户名 / 权限 / 密码 只提交有变更的字段，逐个落库；全部成功才关弹窗
+  function merchantEditSave() {
+    var m = merchantById(merchantEditId)
+    if (!m) return
+    var msg = $('merchantEditMsg')
+    var tasks = []
+    var nu = $('merEditUsername') ? $('merEditUsername').value.trim() : ''
+    if (nu !== m.username) {
+      if (!/^[A-Za-z0-9_]{2,32}$/.test(nu)) { if (msg) { msg.className = 'token-msg err'; msg.innerHTML = '用户名限 2~32 位字母/数字/下划线' } ; return }
+      tasks.push({ label: '用户名', fn: function () { return api('/merchants/username', 'PUT', { id: merchantEditId, username: nu }) } })
+    }
+    var sel = document.querySelector('input[name="merEditRole"]:checked')
+    var nr = sel && sel.value === 'owner' ? 'owner' : 'staff'
+    if (nr !== m.merchant_role) {
+      tasks.push({ label: '权限', fn: function () { return api('/merchants/role', 'PUT', { id: merchantEditId, merchant_role: nr }) } })
+    }
+    var np = $('merEditPass') ? $('merEditPass').value : ''
+    if (np) {
+      if (String(np).length < 8) { if (msg) { msg.className = 'token-msg err'; msg.innerHTML = '新密码至少 8 位' } ; return }
+      tasks.push({ label: '密码', fn: function () { return api('/merchants/password', 'POST', { id: merchantEditId, password: np }) } })
+    }
+    if (!tasks.length) { if (msg) { msg.className = 'token-msg warn'; msg.innerHTML = '没有需要保存的修改' } ; return }
+    if (msg) { msg.className = 'token-msg'; msg.innerHTML = '保存中…' }
+    var i = 0
+    function next() {
+      if (i >= tasks.length) {
+        if (msg) { msg.className = 'token-msg ok'; msg.innerHTML = '已保存' }
+        toast('商家账号已保存', 'ok')
+        loadMerchants()
+        setTimeout(closeMerchantEdit, 400)
+        return
+      }
+      tasks[i].fn().then(function () { i++; next() }).catch(function (e) {
+        if (msg) { msg.className = 'token-msg err'; msg.innerHTML = esc((e && e.message) || '保存失败') }
+        opFail(e, '保存商家账号')
+      })
+    }
+    next()
+  }
+  window.merchantEditSave = merchantEditSave
+
+  // 删除该账号（右下角）：二次确认后物理删除，历史订单不受影响
+  function merchantDelete() {
+    var m = merchantById(merchantEditId)
+    if (!m) return
+    openConfirmModal('删除商家账号', '删除后 <b>' + esc(m.username || '') + '</b> 将无法登录，不可恢复。确定删除？', function () {
+      api('/merchants/delete', 'POST', { id: merchantEditId }).then(function () {
+        toast('账号已删除', 'ok')
+        closeMerchantEdit()
+        loadMerchants()
+      }).catch(function (e) { opFail(e, '删除账号') })
     })
   }
-  window.merchantPassword = merchantPassword
+  window.merchantDelete = merchantDelete
 
   function merchantDisable(id) {
-    var m = (merchantsCache && merchantsCache.merchants || []).find(function (x) { return x.id === id })
+    var m = merchantById(id)
     var name = m ? (m.username || '') : ''
     openConfirmModal('停用账号', '停用后 <b>' + esc(name || '该账号') + '</b> 将无法登录（已登录也会失效）。确定停用？', function () {
       api('/merchants/disable', 'POST', { id: id }).then(function () {
@@ -1436,7 +1651,7 @@
   window.actSummon = function () {
     api('/robot/summon-targets', 'GET').then(function (d) {
       var targets = (d && d.targets) || []
-      if (!targets.length) { toast('无可召唤点位（请先在设置页同步点位）', 'err'); return }
+      if (!targets.length) { toast('暂无可召唤点位', 'err'); return }
       var groups = { loadingPoint: [], chargePoint: [], deliverPoint: [] }
       targets.forEach(function (t) { (groups[t.type] || (groups[t.type] = [])).push(t) })
       var order = [['loadingPoint', '上货点'], ['chargePoint', '充电点'], ['deliverPoint', '取货点']]
@@ -1492,15 +1707,8 @@
   }
 
   // ---------- 设置页：控制权 / 点位 ----------
-  window.actGrant = function () {
-    var sn = state && state.robot ? state.robot.device_sn : ''
-    run('获取控制权 ' + sn, '/control/grant', { device_sn: sn }, '控制权已获取（系统已记住控制权 ID）')
-  }
-  window.actRelease = function () {
-    var sn = state && state.robot ? state.robot.device_sn : ''
-    run('释放控制权 ' + sn, '/control/release', { device_sn: sn }, '控制权已释放')
-  }
-  window.actSyncLm = function () { run('同步点位', '/landmarks/sync', {}, '点位已同步') }
+  // 2026-09-26 移除：设备控制权与点位同步均由业务路径自动管理（扫码开舱自动获取、派车缺映射自动同步），
+  // 管理员手动入口无使用场景，随「机器人控制」页一并删除（后端接口保留）。
 
   // 一键初始化（危险）：关闭全部平台任务 + 释放全部控制权 + 删除全部活跃订单 + 批次置4
   $('reset').onclick = function () {

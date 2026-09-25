@@ -32,6 +32,7 @@
     <view class="pickup">
       <view class="pickup-label">取餐码</view>
       <view class="pickup-code">{{order.pickup_code}}</view>
+      <view class="pickup-copy" hover-class="pickup-copy-hover" hover-stay-time="80" bindtap="copyText" data-text="{{order.pickup_code}}">复制取餐码</view>
       <view class="pickup-tip text-weak text-sm">机器人到达后，扫车身二维码并输入该取餐码即可开舱</view>
     </view>
   </view>
@@ -46,7 +47,7 @@
   <view class="card">
     <view class="section-title">配送信息</view>
     <view class="info-row"><text class="info-label">送达点位</text><text>{{order.landmark_name}}</text></view>
-    <view class="info-row"><text class="info-label">订单编号</text><text>{{order.order_no}}</text></view>
+    <view class="info-row"><text class="info-label">订单编号</text><view class="info-value"><text class="info-text">{{order.order_no}}</text><view class="copy-btn" hover-class="copy-btn-hover" hover-stay-time="80" bindtap="copyText" data-text="{{order.order_no}}">复制</view></view></view>
     <view class="info-row" wx:if="{{order.remark}}"><text class="info-label">备注</text><text>{{order.remark}}</text></view>
     <view class="info-row"><text class="info-label">下单时间</text><text>{{order.created_at}}</text></view>
   </view>

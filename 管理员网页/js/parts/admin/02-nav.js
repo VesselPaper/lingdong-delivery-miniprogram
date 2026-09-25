@@ -120,9 +120,9 @@
     })
   }
 
-  // ---------- 设置页标签（账号 / 机器人控制 / 危险操作） ----------
+  // ---------- 设置页标签（账号 / 危险操作；机器人控制页已移除：控制权与点位同步均由业务自动管理） ----------
   wireTabs('settingsTabs', function (tab) {
-    showPanel('settingsPanel', tab, ['account', 'robot', 'danger'])
+    showPanel('settingsPanel', tab, ['account', 'danger'])
   })
 
   // ---------- 商家管理页标签（创建 / 已创建） ----------

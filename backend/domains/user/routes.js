@@ -28,11 +28,13 @@ module.exports = (store, deps) => {
   })
 
   // ---------- 用户资料 ----------
-  router.get('/user/profile', auth, (req, res) => ok(res, req.user))
+  // 安全审计 M1：只返回白名单字段（id/nickname/avatar/phone/role/…），
+  // 绝不把 password_hash / token / openid 下发给客户端（openid 即用户端会话凭据）。
+  router.get('/user/profile', auth, (req, res) => ok(res, service.sanitizeUser(req.user)))
 
   router.put('/user/profile', auth, (req, res) => {
     q.updateProfile(store, req.user.id, req.body.nickname, req.body.phone, req.body.avatar)
-    ok(res, q.findById(store, req.user.id))
+    ok(res, service.sanitizeUser(q.findById(store, req.user.id)))
   })
 
   // ---------- 头像上传 ----------
@@ -62,7 +64,7 @@ module.exports = (store, deps) => {
       }
     }
     q.updateProfile(store, req.user.id, undefined, undefined, '/uploads/' + fname)
-    ok(res, q.findById(store, req.user.id))
+    ok(res, service.sanitizeUser(q.findById(store, req.user.id)))
   })
 
   // ---------- 当前配送楼栋 ----------
@@ -120,16 +122,20 @@ module.exports = (store, deps) => {
 
   router.post('/address/save', auth, (req, res) => {
     const { id, contact_name, contact_phone, landmark_id, landmark_name, detail, is_default } = req.body || {}
+    // 安全审计 L5：地址簿文本截断，防无界文本撑库
+    const cname = String(contact_name || '').slice(0, 30)
+    const cdetail = String(detail || '').slice(0, 200)
+    const lmName = String(landmark_name || '').slice(0, 50)
     // landmark_id 显式转字符串存储（node:sqlite 把整数绑定到 TEXT 列会存成 "2.0"，导致与点位 id 无法字符串匹配）
     const lmId = landmark_id === undefined || landmark_id === null ? '' : String(landmark_id)
     if (is_default) q.clearDefault(store, req.user.id)
     // 默认地址同时就是「当前配送楼栋」：一并更新三处共用的后端字段，
     // 这样在我的页把某地址设为默认后，首页顶部与结算页的楼栋会立刻跟着变。
-    if (is_default && lmId) q.updatePoint(store, req.user.id, lmId, landmark_name)
+    if (is_default && lmId) q.updatePoint(store, req.user.id, lmId, lmName)
     if (id) {
-      q.addressUpdate(store, id, req.user.id, { contact_name, contact_phone, lmId, landmark_name, detail, is_default })
+      q.addressUpdate(store, id, req.user.id, { contact_name: cname, contact_phone, lmId, landmark_name: lmName, detail: cdetail, is_default })
     } else {
-      q.addressInsert(store, req.user.id, { contact_name, contact_phone, lmId, landmark_name, detail, is_default })
+      q.addressInsert(store, req.user.id, { contact_name: cname, contact_phone, lmId, landmark_name: lmName, detail: cdetail, is_default })
     }
     ok(res)
   })

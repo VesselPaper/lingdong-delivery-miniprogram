@@ -68,12 +68,13 @@
 
   function wsURL() {
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return proto + '//' + location.host + '/ws?token=' + encodeURIComponent(token()) + '&src=admin'
+    // 安全审计 L7：token 只走 WS 子协议（bearer-<token>），不放 URL query（避免进访问日志/浏览器历史）
+    return proto + '//' + location.host + '/ws'
   }
   function connectWS() {
     if (!token()) return
     if (ws) { try { ws.close() } catch (e) {} ws = null }
-    var sock = new WebSocket(wsURL())
+    var sock = new WebSocket(wsURL(), ['bearer-' + token()])
     ws = sock
     sock.onopen = function () {
       try { sock.send(JSON.stringify({ type: 'sub', topics: ['admin/live'] })) } catch (e) {}

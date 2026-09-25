@@ -148,7 +148,9 @@
                   <option value="1">仅成功</option>
                   <option value="0">仅失败</option>
                 </select>
-                <input id="auditAction" class="audit-input" placeholder="按动作筛选，如 order-cancel" autocomplete="off">
+                <select id="auditAction" class="filter audit-select" title="按动作筛选">
+                  <option value="">全部动作</option>
+                </select>
                 <button class="btn ghost sm" id="auditReload"><svg><use href="#i-refresh"/></svg><span>刷新日志</span></button>
               </div>
             </div>
@@ -208,7 +210,6 @@
       <div class="page-head">
         <div class="tabs" id="settingsTabs">
           <button class="tab active" data-tab="account">账号</button>
-          <button class="tab" data-tab="robot">机器人控制</button>
           <button class="tab" data-tab="danger">危险操作</button>
         </div>
       </div>
@@ -238,24 +239,6 @@
               <button id="savePass" class="btn">修改密码</button>
             </div>
             <div class="token-msg" id="tokenMsg"></div>
-          </section>
-        </div>
-
-        <div class="tab-panel" id="settingsPanelRobot" hidden>
-          <section class="card col-12">
-            <div class="card-head"><h2><svg class="h-ico"><use href="#i-power"/></svg>设备控制权</h2></div>
-            <p class="card-note">控制权用于避免多指令并发冲突。获取后系统会记住控制权 ID，「释放」无需再手工填写。</p>
-            <div class="row">
-              <button class="btn ghost" onclick="actGrant()">获取控制权</button>
-              <button class="btn ghost" onclick="actRelease()">释放控制权</button>
-            </div>
-          </section>
-          <section class="card col-12">
-            <div class="card-head"><h2><svg class="h-ico"><use href="#i-pin"/></svg>平台点位</h2></div>
-            <p class="card-note">从平台同步上货点 / 取货点 / 充电点到本地库；召唤与配送选点依赖这份数据。</p>
-            <div class="row">
-              <button class="btn ghost" onclick="actSyncLm()">同步点位</button>
-            </div>
           </section>
         </div>
 
@@ -292,14 +275,10 @@
               <div class="token-input-wrap"><input id="merchantPassword" type="password" placeholder="至少 6 位" autocomplete="new-password" spellcheck="false"></div>
             </div>
             <div class="token-box">
-              <span class="token-label">店名</span>
-              <div class="token-input-wrap"><input id="merchantName" placeholder="选填（如：东苑1栋）" autocomplete="off" spellcheck="false"></div>
-            </div>
-            <div class="token-box">
-              <span class="token-label">角色</span>
+              <span class="token-label">权限</span>
               <div class="row-radio">
-                <label class="radio"><input type="radio" name="merchantRole" value="staff" checked><span>店员</span></label>
                 <label class="radio"><input type="radio" name="merchantRole" value="owner"><span>店主</span></label>
+                <label class="radio"><input type="radio" name="merchantRole" value="staff" checked><span>店员</span></label>
               </div>
             </div>
             <div class="row">
@@ -363,6 +342,20 @@
     <div class="modal-foot">
       <button class="btn ghost" id="confirmCancel" onclick="closeConfirmModal()">取消</button>
       <button class="btn danger" id="confirmOk">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑商家账号（用户名 / 权限 / 重置密码 / 删除账号，右下角统一保存） -->
+<div class="modal-mask" id="merchantEditModal" hidden>
+  <div class="modal">
+    <div class="modal-head"><h3 id="merchantEditTitle">编辑商家账号</h3><button class="modal-x" onclick="closeMerchantEdit()" title="关闭"><svg><use href="#i-close"/></svg></button></div>
+    <div class="modal-body" id="merchantEditBody"></div>
+    <div class="modal-foot">
+      <button class="btn ghost" onclick="closeMerchantEdit()">取消</button>
+      <span class="spacer"></span>
+      <button class="btn danger ghost" onclick="merchantDelete()"><svg><use href="#i-trash"/></svg><span>删除该账号</span></button>
+      <button class="btn ok" onclick="merchantEditSave()">保存</button>
     </div>
   </div>
 </div>

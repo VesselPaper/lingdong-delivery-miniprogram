@@ -11,6 +11,25 @@ const service = require('./service')
 
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads')
 
+// 安全审计 2026-09-26 H1/L4/L5：图片地址白名单 + 价格/文本长度校验。
+// image 只允许后端自有相对路径（/uploads、/store-img）或 http(s) 外链，杜绝
+// 「x" onerror=…」这类属性注入字符串入库（管理页 <img src> 渲染曾被引号逃逸）。
+// 返回 ''（空）、字符串（合法）或 null（非法，调用方 400）。
+function safeImageUrl(v) {
+  const s = String(v === undefined || v === null ? '' : v).trim()
+  if (!s) return ''
+  if (s.indexOf('/uploads/') === 0 || s.indexOf('/store-img/') === 0) return s.slice(0, 300)
+  if (/^https?:\/\/[^\s"'<>\\]{1,500}$/.test(s)) return s
+  return null
+}
+function cleanText(v, max) {
+  return String(v === undefined || v === null ? '' : v).trim().slice(0, max)
+}
+function checkPrice(p) {
+  const n = Number(p)
+  return Number.isFinite(n) && n >= 0 && n <= 9999 ? n : null
+}
+
 module.exports = (store, deps) => {
   const { merchantGuard, ownerGuard, audit, ok } = createShared(store)
   const runtime = deps.runtime
@@ -98,11 +117,25 @@ module.exports = (store, deps) => {
   // 新建商品：店主专属（含定价）
   router.post('/merchant/goods', ownerGuard, (req, res) => {
     const { name, price, original_price, image, category, stock, description, barcode, unit } = req.body || {}
-    if (!name) return res.status(400).json({ code: 400, msg: '商品名称不能为空' })
+    const n = String(name || '').trim()
+    if (!n) return res.status(400).json({ code: 400, msg: '商品名称不能为空' })
+    if (n.length > 100) return res.status(400).json({ code: 400, msg: '商品名称过长' })
+    const p = checkPrice(price)
+    if (p === null) return res.status(400).json({ code: 400, msg: '价格不合法（0~9999）' })
+    const img = safeImageUrl(image)
+    if (img === null) return res.status(400).json({ code: 400, msg: '图片地址不合法' })
     // 库存缺省 99：与商家端表单提示「不填默认 99」保持一致
     const st = toStock(stock, 99)
-    const id = q.insert(store, { name, price, original_price, image, category, stock: st, description, barcode, unit })
-    audit(req, 'goods/create', 'goods#' + id, 'name=' + name + ' price=' + price + ' stock=' + st)
+    const id = q.insert(store, {
+      name: n, price: p,
+      original_price: Math.max(0, Number(original_price) || 0),
+      image: img,
+      category: cleanText(category || '', 50),
+      stock: st,
+      description: cleanText(description || '', 500),
+      barcode, unit
+    })
+    audit(req, 'goods/create', 'goods#' + id, 'name=' + n + ' price=' + p + ' stock=' + st)
     ok(res, { id })
   })
 
@@ -112,15 +145,31 @@ module.exports = (store, deps) => {
     if (!id) return res.status(400).json({ code: 400, msg: '缺少商品 id' })
     const cur = q.findById(store, id)
     if (!cur) return res.status(404).json({ code: 404, msg: '商品不存在' })
+    // 未传字段保留原值；传了则按新值校验
+    const n = name === undefined ? cur.name : String(name || '').trim()
+    if (!n) return res.status(400).json({ code: 400, msg: '商品名称不能为空' })
+    if (n.length > 100) return res.status(400).json({ code: 400, msg: '商品名称过长' })
+    const p = price === undefined ? Number(cur.price) : checkPrice(price)
+    if (p === null) return res.status(400).json({ code: 400, msg: '价格不合法（0~9999）' })
+    let img = cur.image || ''
+    if (image !== undefined) {
+      img = safeImageUrl(image)
+      if (img === null) return res.status(400).json({ code: 400, msg: '图片地址不合法' })
+    }
     // 编辑商品时未传 stock 字段 → 保留原库存；传了（含 0）→ 用传入值（修复「设 0 被重置」）
     const st = stock === undefined || stock === null || stock === '' ? cur.stock : toStock(stock, 99)
     q.update(store, id, {
-      name, price, original_price, image, category, stock: st, description,
+      name: n, price: p,
+      original_price: original_price === undefined ? Number(cur.original_price || 0) : Math.max(0, Number(original_price) || 0),
+      image: img,
+      category: category === undefined ? cur.category : cleanText(category || '', 50),
+      stock: st,
+      description: description === undefined ? cur.description : cleanText(description || '', 500),
       status: status !== undefined ? Number(status) : 1,
       barcode: barcode !== undefined ? barcode : (cur.barcode || ''),
       unit: unit !== undefined ? unit : (cur.unit || '')
     })
-    audit(req, 'goods/update', 'goods#' + id, 'name=' + name + ' price=' + price + ' stock=' + st + ' status=' + (status !== undefined ? status : 1))
+    audit(req, 'goods/update', 'goods#' + id, 'name=' + n + ' price=' + p + ' stock=' + st + ' status=' + (status !== undefined ? status : 1))
     ok(res)
   })
 
@@ -135,10 +184,20 @@ module.exports = (store, deps) => {
 
   router.post('/merchant/activities', ownerGuard, (req, res) => {
     const { title, subtitle = '', image = '', link = '', sort = 0, type = 'custom', config, start_at = '', end_at = '' } = req.body || {}
-    if (!title) return res.status(400).json({ code: 400, msg: '活动标题不能为空' })
+    const t = String(title || '').trim()
+    if (!t) return res.status(400).json({ code: 400, msg: '活动标题不能为空' })
+    if (t.length > 60) return res.status(400).json({ code: 400, msg: '活动标题过长' })
+    const img = safeImageUrl(image)
+    if (img === null) return res.status(400).json({ code: 400, msg: '活动图片地址不合法' })
     const cfgJson = typeof config === 'string' ? config : JSON.stringify(config || {})
-    const id = q.insertActivity(store, { title, subtitle, image, link, sort, type, config: cfgJson, start_at, end_at })
-    audit(req, 'activity/create', 'activity#' + id, 'title=' + title + ' type=' + type)
+    const id = q.insertActivity(store, {
+      title: t,
+      subtitle: cleanText(subtitle, 120),
+      image: img,
+      link: cleanText(link, 300),
+      sort, type, config: cfgJson, start_at, end_at
+    })
+    audit(req, 'activity/create', 'activity#' + id, 'title=' + t + ' type=' + type)
     ok(res, { id })
   })
 
@@ -147,8 +206,22 @@ module.exports = (store, deps) => {
     if (!id) return res.status(400).json({ code: 400, msg: '缺少活动ID' })
     const cur = q.findActivityById(store, id)
     if (!cur) return res.status(404).json({ code: 404, msg: '活动不存在' })
-    q.updateActivity(store, id, { title, subtitle, image, link, sort, type, config, start_at, end_at, cur })
-    audit(req, 'activity/update', 'activity#' + id, 'title=' + (title !== undefined ? title : cur.title) + ' type=' + (type !== undefined ? type : cur.type))
+    const t = title === undefined ? cur.title : String(title || '').trim()
+    if (!t) return res.status(400).json({ code: 400, msg: '活动标题不能为空' })
+    if (t.length > 60) return res.status(400).json({ code: 400, msg: '活动标题过长' })
+    let img = cur.image || ''
+    if (image !== undefined) {
+      img = safeImageUrl(image)
+      if (img === null) return res.status(400).json({ code: 400, msg: '活动图片地址不合法' })
+    }
+    q.updateActivity(store, id, {
+      title: t,
+      subtitle: subtitle === undefined ? cur.subtitle : cleanText(subtitle, 120),
+      image: img,
+      link: link === undefined ? cur.link : cleanText(link, 300),
+      sort, type, config, start_at, end_at, cur
+    })
+    audit(req, 'activity/update', 'activity#' + id, 'title=' + t + ' type=' + (type !== undefined ? type : cur.type))
     ok(res)
   })
 

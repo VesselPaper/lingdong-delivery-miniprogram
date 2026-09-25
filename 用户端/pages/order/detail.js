@@ -106,5 +106,11 @@ Page({
 
   goRefund() {
     wx.navigateTo({ url: '/pages/order/refund?order_id=' + this.data.id })
+  },
+
+  // 详情页码复制：订单号 / 取餐码 / 批次号
+  copyText(e) {
+    const text = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.text : ''
+    wx.setClipboardData({ data: String(text == null ? '' : text) })
   }
 })

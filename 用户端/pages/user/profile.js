@@ -80,9 +80,10 @@ Page({
     wx.navigateTo({ url: '/pages/user/login' })
   },
 
-  // 头像按钮被点：未登录时 open-type 为空串（不会弹微信头像选择器），这里引导去登录
+  // 头像按钮被点：未登录时 open-type 为空串（不会弹微信头像选择器），这里引导去登录。
+  // 安全审计 M1：后端不再下发 openid，登录态判断改用保留字段 user.id
   onAvatarTap() {
-    if (!this.data.user.openid) this.goLogin()
+    if (!this.data.user.id) this.goLogin()
   },
 
   // 微信头像选择器回调（open-type="chooseAvatar"）：上传后直接用后端返回的用户刷新卡片
@@ -92,7 +93,7 @@ Page({
 
   // 头像区点击：未登录 → 登录页；已登录 → 编辑个人信息
   onUserTap() {
-    if (this.data.user && this.data.user.openid) {
+    if (this.data.user && this.data.user.id) {
       wx.navigateTo({ url: '/pages/user/editProfile' })
     } else {
       this.goLogin()

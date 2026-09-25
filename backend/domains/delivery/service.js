@@ -311,8 +311,8 @@ async function doDispatchBatch(store, deps, batchId, deviceSn) {
       await deps.platform.createTasksForBatch(store, b, orders, [])
     }
     // 召唤多单配送：不创建任何越凡配送任务，仅定型设备；路线与逐点召唤在「立即配送」时进行。
-    // 兜底置为配送中（已由并入批次时置 2）
-    store.prepare("UPDATE orders SET status=2, updated_at=datetime('now','localtime') WHERE batch_id=? AND status=1").run(batchId)
+    // 兜底置为配送中（已由并入批次时置 2；订单状态迁移走 order 域收口）
+    deps.order.markOrderInBatchStart(store, batchId)
     console.log('[batch] 批次定型 ' + b.batch_no + ' 共' + orders.length + '单（路线待开始配送时规划）')
     // 定型完成推送：商家端收到后刷新列表（组单中批次 → 待上货），否则卡面会一直停在「组单中」
     if (deps.push && deps.push.broadcast) {
@@ -585,7 +585,7 @@ function scanStuckDeliveries(store, deps) {
       SELECT d.id, d.order_id, d.task_status FROM delivery_tasks d JOIN orders o ON o.id = d.order_id
       WHERE o.status = 2 AND d.task_status NOT IN (70,80,110,150) AND d.void_at IS NULL AND d.updated_at < ?`).all(cs)
     for (const r of rows) {
-      store.prepare("UPDATE orders SET status=6, updated_at=datetime('now','localtime') WHERE id=? AND status=2").run(r.order_id)
+      deps.order.markOrderException(store, r.order_id) // 1/2/3→6（order 域收口，带守卫+CAS）
       store.prepare("UPDATE delivery_tasks SET status_text='机器人长时间未接单或任务挂起（超时' + (?) + '分钟），订单已标记配送异常', updated_at=datetime('now','localtime') WHERE id=?")
         .run(Math.round(DELIVERY_TIMEOUT_MS / 60000), r.id)
       console.warn('[delivery] 配送超时未接单 → 配送异常 order=' + r.order_id + ' task=' + r.id + ' task_status=' + r.task_status)
@@ -603,7 +603,7 @@ function processMockArrivals(store, deps) {
     const orderIds = store.prepare('SELECT id FROM orders WHERE batch_id=? AND status=2').all(b.id).map((r) => r.id)
     for (const oid of orderIds) {
       q.setTaskStatusByOrder(store, oid, 70, '到达取货点（模拟）')
-      store.prepare("UPDATE orders SET status=3, delivered_at=COALESCE(delivered_at, datetime('now','localtime')), updated_at=datetime('now','localtime') WHERE id=?").run(oid)
+      deps.order.markOrderDelivered(store, oid) // 2→3（order 域收口，带守卫+CAS；delivered_at 由收口写入）
       try { deps.goods.settleSales(store, oid) } catch (e) { /* 忽略 */ }
     }
     reconcileBatchState(store, b.id)

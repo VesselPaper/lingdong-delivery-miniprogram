@@ -7,6 +7,8 @@
 //   ③ 车空闲/待机/充电/返程(return*)                  → summonToLoadingPoint(该车)，记录 light_task_id。
 //   ④ 车离线/异常                                     → 跳过 + 日志（绝不对故障车硬发召唤）。
 // 防抖：AUTO_LOAD_DEBOUNCE_MS 内多单只评估一次，避免召唤刷屏。
+// 按批次化（结构评审 P2）：防抖计时器按 batchId 分桶（Map<batchId, timer>），
+// 多批次并发组单时各自独立评估，不再被「最新批次」全局态吞掉；未传批次时退回最新批次兜底。
 
 const AUTO_LOAD_DEBOUNCE_MS = Number(process.env.AUTO_LOAD_DEBOUNCE_MS || 5 * 1000)
 // 可被主动召唤去上货点的状态：真正空闲（不含 lightTask/delivery/interaction —— 那些属于在忙/被召唤，跳过）
@@ -14,21 +16,45 @@ const SUMMONABLE = ['idle', 'standby', 'charging', 'returnChargingPile', 'return
 // 已在路上/已到的召唤状态：仍活动，不需重复召唤
 const ACTIVE_LIGHT = [0, 10, 20]
 
-let debounceTimer = null
+const debounceTimers = new Map() // batchId -> timer（按批次分桶，多批次并发互不覆盖）
 
-// 事件入口：新单并入批次后调用；防抖合并，随后 evaluate
-function schedule(store, deps) {
-  clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(() => { evaluate(store, deps).catch((e) => console.warn('[autoLoad] 调度异常', e.message)) }, AUTO_LOAD_DEBOUNCE_MS)
+// 事件入口：新单并入批次后调用；按批次防抖合并，随后 evaluate（未传 batch 时兜底评估最新批次）
+function schedule(store, deps, batch) {
+  const bid = batch && (batch.id || batch.batch_id)
+  if (bid !== undefined && bid !== null) {
+    if (debounceTimers.has(bid)) clearTimeout(debounceTimers.get(bid))
+    const timer = setTimeout(() => {
+      debounceTimers.delete(bid)
+      evaluate(store, deps, batch).catch((e) => console.warn('[autoLoad] 调度异常', e.message))
+    }, AUTO_LOAD_DEBOUNCE_MS)
+    debounceTimers.set(bid, timer)
+  } else {
+    // 兼容旧调用（未带批次）：全局一个计时器，评估最新批次
+    if (debounceTimers.has('*')) clearTimeout(debounceTimers.get('*'))
+    const timer = setTimeout(() => {
+      debounceTimers.delete('*')
+      evaluate(store, deps).catch((e) => console.warn('[autoLoad] 调度异常', e.message))
+    }, AUTO_LOAD_DEBOUNCE_MS)
+    debounceTimers.set('*', timer)
+  }
 }
 
-async function evaluate(store, deps) {
+async function evaluate(store, deps, batch) {
   if (!deps.runtime || !deps.runtime.summonDelivery) return
-  // 找最新一个「可上货」批次（组单中/待上货，且有待配送订单）
-  const b = store.prepare(`
-    SELECT id,total_orders,total_items,device_sn,light_task_id,status
-    FROM delivery_batches WHERE status IN (0,1)
-    AND total_orders > 0 ORDER BY id DESC LIMIT 1`).get()
+  // 目标批次：传入的批次（须仍可上货）优先；否则取最新一个「可上货」批次（组单中/待上货，且有待配送订单）
+  let b = null
+  if (batch && (batch.id || batch.batch_id)) {
+    b = store.prepare(`
+      SELECT id,total_orders,total_items,device_sn,light_task_id,status
+      FROM delivery_batches WHERE id=? AND status IN (0,1)
+      AND total_orders > 0`).get(Number(batch.id || batch.batch_id))
+  }
+  if (!b) {
+    b = store.prepare(`
+      SELECT id,total_orders,total_items,device_sn,light_task_id,status
+      FROM delivery_batches WHERE status IN (0,1)
+      AND total_orders > 0 ORDER BY id DESC LIMIT 1`).get()
+  }
   if (!b) return
 
   const list = await deps.platform.getDeviceList()

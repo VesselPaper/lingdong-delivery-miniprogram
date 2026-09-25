@@ -136,22 +136,7 @@ function removeOrderFromBatch(store, order) {
   }
 }
 
-// 用户已取走本单（仓内拿走一份）：标记取餐时间，批次计数 +1，满了即完成
-function markOrderPicked(store, order) {
-  if (!order) return
-  const row = store.prepare('SELECT * FROM orders WHERE id=?').get(order.id)
-  if (!row) return
-  if (row.picked_up_at) return
-  // 已取消/已退款的订单不得被标记为已取走：那会把状态改回 4 并结算销量
-  if ([5, 7].includes(Number(row.status)) || row.cancelled_at) return
-  store.prepare("UPDATE orders SET picked_up_at=datetime('now','localtime'), status=4, updated_at=datetime('now','localtime') WHERE id=?")
-    .run(row.id)
-  // 收货完成：结算本单商品已售（幂等）
-  try { require('./goodsStats').settleSales(store, row.id) } catch (e) { /* 忽略 */ }
-  countPicked(store, row)
-}
-
-// 批次已取走计数（幂等护栏在 markOrderPicked/fulfillOrder 已做，本函数只对仍生效的单+批计数）。
+// 批次已取走计数（幂等护栏在 order 域 markOrderPicked / fulfillOrder 已做，本函数只对仍生效的单+批计数）。
 // 也被 order.service.fulfillOrder 跨域调用，作为 delivery 域对订单「已完成」的批次侧落账。
 function countPicked(store, order) {
   if (!order) return
@@ -198,7 +183,8 @@ function onTaskStatus(store, task, status) {
   if (Number(status) === 80) {
     // 任务完成(80) ≠ 用户已取走：只有用户真正「关舱取走」（pickup-close 置了 picked_up_at）才算已取、
     // 计入批次完成。平台 40s 自动关舱流转的 80 不在此列 —— 未取餐订单保持已送达(3)，由取餐超时扫描处理。
-    if (order.picked_up_at) markOrderPicked(store, order)
+    // 取走本身（picked_up_at + status=4）由 order 域收口（markOrderPicked/fulfillOrder），这里只补批次计数。
+    if (order.picked_up_at) countPicked(store, order)
   } else if (Number(status) === 110 || Number(status) === 150) {
     // 任务取消/关闭：订单已由 applyStatus 置为已取消；批次计数校正
     if (Number(order.status) === 5) removeOrderFromBatch(store, order)
@@ -311,6 +297,6 @@ function getBatchDetail(store, batchId) {
 module.exports = {
   BATCH_STATUS, BATCH_MAX_ORDERS, BATCH_MAX_ITEMS, BATCH_WAIT_MS, statusText, cleanName, landmarkNameOf,
   orderItemCount, getBatch, getOrCreateOpenBatch, addOrderToBatch, removeOrderFromBatch,
-  markOrderPicked, countPicked, maybeCompleteBatch, onTaskStatus, planRoute, getBatchDetail,
+  countPicked, maybeCompleteBatch, onTaskStatus, planRoute, getBatchDetail,
   registerSummonAdvance
 }

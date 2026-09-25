@@ -148,6 +148,18 @@ function check() {
       )
     }
     if (!prodPlatform) warnings.push(`RUN_MODE=production 但 PLATFORM_BASE 指向非生产环境（${platformHost}）`)
+    // 安全审计 2026-09-26 M5：正式档必须备齐平台凭据与回调防伪令牌。
+    // callbackToken 为空时 delivery 域的回调鉴权会对伪造回调放行（见 callbackAuthorized），
+    // 任何人可伪造「已送达/已取消」驱动订单状态，故 production 档将其设为启动硬约束。
+    if (!(process.env.PLATFORM_APPID && process.env.PLATFORM_SECRET && process.env.PLATFORM_PRINCIPALID)) {
+      errors.push('RUN_MODE=production 要求开放物流平台凭据齐备：PLATFORM_APPID / PLATFORM_SECRET / PLATFORM_PRINCIPALID')
+    }
+    if (!callbackToken) {
+      errors.push(
+        'RUN_MODE=production 要求回调防伪令牌：配置 PLATFORM_SECRET（自动派生）或显式 PLATFORM_CALLBACK_TOKEN，' +
+        '否则平台回调接口（/api/platform/*）会对伪造请求放行'
+      )
+    }
   }
 
   // 管理员鉴权已改为「账号 + session token」（方案A，见 services/adminAuth.js），

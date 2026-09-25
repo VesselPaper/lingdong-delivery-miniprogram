@@ -19,7 +19,7 @@
           <view class="price-tag" wx:if="{{hasPromo}}">{{discountLabel}}</view>
         </view>
         <view class="save-line" wx:if="{{hasPromo}}">已省 ¥{{saveAmount}}</view>
-        <view class="stock-line text-weak text-sm" wx:if="{{!inStock}}">库存为 0，暂不可下单</view>
+        <view class="stock-line text-weak text-sm" wx:if="{{!inStock}}">商品已售罄，暂不可下单</view>
       </view>
       <view class="stepper">
         <view class="stepper-btn {{cartQty < 1 ? 'disabled' : ''}}" bindtap="onStep" data-delta="-1">-</view>

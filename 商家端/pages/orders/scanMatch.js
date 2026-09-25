@@ -45,5 +45,11 @@ Page({
 
   goDetail() {
     wx.redirectTo({ url: '/pages/orders/detail?id=' + this.data.id })
+  },
+
+  // 订单号复制
+  copyText(e) {
+    const text = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.text : ''
+    wx.setClipboardData({ data: String(text == null ? '' : text) })
   }
 })

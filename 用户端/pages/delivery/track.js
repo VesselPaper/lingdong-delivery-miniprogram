@@ -224,5 +224,11 @@ Page({
   goRefund() {
     if (!this.data.orderId) return
     wx.navigateTo({ url: '/pages/order/refund?order_id=' + this.data.orderId })
+  },
+
+  // 取餐凭证复制：取餐码
+  copyText(e) {
+    const text = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.text : ''
+    wx.setClipboardData({ data: String(text == null ? '' : text) })
   }
 })

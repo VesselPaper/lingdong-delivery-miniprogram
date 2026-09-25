@@ -113,7 +113,7 @@
   window.actSummon = function () {
     api('/robot/summon-targets', 'GET').then(function (d) {
       var targets = (d && d.targets) || []
-      if (!targets.length) { toast('无可召唤点位（请先在设置页同步点位）', 'err'); return }
+      if (!targets.length) { toast('暂无可召唤点位', 'err'); return }
       var groups = { loadingPoint: [], chargePoint: [], deliverPoint: [] }
       targets.forEach(function (t) { (groups[t.type] || (groups[t.type] = [])).push(t) })
       var order = [['loadingPoint', '上货点'], ['chargePoint', '充电点'], ['deliverPoint', '取货点']]
@@ -169,15 +169,8 @@
   }
 
   // ---------- 设置页：控制权 / 点位 ----------
-  window.actGrant = function () {
-    var sn = state && state.robot ? state.robot.device_sn : ''
-    run('获取控制权 ' + sn, '/control/grant', { device_sn: sn }, '控制权已获取（系统已记住控制权 ID）')
-  }
-  window.actRelease = function () {
-    var sn = state && state.robot ? state.robot.device_sn : ''
-    run('释放控制权 ' + sn, '/control/release', { device_sn: sn }, '控制权已释放')
-  }
-  window.actSyncLm = function () { run('同步点位', '/landmarks/sync', {}, '点位已同步') }
+  // 2026-09-26 移除：设备控制权与点位同步均由业务路径自动管理（扫码开舱自动获取、派车缺映射自动同步），
+  // 管理员手动入口无使用场景，随「机器人控制」页一并删除（后端接口保留）。
 
   // 一键初始化（危险）：关闭全部平台任务 + 释放全部控制权 + 删除全部活跃订单 + 批次置4
   $('reset').onclick = function () {

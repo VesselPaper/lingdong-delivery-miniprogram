@@ -60,6 +60,16 @@ const statusEvents = require('./services/statusEvents')
 
 // 派车告警以注入方式挂到平台适配层，避免 platform.js 反向依赖 runtime.js 形成环
 platform.setDispatchHook(runtime.warnIfUnsafeDispatch)
+// 订单状态迁移收口（结构评审 P0-1）：platform 回调不直写 orders，经注入的钩子调 order 域收口函数。
+// 事件约定见 platform.js setOrderStateSink 注释：taskId 先挂任务；to=2/3/4/6 走对应守卫收口。
+platform.setOrderStateSink((store, ev) => {
+  if (ev.taskId) orderService.attachTaskToOrder(store, ev.orderId, ev.taskId)
+  if (ev.to === 3) return orderService.markOrderDelivered(store, ev.orderId)
+  if (ev.to === 6) return orderService.markOrderException(store, ev.orderId)
+  if (ev.to === 4) return orderService.markOrderPicked(store, ev.orderId)
+  if (ev.to === 2) return orderService.markOrderStarted(store, ev.orderId)
+  return { ok: true }
+})
 
 const store = init()
 const app = express()
@@ -78,7 +88,11 @@ const WX_SECRET = process.env.WX_SECRET || ''
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true })
 
-app.use(cors())
+// 安全审计 2026-09-26 M4：CORS 默认仅同源 —— 小程序请求不带 Origin、管理员页/大屏与 API 同源，
+// 均不受影响；只有「第三方网站跨域调用 API」会被浏览器拦下。需要跨域时用 CORS_ORIGINS
+// 配置白名单（逗号分隔的完整 Origin，如 https://ops.example.com）。
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean)
+app.use(cors(CORS_ORIGINS.length ? { origin: CORS_ORIGINS } : { origin: false }))
 // 仅对支付回调路径保存原始报文（供 P0-6 平台证书验签）；其它路径（如 8mb 图片上传）不缓存，避免内存翻倍
 app.use(express.json({ limit: '8mb', verify: (req, res, buf) => { if (req.originalUrl === '/api/pay/notify') req.rawBody = buf } }))
 app.use('/uploads', express.static(UPLOAD_DIR))
@@ -117,7 +131,7 @@ app.use('/api', goodsRoutes(store, { runtime }))
 app.use('/api', orderRoutes(store, {
   runtime, wxpay, batch, platform, orderCancel, push,
   goods: goodsService, user: userService,
-  autoLoadHook: (batch) => autoLoad.schedule(store, { runtime, platform }),
+  autoLoadHook: (batch) => autoLoad.schedule(store, { runtime, platform }, batch),
   // 「机器人要回去」事件钩子（取消订单等）：查是否还有其他待上货订单，无则等 3 分钟释放返程（不轮询）
   settleRobot: (deviceSn) => deliveryService.settleRobotAtLoading(store, { runtime, platform, batch }, deviceSn)
 }))
@@ -195,15 +209,15 @@ const server = app.listen(PORT, BIND_HOST, () => {
 push.attach(server, {
   validateToken: (token) => {
     if (!token) return false
-    // 管理员网页：登录签发的随机 session token（方案A）
+    // 管理员网页：登录签发的随机 session token（方案A）——角色 'admin'（可订阅 admin/live 管理主题）
     try {
       const s = store.prepare(`SELECT 1 FROM admin_sessions s JOIN admin_users u ON u.id = s.admin_user_id
         WHERE s.token=? AND s.expires_at > datetime('now','localtime') AND u.status=1`).get(String(token))
-      if (s) return true
+      if (s) return 'admin'
     } catch (e) { /* 忽略 */ }
     // 普通登录 token：用户端 token=openid；商家端（2026-09-24 账号体系）token=随机hex 存 users.token，两类都要认
     try {
-      return !!store.prepare('SELECT 1 FROM users WHERE openid=? OR token=?').get(String(token), String(token))
+      return !!store.prepare('SELECT 1 FROM users WHERE openid=? OR token=?').get(String(token), String(token)) ? 'user' : false
     } catch (e) { return false }
   }
 })

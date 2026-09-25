@@ -4,7 +4,7 @@
       <text class="asd-type">{{item.type === 'complaint' ? '投诉' : '退款'}}</text>
       <text class="asd-status {{item.status === 0 ? 'warn' : ''}}">{{item.status_text}}</text>
     </view>
-    <view class="info-row text-sub"><text>订单号</text><text>{{item.order_no}}</text></view>
+    <view class="info-row text-sub"><text>订单号</text><view class="info-value"><text class="info-text">{{item.order_no}}</text><view class="copy-btn" hover-class="copy-btn-hover" hover-stay-time="80" bindtap="copyText" data-text="{{item.order_no}}">复制</view></view></view>
     <view class="info-row text-sub"><text>送达点位</text><text>{{item.landmark_name}}</text></view>
     <view class="info-row text-sub" wx:if="{{item.type === 'refund'}}"><text>订单金额</text><text>¥{{item.total_amount}}</text></view>
     <view class="info-row text-sub" wx:if="{{item.type === 'refund'}}"><text>退款金额</text><text class="pay-amount">¥{{item.amount}}</text></view>

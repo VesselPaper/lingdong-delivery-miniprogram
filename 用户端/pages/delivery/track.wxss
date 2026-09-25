@@ -212,6 +212,7 @@
   letter-spacing: 12rpx;
   color: #3078C0;
   margin: 8rpx 0;
+  text-align: center;
 }
 
 .foot-actions {

@@ -102,9 +102,8 @@
                     <view class="p-name">{{item.name}}</view>
                     <text class="p-soldout" wx:if="{{item.sold_out}}">售罄</text>
                   </view>
-                  <!-- 库存与销量：让用户下单前就知道还剩多少、卖得怎么样 -->
+                  <!-- 销量：售罄状态由名称旁标记展示，不暴露商家库存 -->
                   <view class="p-stats">
-                    <text class="p-stock {{item.sold_out ? 'out' : ''}}">{{item.stock_text}}</text>
                     <text class="p-sales">{{item.sales_text}}</text>
                   </view>
                   <view class="p-bottom">

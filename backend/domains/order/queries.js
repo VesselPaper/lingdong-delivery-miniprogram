@@ -22,8 +22,9 @@ module.exports = {
       .run(f.orderNo, f.userId, f.landmarkId, f.landmarkName, f.contactName, f.contactPhone, f.totalAmount, f.originalAmount, f.discountAmount, f.activityId, f.deliveryFee, f.remark, f.pickupCode, f.seq, f.seqDate)
     return Number(info.lastInsertRowid)
   },
-  // 模拟支付：直接置待接单(1)
-  markPaidMock: (store, id) => store.prepare("UPDATE orders SET status=1, pay_channel='mock', updated_at=datetime('now','localtime') WHERE id=?").run(Number(id)),
+  // 模拟支付：直接置待接单(1)。安全审计 L2：带 CAS（AND status=0），
+  // 避免并发/重放把已取消(5)/已退款(7)等非待支付订单强制复活成待接单。
+  markPaidMock: (store, id) => store.prepare("UPDATE orders SET status=1, pay_channel='mock', updated_at=datetime('now','localtime') WHERE id=? AND status=0").run(Number(id)),
   // 真实支付：先记渠道，回调到达后 CAS 0→1
   markPayChannel: (store, id, channel) => store.prepare("UPDATE orders SET pay_channel=?, updated_at=datetime('now','localtime') WHERE id=?").run(channel, Number(id)),
   markPaidNotify: (store, id, transactionId) => store.prepare("UPDATE orders SET status=1, transaction_id=?, updated_at=datetime('now','localtime') WHERE id=? AND status=0").run(transactionId || '', Number(id)),

@@ -47,6 +47,11 @@ module.exports = (store, deps) => {
       const raw = req.rawBody ? req.rawBody.toString('utf8') : ''
       const v = await deps.wxpay.verifyNotifySignature(req.headers, raw)
       if (!v.ok) return res.status(401).json({ code: 'FAIL', message: '回调验签失败：' + v.msg })
+      // 安全审计 L1：回调时间戳新鲜度校验（±5 分钟），防截获合法回调后本地重放
+      const cbTs = Number(req.headers['wechatpay-timestamp'] || 0)
+      if (!cbTs || Math.abs(Math.floor(Date.now() / 1000) - cbTs) > 300) {
+        return res.status(401).json({ code: 'FAIL', message: '回调时间戳不新鲜' })
+      }
       const info = deps.wxpay.decryptNotify(body.resource)
       if (info.mchid && info.mchid !== process.env.WXPAY_MCHID) return res.status(401).json({ code: 'FAIL', message: '商户号不匹配' })
       if (info.appid && info.appid !== (process.env.WX_APPID || '')) return res.status(401).json({ code: 'FAIL', message: 'appid 不匹配' })

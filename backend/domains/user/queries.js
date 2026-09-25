@@ -42,6 +42,13 @@ module.exports = {
   // 禁用/启用：禁用同时吊销 token
   setMerchantStatus: (store, id, status) => store.prepare(
     'UPDATE users SET status=?, token=NULL WHERE id=?').run(status ? 1 : 0, Number(id)),
+  // 修改商家用户名（管理员「编辑」）：只改登录名，不碰密码/权限/状态
+  updateMerchantUsername: (store, id, username) => store.prepare(
+    "UPDATE users SET username=? WHERE id=? AND role='merchant' AND username IS NOT NULL AND username!=''")
+    .run(String(username), Number(id)),
+  // 删除商家账号：物理删除（历史订单不受影响，商家账号只是登录身份），同时吊销 token
+  deleteMerchant: (store, id) => store.prepare(
+    "DELETE FROM users WHERE id=? AND role='merchant' AND username IS NOT NULL AND username!=''").run(Number(id)),
 
   // 逐字段更新：undefined/null 表示「本次不改这个字段」，避免只传昵称时把手机号清空
   updateProfile: (store, id, nickname, phone, avatar) => {

@@ -350,7 +350,7 @@ page {
   text-decoration: line-through;
 }
 
-/* 库存 + 销量：名称下方一行弱化信息，下单前可判断是否抢手 */
+/* 销量：名称下方一行弱化信息 */
 .p-stats {
   display: flex;
   align-items: center;
@@ -358,14 +358,6 @@ page {
   margin-top: 8rpx;
   font-size: 20rpx;
   color: #999999;
-}
-
-.p-stock {
-  color: #5C9E6E;
-}
-
-.p-stock.out {
-  color: #E64340;
 }
 
 .p-sales {
