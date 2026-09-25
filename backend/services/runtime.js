@@ -52,7 +52,8 @@ const unsafeProd = envFlag('ALLOW_UNSAFE_PROD_PLATFORM')
 
 const wxAppid = process.env.WX_APPID || ''
 const wxSecret = process.env.WX_SECRET || ''
-// 商家端独立凭据（零栋商家）：与用户端（零栋GO）是不同的小程序，AppID/AppSecret 各自独立
+// 商家端独立凭据（零栋商家）：与用户端（零栋GO）是不同的小程序，AppID/AppSecret 各自独立。
+// 2026-09-24 起商家端登录已改为账号密码体系（users.username + scrypt），本凭据不再参与登录，仅保留兼容。
 const merchantWxAppid = process.env.MERCHANT_WX_APPID || ''
 const merchantWxSecret = process.env.MERCHANT_WX_SECRET || ''
 
@@ -139,7 +140,7 @@ function check() {
     if (platformMock) errors.push('RUN_MODE=production 不允许 PLATFORM_MOCK=true：正式档必须走真实配送')
     if (payMock) errors.push('RUN_MODE=production 不允许 PAY_MOCK=true：正式档必须真实收款')
     if (!(wxAppid && wxSecret)) errors.push('RUN_MODE=production 要求用户端真实微信登录：配置 WX_APPID 与 WX_SECRET')
-    if (!(merchantWxAppid && merchantWxSecret)) errors.push('RUN_MODE=production 要求商家端真实微信登录：配置 MERCHANT_WX_APPID 与 MERCHANT_WX_SECRET')
+    // 商家端登录已是账号密码体系（2026-09-24 起），不依赖商家端微信凭据，无需在此校验
     if (!wxpay.enabled()) {
       errors.push(
         'RUN_MODE=production 要求微信支付四要素齐备：' +
@@ -168,7 +169,7 @@ function check() {
     warnings.push('未配置任何微信登录凭据：登录走演示模式，token=demo_+sha1(客户端 code)，可预测、不可吊销')
   } else {
     if (loginMode('user') !== 'real') warnings.push('用户端(零栋GO)未配置 WX_APPID/WX_SECRET：该端登录走演示模式')
-    if (loginMode('merchant') !== 'real') warnings.push('商家端(零栋商家)未配置 MERCHANT_WX_APPID/MERCHANT_WX_SECRET：该端登录走演示模式')
+    if (merchantWxAppid || merchantWxSecret) warnings.push('已配置 MERCHANT_WX_APPID/MERCHANT_WX_SECRET：商家端登录已改账号密码（2026-09-24 起），该凭据不再参与登录，可从 .env 移除')
   }
   if (!realPay) {
     warnings.push('PAY_MOCK=true 或未配置支付四要素：支付不产生真实资金流，退款接口也不会真实退钱')
@@ -204,7 +205,7 @@ function describe() {
     device_mock: deviceMock,
     real_login: realLogin,
     login_user: loginMode('user'),
-    login_merchant: loginMode('merchant'),
+    login_merchant: 'acct', // 商家端登录为账号密码体系（2026-09-24 起），不再依赖商家端微信凭据
     real_pay: realPay,
     pay_mock: payMock,
     real_platform: realPlatform,

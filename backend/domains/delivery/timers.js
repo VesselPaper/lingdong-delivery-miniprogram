@@ -3,7 +3,7 @@
 //   ① 真实模式任务状态轮询兜底（POLL_MS 默认 8s，仅 realPlatform）
 //   ② 超时未接单检测（DELIVERY_SCAN_MS 默认 60s，仅 realPlatform）
 //   ③ 取餐超时两段式扫描（PICKUP_SCAN_MS 默认 30s，恒开）
-//   ④ 批次自动派车 + 模拟配送到达（BATCH_SCAN_MS 默认 15s，恒开）
+//   ④ 批次自动定型 + 模拟配送到达（BATCH_SCAN_MS 默认 15s，恒开）
 // deps = { runtime, platform, goods, order, orderCancel, batch }（与 delivery/routes.js 同源）
 
 const s = require('./service')
@@ -50,7 +50,7 @@ function start(store, deps) {
   setInterval(() => { s.scanPickupTimeouts(store, deps).catch(() => {}) }, PICKUP_SCAN_MS)
   s.scanPickupTimeouts(store, deps).catch(() => {})
 
-  // ---------- ④ 批次自动派车（一车多单）+ 模拟配送到达 ----------
+  // ---------- ④ 批次自动定型（一车多单）+ 模拟配送到达 ----------
   // 组单中的批次满足任一条件即自动定型（status 0→1，指派设备锁定）：
   //  1) 达到一车容量上限（BATCH_MAX_ITEMS，默认 12 件）
   //  2) 批次成立超过 BATCH_WAIT_MS（默认 90s）
@@ -91,7 +91,7 @@ function start(store, deps) {
           console.warn('[batch] 自动定型失败 batch=' + b.id + ' ' + e.message)
         }
       }
-    } catch (e) { console.warn('[batch] 自动派车扫描异常', e.message) }
+    } catch (e) { console.warn('[batch] 自动定型扫描异常', e.message) }
   }, BATCH_SCAN_MS)
 
   // ---------- ⑤ 召唤多单配送推进看门狗（SUMMON_DELIVERY=true 时兜底） ----------

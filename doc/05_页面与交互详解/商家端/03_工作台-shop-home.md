@@ -21,7 +21,7 @@
 | 商铺设置 | goSettings | — | navigateTo /pages/shop/settings |
 | 底部圆形「配单上货」 | goLoading | — | navigateTo /pages/device/loading |
 
-- **重点链路（工作台四态数字 → /api/merchant/stats）**：`onShow` 每次进入都重拉 `stats`；四个格子角标数字来自 `stats.pending / ready_load / delivering / pickup`，为 0 时加 `zero` 样式置灰弱化；次面板 `stats.exception`（红）、`stats.aftersale`（橙）仅在非 0 时醒目；「取消申请」入口在 `stats.cancel_requests` 非 0 时显示红点；底部圆形按钮角标 `pendingBatchCount` > 0 才渲染。收到推送 `order_created` 时 `load()` + `loadPendingBatches()` 局部刷新，不整页重载。
+- **重点链路（工作台四态数字 → /api/merchant/stats）**：`onShow` 每次进入都重拉 `stats`；四个格子角标数字来自 `stats.pending / ready_load / delivering / pickup`，为 0 时加 `zero` 样式置灰弱化；次面板 `stats.exception`（红）、`stats.aftersale`（橙）仅在非 0 时醒目；「取消申请」入口在 `stats.cancel_requests` 非 0 时显示红点；底部圆形按钮角标 `pendingBatchCount` > 0 才渲染。收到推送 `order_created` 或 `batch_dispatched` 时 `load()` + `loadPendingBatches()` 局部刷新，不整页重载。
 - **状态与边界**：头部营业标签与歇业态同步自 `shopState`；主面板与底部按钮共用 `goLoading` 同一入口，全部订单与四态点击都带正确的 `stage/tab` 参数直达任务页对应分类。
 
 ---

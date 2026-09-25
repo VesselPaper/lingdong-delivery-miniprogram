@@ -6,7 +6,7 @@
 
 **进入路径**：已在 `app.json` 注册（pages/delivery/track），支持 `options.order_id` 直接追踪指定订单；**当前用户端代码中无任何页面导航进入本页**（见文末存疑点 3），无参数时本页也可自举：`loadLatest()` 自动挑一个进行中订单追踪。
 
-**页面结构（wxml 骨架）**：空态（无订单时：图标 +「暂无配送中的订单」+ 去下单按钮）→ 机器人状态卡（机器人图标 + 名称 + `taskText` + 右侧 tag：配送异常 6 / 待取餐 3 / 配送中）+ 进度条（`progressPercent` 宽度的进度轨 + 「已接单/取餐/配送/送达」四标签）→ 自绘地图卡（`map.landmarks` 存在时：网格底图 + 路线折线 + 全部点位 + 机器人实时位置点 + 底部缩放条 ＋/－/复位 + 点位提示；否则降级为「机器人位置」文本卡）→ 配送异常卡（status 6）→ 配送进度卡（`task` 存在时显示 `task.status_text`）→ 同批次卡（`batch.multi_order` 时：批次号 / 本车订单共 N 单（满仓最多 12 单）/ 已取 X/N 单）→ 取餐凭证卡（取餐码 + 提示）→ 底部按钮区（刷新状态 / 扫码取餐 / 申请退款）。
+**页面结构（wxml 骨架）**：空态（无订单时：图标 +「暂无配送中的订单」+ 去下单按钮）→ 机器人状态卡（机器人图标 + 名称 + `taskText` + 右侧 tag：配送异常 6 / 待取餐 3 / 配送中）+ 进度条（`progressPercent` 宽度的进度轨 + 「已接单/取餐/配送/送达」四标签）→ 自绘地图卡（`map.landmarks` 存在时：网格底图 + 路线折线 + 全部点位 + 机器人实时位置点 + 底部缩放条 ＋/－/复位 + 点位提示；否则降级为「机器人位置」文本卡）→ 配送异常卡（status 6）→ 配送进度卡（`task` 存在时显示 `task.status_text`）→ 同批次卡（`batch.multi_order` 时：批次号 / 本车订单共 N 单（满仓最多 12 件）/ 已取 X/N 单）→ 取餐凭证卡（取餐码 + 提示）→ 底部按钮区（刷新状态 / 扫码取餐 / 申请退款）。
 
 **页面要素与数据来源**：
 
@@ -49,7 +49,7 @@
 
 - **追踪轮询生命周期**：进入页面 `startPolling`（3s）→ `load(true)` 拉取并渲染 → 页面隐藏/卸载 `stopPolling` → 从取餐页返回 `onShow` 立即刷一次再续轮询。`loading` 为真时跳过本次拉取，避免弱网下轮询叠加。
 - **进度条阶段**：`stepMap` 把机器人任务状态码（10 已接收 → 20/30/40 取餐 → 50/60 配送 → 70/80 送达）压成 4 阶段，`step * 25` 得到进度百分比，四个标签「已接单 / 取餐 / 配送 / 送达」按 `progressStep` 点亮；异常状态码归零但文案保留（`taskText`）。
-- **同批次一车多单进度（本车共 N 单 / 已取 X 单）**：`batch.multi_order` 为真时渲染「本车配送批次 {batch_no}」卡：`本车订单 共 {total_orders} 单（满仓最多 12 单）`、`已取餐 {picked_orders} / {total_orders} 单`，并提示「其他用户取走后本车才算配送完成」——即关舱动作（`/delivery/pickup-close` / `pickup-close-all`）驱动 `picked_orders` 增长，轮询可见。
+- **同批次一车多单进度（本车共 N 单 / 已取 X 单）**：`batch.multi_order` 为真时渲染「本车配送批次 {batch_no}」卡：`本车订单 共 {total_orders} 单（满仓最多 12 件）`、`已取餐 {picked_orders} / {total_orders} 单`，并提示「其他用户取走后本车才算配送完成」——即关舱动作（`/delivery/pickup-close` / `pickup-close-all`）驱动 `picked_orders` 增长，轮询可见。
 - **自绘地图**：`map.landmarks` 存在时渲染地图卡：网格底图 + `route` 相邻停靠点连线（`routeSegLen / routeSegDeg` 计算线段长度与旋转角，`hidden` 跳过首点）+ 全部点位（上货点 `type === 'loadingPoint'` 特殊样式）+ 机器人实时位置点（`percent` 非空才渲染）；无真实坐标（`percent` 为 null）时降级为「机器人位置」文本卡并标注「当前为演示模式」。
 - **配送异常出口（P1-4）**：`order.order_status === 6` 时顶部 tag 显示「配送异常」、渲染异常说明卡（「机器人故障/长时间无进展…请申请退款或联系商家处理；您的餐款会按售后结果退回」），底部出现「申请退款」按钮直达 `order/refund`。
 

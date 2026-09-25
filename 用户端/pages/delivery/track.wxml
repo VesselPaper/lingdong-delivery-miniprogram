@@ -89,7 +89,7 @@
     <!-- 一车多单：同车信息（一个仓多个人拿，展示本车共几单/已取几单） -->
     <view class="card" wx:if="{{batch && batch.multi_order}}">
       <view class="section-title">本车配送批次 {{batch.batch_no}}</view>
-      <view class="info-row text-sub"><text>本车订单</text><text>共 {{batch.total_orders}} 单（满仓最多 12 单）</text></view>
+      <view class="info-row text-sub"><text>本车订单</text><text>共 {{batch.total_orders}} 单（满仓最多 12 件）</text></view>
       <view class="info-row text-sub"><text>已取餐</text><text>{{batch.picked_orders}} / {{batch.total_orders}} 单</text></view>
       <view class="text-weak text-sm">您的餐品已放入舱内，请凭本单取餐码取走自己的餐品；其他用户取走后本车才算配送完成。</view>
     </view>

@@ -3,7 +3,7 @@
 
 
 - **数据来源**：`onLoad` 解析 `?id=&sn=&at=&dist=&lmsg=`（扫码带入无人车编号、是否在上货点、距离与提示）；`onShow` → `load()` → GET /api/merchant/delivery/batch/detail `{batch_id}`（`silent`）。
-- **页面构成**：扫码带入时顶部显示无人车位置横幅（`atLoadingPoint` 为 1 → 绿「无人车已在上货点 ✓」+「设备 SN 已就位，可以开舱上货」；否则灰「无人车未在上货点」+ 距离/提示）；`batch-card` 单批次详情（`showNo` 弱化展示完整批次编号 + `showGoods` 完整商品明细）；底部操作区按阶段渲染唯一按钮（打开舱门 / 关舱 / 圆形「开始配送」+ 倒计时提示 / 派发成功态）。
+- **页面构成**：扫码带入时顶部显示无人车位置横幅（`atLoadingPoint` 为 1 → 绿「无人车已在上货点 ✓」+「设备 SN 已就位，可以开舱上货」；否则灰「无人车未在上货点」+ 距离/提示）；`batch-card` 单批次详情（`showNo` 弱化展示完整批次编号 + `showGoods` 完整商品明细 + `showProgress` + `orderTap`，点批次内订单子卡 `goOrderDetail` 进订单详情）；底部操作区按阶段渲染：**组单中（phase='pending'）只读**——橙色提示条「批次尚未派车定型，如需上货请返回配单上货页点击上货」（`.pending-tip`），不显示开舱/关舱/配送按钮；其余按阶段唯一按钮（打开舱门 / 关舱 / 圆形「开始配送」+ 倒计时提示 / 派发成功态）。派发后的说明文案 `dispatchNote` 按状态区分：「机器人已出发，将按路线依次配送」/ 全送达「货品已送达各点位，等待顾客取餐」/ 「批次配送已完成」/ 异常「批次配送异常，请查看订单处理」/ 取消「批次已取消」。
 - **交互清单**：
 
 | 按钮/交互 | 触发函数 | 行为与调用的接口 | 后续链路/跳转 |
@@ -13,7 +13,7 @@
 | 圆形「开始配送」 | dispatchAll | 前置校验 `phase === 'loaded'`（舱门开着车不能移动，未关舱 toast「请先关闭舱门后再开始配送」）；模拟：POST /api/merchant/device/batch/mock-dispatch；真实：POST /api/merchant/device/batch/dispatch（silent） | 成功清倒计时、置 `phase='dispatched'`，1.6~2.2s 后 `wx.navigateBack()` 自动返回批次列表 |
 | 滑块「开始配送」 | onSliderChange / onSliderEnd | 记录 `sliderX`；松手时拖到底（`sliderAreaW - sliderThumbW - 20`）触发 `dispatchAll`，否则回弹归零 | 同上 |
 
-- **重点链路（开舱/关舱/立即配送 → /api/merchant/device/batch/open-bin|close-bin|dispatch）**：页面按「scanned 可开舱 → open 已开舱 → loaded 已关舱 → dispatched 已派发」四阶段渲染唯一操作按钮。`inferPhase(b)` 由后端批次/任务状态**恢复**操作阶段（修复退出重进后按钮错乱问题）：status 2/3/4 → dispatched（配送中/已完成/已取消，不可再操作）；status 1 优先看后端落库 `ready_dispatch === true`（已关舱 → 直接「立即配送」），否则取各订单 `task.task_status` 最大值：≥50 已上货 → loaded、≥40 上货中 → open、其余 → scanned。模拟/真实分支由登录下发的 `runtimeFlags.device_mock` 决定，取不到默认 false —— 宁可走真实分支报错，也不可假装成功（代码注释 P0-2 修复）。真实代码分支完整保留在方法内（`DEVICE_MOCK=false` 分支），后续直接切换即可。
+- **重点链路（开舱/关舱/立即配送 → /api/merchant/device/batch/open-bin|close-bin|dispatch）**：页面按「pending 未定型(只读) → scanned 可开舱 → open 已开舱 → loaded 已关舱 → dispatched 已派发」五阶段渲染操作区。`inferPhase(b)` 由后端批次/任务状态**恢复**操作阶段（修复退出重进后按钮错乱问题）：`status=0` → pending（组单中未定型，只读提示条）；status 2/3/4 → dispatched（配送中/已完成/已取消，不可再操作）；status 1 优先看后端落库 `ready_dispatch === true`（已关舱 → 直接「立即配送」），否则取各订单 `task.task_status` 最大值：≥50 已上货 → loaded、≥40 上货中 → open、其余 → scanned。模拟/真实分支由登录下发的 `runtimeFlags.device_mock` 决定，取不到默认 false —— 宁可走真实分支报错，也不可假装成功（代码注释 P0-2 修复）。真实代码分支完整保留在方法内（`DEVICE_MOCK=false` 分支），后续直接切换即可。
 - **状态与边界**：已派发显示成功态「机器人已出发，将按路线依次配送」后自动返回，无页面内冗余返回按钮；`onHide/onUnload` 清理倒计时定时器（`clearTimer`），`onReady` 按窗口宽度换算滑块尺寸；倒计时归零文案切换为「已超过建议等待时长，请尽快开始配送」；批次加载中显示「加载中…」占位卡。
 
 ---
