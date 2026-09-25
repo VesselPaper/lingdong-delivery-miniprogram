@@ -26,10 +26,14 @@ function connect() {
   if (task || closedByUser) return
   if (!wx || !wx.connectSocket) return
   const token = wx.getStorageSync('token')
+  // 微信 connectSocket 对自定义 header 支持有限（真机不支持、工具部分支持）：
+  // token 再拼进 URL query（后端 /ws 支持 ?token=，push.js 注释「便于排查」路径即此），header 保留双保险
+  let url = wsUrl()
+  if (token) url += (url.indexOf('?') > -1 ? '&' : '?') + 'token=' + encodeURIComponent(token)
   let sock
   try {
     sock = wx.connectSocket({
-      url: wsUrl(),
+      url: url,
       header: token ? { Authorization: 'Bearer ' + token } : {}
     })
   } catch (e) { scheduleReconnect(); return }

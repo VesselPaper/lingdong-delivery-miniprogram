@@ -1,5 +1,6 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
+const role = require('../../utils/role')
 
 const THEMES = { '热卤': '#F5F5F5', '卤味': '#F5F5F5', '饮品': '#F5F5F5', '套餐': '#F5F5F5' }
 const ICONS = {
@@ -11,10 +12,12 @@ Page({
     goods: [],
     filtered: [],
     keyword: '',
-    stats: { onShelf: 0, offShelf: 0, soldOut: 0 }
+    stats: { onShelf: 0, offShelf: 0, soldOut: 0 },
+    isOwner: false
   },
 
   onShow() {
+    this.setData({ isOwner: role.isOwner() })
     this.load()
   },
 

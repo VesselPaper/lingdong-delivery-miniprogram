@@ -10,6 +10,24 @@
   margin-top: 24rpx;
 }
 
+/* 组单中（未定型）批次：只读提示条 */
+.pending-tip {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  background: #FFF7E8;
+  border: 2rpx solid #F5A623;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+}
+
+.pending-tip-text {
+  flex: 1;
+  font-size: 26rpx;
+  line-height: 1.5;
+  color: #8A5A00;
+}
+
 /* 派发滑块 / 成功态 */
 .dispatch-zone {
   margin-top: 8rpx;

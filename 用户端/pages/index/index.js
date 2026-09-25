@@ -1,6 +1,7 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
 const flyCart = require('../../utils/flyCart')
+const session = require('../../utils/session')
 
 const THEMES = {
   '热卤': { bg: '#F5F5F5', icon: 'app' },
@@ -71,6 +72,8 @@ Page({
   },
 
   onShow() {
+    // 未登录强制回登录页（覆盖冷启动竞态：开发者工具恢复页面栈时 app.js 的 reLaunch 可能被吞）
+    if (session.ensureLogin()) return
     this.loadGoods()
     this.loadCart()
     this.loadCategories()

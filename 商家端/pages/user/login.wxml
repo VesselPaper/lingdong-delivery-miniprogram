@@ -7,25 +7,38 @@
     <view class="login-sub">商家登录管理商品与配送</view>
   </view>
 
-  <view class="login-code">
-    <view class="login-code-head">
-      <text class="login-code-label">商家邀请码</text>
-      <text class="login-code-optional text-weak text-sm">已是商家可不填</text>
-    </view>
+  <view class="login-field">
+    <view class="login-field-label">用户名</view>
     <input
-      class="login-code-input"
+      class="login-field-input"
       type="text"
-      placeholder="首次登录必填，由店主提供"
-      placeholder-class="login-code-ph"
-      value="{{merchantCode}}"
-      bindinput="onCodeInput"
+      placeholder="请输入用户名"
+      placeholder-class="login-field-ph"
+      value="{{username}}"
+      bindinput="onUsernameInput"
     />
-    <view class="login-code-tip text-weak text-sm">商家权限只能凭邀请码授予，客户端无法自行声明身份。</view>
+  </view>
+
+  <view class="login-field">
+    <view class="login-field-label">密码</view>
+    <view class="pwd-wrap">
+      <input
+        class="login-field-input pwd-input"
+        type="text"
+        password="{{!showPwd}}"
+        placeholder="请输入密码"
+        placeholder-class="login-field-ph"
+        value="{{password}}"
+        bindinput="onPasswordInput"
+        bindconfirm="accountLogin"
+      />
+      <view class="pwd-eye" bindtap="togglePwd" hover-class="pwd-eye-hover">
+        <image class="pwd-eye-img" src="{{showPwd ? '/images/pwd-eye-off.png' : '/images/pwd-eye.png'}}" mode="aspectFit" />
+      </view>
+    </view>
   </view>
 
   <view class="login-actions">
-    <view class="btn btn-block {{logging ? 'btn-disabled' : ''}}" bindtap="wechatLogin">{{loginDemo ? '模拟登录（演示）' : '微信一键登录'}}</view>
-    <view class="login-tip text-weak text-sm" wx:if="{{loginDemo}}">当前后端未配置商家端微信凭据，登录为演示模式（不产生真实微信身份）</view>
-    <view class="login-tip text-weak text-sm">登录即同意《商家入驻协议》与《隐私政策》</view>
+    <view class="btn btn-block {{logging ? 'btn-disabled' : ''}}" bindtap="accountLogin">{{logging ? '登录中…' : '登 录'}}</view>
   </view>
 </view>

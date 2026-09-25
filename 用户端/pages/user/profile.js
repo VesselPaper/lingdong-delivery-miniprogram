@@ -1,6 +1,7 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
 const avatar = require('../../utils/avatar')
+const session = require('../../utils/session')
 
 const ROLE_TEXT = { student: '学生', merchant: '商家' }
 
@@ -28,6 +29,8 @@ Page({
   },
 
   onShow() {
+    // 未登录强制回登录页（与首页同一套兜底；已登录正常加载）
+    if (session.ensureLogin()) return
     this.load()
     this.loadBadge()
     this.loadPoint()

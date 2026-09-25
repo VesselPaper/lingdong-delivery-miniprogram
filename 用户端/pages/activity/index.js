@@ -1,6 +1,7 @@
 // 活动页：顶部渐变权益头 + 活动列表（后端 /activity/list，无进行中活动时显示空态）
 const api = require('../../utils/api')
 const request = require('../../utils/request')
+const session = require('../../utils/session')
 
 const fmtTime = (v) => {
   if (!v) return ''
@@ -14,6 +15,8 @@ Page({
   },
 
   onShow() {
+    // 未登录强制回登录页（与首页同一套兜底）
+    if (session.ensureLogin()) return
     this.load()
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 2 })

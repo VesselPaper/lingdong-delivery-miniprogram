@@ -78,7 +78,7 @@
     <batch-card
       wx:for="{{batches}}" wx:key="id"
       b="{{item}}" showProgress="{{true}}" showGoods="{{true}}" orderTap="{{true}}"
-      bind:ordertap="goDetailByOrder" />
+      bind:cardtap="goBatchDetail" bind:ordertap="goDetailByOrder" />
     <empty-view show="{{!batches.length}}" text="暂无配送中的批次" icon="robot-1" />
   </view>
 </view>

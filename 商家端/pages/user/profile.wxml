@@ -36,7 +36,7 @@
       </view>
     </view>
 
-    <view class="card menu-card" bindtap="goSettings">
+    <view class="card menu-card" wx:if="{{isOwner}}" bindtap="goSettings">
       <view class="menu-row">
         <t-icon name="setting" size="40rpx" color="#333333" />
         <view class="menu-label">设置</view>

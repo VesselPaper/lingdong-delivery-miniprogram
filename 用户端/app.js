@@ -44,15 +44,23 @@ App({
 
   // 自动跳登录页：带锁防 onLaunch/onShow 并发叠跳；已是登录页则不重复跳。
   // 登录页非 tabBar 页，必须用 reLaunch（switchTab 会找不到页面）。
+  // 立即跳一次 + 1.2s 后兜底再跳一次：开发者工具恢复页面栈/真机冷启动时首次 reLaunch 可能被吞，
+  // 兜底重试保证未登录最终必达登录页（第二跳前再验一次当前页，避免从登录页误跳）。
   _goLogin() {
     if (this._loginJumping || typeof getCurrentPages !== 'function') return
     this._loginJumping = true
-    setTimeout(() => {
-      this._loginJumping = false
+    const tryJump = () => {
       const pages = getCurrentPages()
       const cur = pages && pages.length ? pages[pages.length - 1] : null
       if (cur && cur.route === 'pages/user/login') return
       wx.reLaunch({ url: '/pages/user/login', fail: () => undefined })
+    }
+    setTimeout(() => {
+      tryJump()
+      setTimeout(() => {
+        this._loginJumping = false
+        tryJump()
+      }, 1200)
     }, 0)
   },
 

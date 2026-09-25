@@ -1,5 +1,6 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
+const role = require('../../utils/role')
 
 const TYPE_LIST = [
   { value: 'discount', label: '商品打折', desc: '全场或指定商品按 X 折出售' },
@@ -28,6 +29,12 @@ Page({
   },
 
   async onLoad(options) {
+    // 活动编辑店主专属：店员直达（如分享卡片）时拦截
+    if (!role.isOwner()) {
+      wx.showToast({ title: '需要店主权限', icon: 'none' })
+      setTimeout(() => wx.navigateBack(), 600)
+      return
+    }
     this.setData({ id: options.id ? Number(options.id) : null })
     // 加载全部商品供「指定商品」选择
     try {

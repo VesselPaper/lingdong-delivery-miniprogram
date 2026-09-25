@@ -1,7 +1,7 @@
 <view class="act-page">
   <view class="act-head">
     <view class="act-head-title">活动管理</view>
-    <view class="btn btn-sm act-add" bindtap="add">新建活动</view>
+    <view class="btn btn-sm act-add" wx:if="{{isOwner}}" bindtap="add">新建活动</view>
   </view>
 
   <view class="list">

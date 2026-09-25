@@ -9,10 +9,16 @@
       </view>
     </view>
 
-    <!-- 单批次详情：完整批次编号弱化展示 + 订单/商品完整展示 -->
-    <batch-card b="{{batch}}" showNo="{{true}}" showGoods="{{true}}" />
+    <!-- 单批次详情：完整批次编号弱化展示 + 进度（当前任务卡） + 订单/商品完整展示（配单上货卡），点订单进订单详情 -->
+    <batch-card b="{{batch}}" showNo="{{true}}" showGoods="{{true}}" showProgress="{{true}}" orderTap="{{true}}" bind:ordertap="goOrderDetail" />
 
     <view class="foot-actions">
+      <!-- 组单中（未定型）：只读展示，引导回配单上货页点上货定型 -->
+      <view class="pending-tip" wx:if="{{phase === 'pending'}}">
+        <t-icon name="info-circle" size="32rpx" color="#F5A623" />
+        <view class="pending-tip-text">批次尚未派车定型，如需上货请返回配单上货页点击上货</view>
+      </view>
+
       <view class="btn btn-block" hover-class="btn-hover" wx:if="{{phase === 'scanned'}}" bindtap="openBin">{{mock ? '模拟打开舱门' : '打开舱门'}}</view>
       <view class="btn btn-block" hover-class="btn-hover" wx:if="{{phase === 'open'}}" bindtap="closeBin">{{mock ? '模拟关舱' : '关舱'}}</view>
 
@@ -27,7 +33,7 @@
 
       <view class="success-box" wx:if="{{phase === 'dispatched'}}">
         <view class="success-icon"><t-icon name="check-circle-filled" size="96rpx" color="#2BA471" /></view>
-        <view class="success-text">机器人已出发，将按路线依次配送</view>
+        <view class="success-text">{{dispatchNote}}</view>
       </view>
     </view>
   </block>

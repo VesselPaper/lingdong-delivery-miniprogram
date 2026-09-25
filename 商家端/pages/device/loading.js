@@ -22,9 +22,10 @@ Page({
   rawReady: [],
 
   onLoad() {
-    // 收到「新订单」推送 → 配单页(/device/loading)局部重拉批次列表（新单进组单中，需即时出现）
+    // 收到「新订单 / 批次定型」推送 → 配单页(/device/loading)局部重拉批次列表：
+    // 新单进组单中需即时出现；自动定型后批次从「组单中」移到「待上货」，卡面不能一直停在组单中。
     this._onPush = (msg) => {
-      if (msg && msg.type === 'order_created') { this.loadPending() }
+      if (msg && (msg.type === 'order_created' || msg.type === 'batch_dispatched')) { this.loadPending() }
     }
     push.subscribe(this._onPush)
   },
@@ -84,7 +85,9 @@ Page({
 
   // ---------- 搜索：批次 / 订单 / 商品 / 点位 / 收餐人 ----------
   onSearch(e) {
-    this.setData({ keyword: e.detail }, () => this.applySearch())
+    // 兼容原生 input（e.detail.value）与 search-box 组件（e.detail 直接为值）
+    const v = (e.detail && e.detail.value !== undefined) ? e.detail.value : e.detail
+    this.setData({ keyword: v || '' }, () => this.applySearch())
   },
 
   applySearch() {
@@ -114,9 +117,11 @@ Page({
     this.enterBatch(e.detail || {})
   },
 
-  // 点批次卡面 → 查看该批次详情（与「上货」同一入口：组单中批次先定型，详情页才能开舱上货）
+  // 点批次卡面 → 只查看批次详情（不执行定型/派车；组单中批次在详情页会提示先点上货定型）
   goBatchDetail(e) {
-    this.enterBatch(e.detail || {})
+    const item = e.detail || {}
+    if (!item || !item.id) return
+    wx.navigateTo({ url: '/pages/device/batchDetail?id=' + item.id })
   },
 
   // 点批次内订单卡面 → 查看该订单详情
@@ -136,7 +141,7 @@ Page({
     if (st === 1 && item.robot_busy === true) {
       wx.showModal({
         title: '暂无空闲机器人',
-        content: item.robot_busy_msg || '无人车正在配送中，请等其配送完成后再上货',
+        content: item.robot_busy_msg || '无人车正在配送，请稍后再上货',
         showCancel: false,
         confirmText: '知道了'
       })
@@ -145,7 +150,8 @@ Page({
     if (st === 0) {
       wx.showLoading({ title: '创建配送任务' })
       try {
-        await request.post(api.batchDispatch, { batch_id: item.id })
+        // silent：失败原因由下方确认弹窗展示，避免 request 默认悬浮 toast 与其重叠
+        await request.post(api.batchDispatch, { batch_id: item.id }, { silent: true })
         wx.hideLoading()
       } catch (err) {
         wx.hideLoading()
@@ -169,11 +175,18 @@ Page({
         wx.scanCode({ success: (r) => resolve(r.result), fail: reject })
       })
       const sn = scan.parseDeviceSn(raw)
-      if (!sn) { wx.showToast({ title: '二维码无效，请扫无人车上的二维码', icon: 'none' }); return }
+      if (!sn) {
+        wx.showModal({ title: '二维码无效', content: '请扫无人车上的二维码', showCancel: false, confirmText: '知道了' })
+        return
+      }
       wx.showLoading({ title: '识别无人车' })
-      const data = await request.post(api.deviceScan, { deviceSn: sn })
+      // silent：失败原因由下方确认弹窗展示，避免 request 默认悬浮 toast 与其重叠
+      const data = await request.post(api.deviceScan, { deviceSn: sn }, { silent: true })
       wx.hideLoading()
-      if (!data || !data.batch_id) { wx.showToast({ title: '未识别到待上货批次', icon: 'none' }); return }
+      if (!data || !data.batch_id) {
+        wx.showModal({ title: '未识别到待上货批次', showCancel: false, confirmText: '知道了' })
+        return
+      }
       const q = 'batch_id=' + data.batch_id
         + '&sn=' + encodeURIComponent(data.device_sn || sn)
         + '&at=' + (data.at_loading_point ? '1' : '0')

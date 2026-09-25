@@ -1,37 +1,44 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
 
+// 商家登录（2026-09-24 起）：账号密码（管理员在管理员网页「商家管理」创建，角色店主/店员）。
+// 不再走微信一键登录 + 邀请码；身份与权限全部由服务端账号体系决定。
 Page({
   data: {
-    merchantCode: '',
+    username: '',
+    password: '',
     logging: false,
-    loginDemo: false // 运行时标注：后端未配商家端微信凭据时按钮显示「模拟登录（演示）」
+    showPwd: false
   },
 
-  onShow() {
-    const flags = wx.getStorageSync('runtimeFlags') || {}
-    this.setData({ loginDemo: flags.login === 'demo' })
+  onUsernameInput(e) {
+    this.setData({ username: e.detail.value })
   },
 
-  onCodeInput(e) {
-    this.setData({ merchantCode: e.detail.value })
+  onPasswordInput(e) {
+    this.setData({ password: e.detail.value })
   },
 
-  async wechatLogin() {
+  // 密码可见性切换：眼睛图标点击后明文/黑点互切（showPwd=true 时 input password=false）
+  togglePwd() {
+    this.setData({ showPwd: !this.data.showPwd })
+  },
+
+  async accountLogin() {
     if (this.data.logging) return
+    const username = String(this.data.username || '').trim()
+    const password = String(this.data.password || '')
+    if (!username || !password) {
+      wx.showToast({ title: '请输入用户名和密码', icon: 'none' })
+      return
+    }
     this.setData({ logging: true })
     wx.showLoading({ title: '登录中' })
     try {
-      const code = await new Promise((resolve, reject) => {
-        wx.login({ success: (r) => resolve(r.code), fail: reject })
-      })
-      // client 标明商家端：后端用它选「零栋商家」的 appid/secret 走真实 code2session；
-      // 不再传 role：服务端不接受客户端自报身份，商家权限只能凭 merchant_code 授予。
       const res = await request.post(api.login, {
-        code,
-        client: 'merchant',
-        nickname: '零栋铺子',
-        merchant_code: String(this.data.merchantCode || '').trim()
+        username,
+        password,
+        client: 'merchant'
       }, { needAuth: false }) // 登录接口本身免鉴权：未登录时必须发出，否则被 request 拦截永远登不进
       wx.hideLoading()
       // 先校验身份再落盘：非商家账号绝不留下 token，否则下次冷启动会跳过登录页直接进首页，
@@ -39,7 +46,7 @@ Page({
       if (!res.user || res.user.role !== 'merchant') {
         wx.showModal({
           title: '当前不是商家账号',
-          content: '请输入店主提供的商家邀请码后重新登录。',
+          content: '请使用管理员分配的商家账号登录。',
           showCancel: false,
           confirmText: '知道了'
         })

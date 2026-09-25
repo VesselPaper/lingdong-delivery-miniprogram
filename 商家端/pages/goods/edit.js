@@ -1,5 +1,6 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
+const role = require('../../utils/role')
 
 // 上传接口现返回完整 URL，保存时还原为相对路径入库（去掉任意协议+主机[:端口]，不绑定特定 host）
 function toRel(u) {
@@ -21,6 +22,12 @@ Page({
   },
 
   async onLoad(options) {
+    // 商品新增/编辑（含改价）店主专属：店员直达（如分享卡片）时拦截
+    if (!role.isOwner()) {
+      wx.showToast({ title: '需要店主权限', icon: 'none' })
+      setTimeout(() => wx.navigateBack(), 600)
+      return
+    }
     this.setData({ id: options.id ? Number(options.id) : null })
     this.loadCategories()
     if (options.id) {

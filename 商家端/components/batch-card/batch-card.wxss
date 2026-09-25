@@ -1,3 +1,8 @@
+/* 批次卡面：蓝色边框，便于与普通卡片分隔 */
+.card.batch-card {
+  border: 2rpx solid #A8C8EA;
+}
+
 /* 批次头部：蓝色整行（白字），用于区分不同批次 */
 .batch-head {
   display: flex;
@@ -53,6 +58,36 @@
   color: #ffffff;
   border: 1rpx solid rgba(255, 255, 255, 0.5);
   font-weight: 600;
+}
+
+/* 组单中：动态旋转圆环（表示订单正在合并成批次） */
+.spinner-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 10rpx;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1rpx solid rgba(255, 255, 255, 0.4);
+  border-radius: 8rpx;
+  padding: 4rpx 14rpx;
+}
+
+.spinner {
+  width: 22rpx;
+  height: 22rpx;
+  border: 4rpx solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: batch-spin 0.9s linear infinite;
+}
+
+.spinner-text {
+  font-size: 22rpx;
+  color: #ffffff;
+}
+
+@keyframes batch-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* 机器人忙碌：上货按钮禁用/忙提示（问题3/4） */

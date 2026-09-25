@@ -51,9 +51,9 @@ Page({
     } else if (options && options.tab !== undefined && options.tab !== '') {
       this.setData({ statusFilter: String(options.tab), active: '' })
     }
-    // 收到「新订单」推送 → 局部重拉当前列表 + 右上角红点（不整页重载）
+    // 收到「新订单 / 批次定型」推送 → 局部重拉当前列表 + 右上角红点（不整页重载）
     this._onPush = (msg) => {
-      if (msg && msg.type === 'order_created') { this.load(); this.loadPendingCount() }
+      if (msg && (msg.type === 'order_created' || msg.type === 'batch_dispatched')) { this.load(); this.loadPendingCount() }
     }
     push.subscribe(this._onPush)
   },
@@ -129,7 +129,7 @@ Page({
         // 待取货阶段：批次可能仍为「配送中」（取完才完成），但卡片应显示「待取货」
         if (stage === 'pickup') { text = '待取货'; tag = 'tag-green' }
         map.set(key, {
-          id: key,
+          id: o.batch && o.batch.id ? o.batch.id : key,
           batch_no: o.batch ? o.batch.batch_no : '',
           daily_seq: o.batch ? o.batch.daily_seq : 0,
           code_short: o.batch ? (o.batch.code_short || '') : '',
@@ -164,6 +164,13 @@ Page({
   goDetailByOrder(e) {
     const o = e.detail || {}
     if (o && o.id) wx.navigateTo({ url: '/pages/orders/detail?id=' + o.id })
+  },
+
+  // 点批次卡面 → 只查看批次详情（不执行定型/派车；组单中批次在详情页会提示先点上货定型）
+  goBatchDetail(e) {
+    const b = e.detail || {}
+    if (!b || !b.id || b.id === '__none__') return
+    wx.navigateTo({ url: '/pages/device/batchDetail?id=' + b.id })
   },
 
   // 右上角「配单上货」：进入配单/上货页（一车多单批次流程）

@@ -1,6 +1,7 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
 const flyCart = require('../../utils/flyCart')
+const session = require('../../utils/session')
 
 // 历史搜索：与首页共用同一份本地记录（search_history）
 const HISTORY_KEY = 'search_history'
@@ -56,6 +57,8 @@ Page({
   },
 
   onShow() {
+    // 未登录强制回登录页（与首页同一套兜底）
+    if (session.ensureLogin()) return
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 1 })
     }

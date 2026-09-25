@@ -55,7 +55,7 @@
         <t-icon name="cart" size="56rpx" color="#333333" />
         <view class="func-text">商品管理</view>
       </view>
-      <view class="func-item" bindtap="goActivities">
+      <view class="func-item" wx:if="{{isOwner}}" bindtap="goActivities">
         <t-icon name="activity" size="56rpx" color="#333333" />
         <view class="func-text">活动管理</view>
       </view>
@@ -72,7 +72,7 @@
         <t-icon name="location" size="56rpx" color="#333333" />
         <view class="func-text">配送监控</view>
       </view>
-      <view class="func-item" bindtap="goSettings">
+      <view class="func-item" wx:if="{{isOwner}}" bindtap="goSettings">
         <t-icon name="setting" size="56rpx" color="#333333" />
         <view class="func-text">商铺设置</view>
       </view>

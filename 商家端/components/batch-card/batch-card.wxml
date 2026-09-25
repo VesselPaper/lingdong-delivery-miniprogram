@@ -6,7 +6,12 @@
     </view>
     <view class="batch-tags">
       <text class="tag tag-locked" wx:if="{{b.dispatchMark}}">已锁定·待配送</text>
-      <text class="tag {{b.statusTagClass || 'tag-gray'}}" wx:if="{{b.status_text}}">{{b.status_text}}</text>
+      <!-- 组单中：动态旋转圆环，表示订单正在合并成批次 -->
+      <view class="spinner-tag" wx:elif="{{b.status === 0}}">
+        <view class="spinner"></view>
+        <text class="spinner-text">组单中</text>
+      </view>
+      <text class="tag {{b.statusTagClass || 'tag-gray'}}" wx:elif="{{b.status_text}}">{{b.status_text}}</text>
       <text class="tag tag-dark">{{b.total_orders}} 单</text>
     </view>
   </view>

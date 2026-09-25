@@ -12,7 +12,7 @@
   <view class="card stat-card">
     <view class="stat-head">
       <view class="stat-title">商品统计</view>
-      <view class="add-btn" bindtap="addGoods">新增商品</view>
+      <view class="add-btn" wx:if="{{isOwner}}" bindtap="addGoods">新增商品</view>
     </view>
     <view class="stat-grid">
       <view class="stat-item">
@@ -53,7 +53,7 @@
           <t-icon name="arrow-down" size="32rpx" color="#333333" />
           <text class="action-text">{{item.status === 1 ? '下架' : '上架'}}</text>
         </view>
-        <view class="action" bindtap="editGoods" data-id="{{item.id}}">
+        <view class="action" wx:if="{{isOwner}}" bindtap="editGoods" data-id="{{item.id}}">
           <t-icon name="tag" size="32rpx" color="#333333" />
           <text class="action-text">价格库存</text>
         </view>

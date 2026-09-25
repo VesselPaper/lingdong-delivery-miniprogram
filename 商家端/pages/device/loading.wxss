@@ -2,6 +2,23 @@
   padding-bottom: 80rpx;
 }
 
+/* 搜索行右侧「扫无人车二维码」方形图标按钮（无文字） */
+.scan-square {
+  width: 72rpx;
+  height: 72rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid var(--brand);
+  border-radius: 12rpx;
+  background: #ffffff;
+}
+
+.scan-square-hover {
+  background: #EAF3FF;
+}
+
 /* 自动派车提示条：检测到有订单，配送车将到上货点等待 */
 .auto-dispatch-tip {
   display: flex;
@@ -25,25 +42,4 @@
   font-size: 28rpx;
   font-weight: 600;
   color: var(--text-main);
-}
-
-.scan-entry {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-  background: #F0F6FF;
-  border: 2rpx dashed #3078C0;
-  border-radius: 16rpx;
-  padding: 20rpx 24rpx;
-  margin: 20rpx 0;
-}
-
-.scan-entry-main {
-  flex: 1;
-}
-
-.scan-entry-title {
-  font-size: 30rpx;
-  color: #3078C0;
-  font-weight: 600;
 }

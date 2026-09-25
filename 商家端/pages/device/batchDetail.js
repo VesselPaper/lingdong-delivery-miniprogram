@@ -17,7 +17,7 @@ Page({
   data: {
     id: null,
     batch: null,
-    phase: 'scanned', // scanned 可开舱 | open 已开舱 | loaded 已关舱(可派发) | dispatched 已派发
+    phase: 'scanned', // pending 未定型(只读) | scanned 可开舱 | open 已开舱 | loaded 已关舱(可派发) | dispatched 已派发
     mock: DEVICE_MOCK, // 按钮标注：模拟打开舱门/打开舱门
     scanSn: '',        // 扫码带入的无人车编号（需求5）
     atLoadingPoint: false,
@@ -80,6 +80,7 @@ Page({
   // 40 上货中（舱已开）→ 显示「关舱」；50 已上货 → 显示「开始配送」。
   inferPhase(b) {
     const st = Number(b.status)
+    if (st === 0) return 'pending' // 组单中：未派车定型，详情页只读展示（不显示开舱/关舱操作）
     if (st === 2 || st === 3 || st === 4) return 'dispatched' // 配送中/已完成/已取消：不再可操作
     if (st === 1) {
       // 召唤多单配送无 delivery_tasks，orders[].task.statuses 恒为空 → 旧逻辑会退回 scanned（错误显示「打开舱门」）。
@@ -99,18 +100,41 @@ Page({
   },
 
   decorate(b) {
-    return Object.assign({}, b, {
-      statusTagClass: { 0: 'tag-gray', 1: 'tag-orange', 2: 'tag-blue', 3: 'tag-green', 4: 'tag-red' }[Number(b.status)] || 'tag-gray',
-      orders: (b.orders || []).map((o) => {
-        if (o.picked_up) return Object.assign({}, o, { stClass: 'green', displayStatus: '已取' })
-        const st = Number(o.status)
-        let cls = ORDER_ST_CLASS[st] || 'gray'
-        let ds = o.status_text || ''
-        if (st === 6) { cls = 'red'; ds = '配送异常' }
-        else if (st === 2) { cls = 'blue'; ds = '待上货' }
-        return Object.assign({}, o, { stClass: cls, displayStatus: ds })
-      })
+    const st = Number(b.status)
+    const orders = (b.orders || []).map((o) => {
+      if (o.picked_up) return Object.assign({}, o, { stClass: 'green', displayStatus: '已取' })
+      const os = Number(o.status)
+      let cls = ORDER_ST_CLASS[os] || 'gray'
+      let ds = o.status_text || ''
+      if (os === 6) { cls = 'red'; ds = '配送异常' }
+      else if (os === 2) { cls = 'blue'; ds = '待上货' }
+      return Object.assign({}, o, { stClass: cls, displayStatus: ds })
     })
+    // 状态标签：批次内有「已送达未取走」的订单 → 显示「待取货」（与当前任务页待取货卡一致）
+    const awaitingPickup = orders.some((o) => Number(o.status) === 3 && !o.picked_up)
+    let statusText = b.status_text || ''
+    let tagCls = { 0: 'tag-gray', 1: 'tag-orange', 2: 'tag-blue', 3: 'tag-green', 4: 'tag-red' }[st] || 'tag-gray'
+    if (awaitingPickup) { statusText = '待取货'; tagCls = 'tag-green' }
+    // 已派发后的说明文案：配送中 / 已送达待取 / 已完成 / 异常分别给准确提示
+    const delivered = orders.filter((o) => Number(o.status) >= 3).length
+    let note = '机器人已出发，将按路线依次配送'
+    if (st === 4) note = b.status_text === '批次已取消' ? '批次已取消' : '批次配送异常，请查看订单处理'
+    else if (st === 3) note = orders.length && delivered === orders.length ? '批次配送已完成' : '货品已送达各点位，等待顾客取餐'
+    else if (st === 2 && orders.length && delivered === orders.length) note = '货品已送达各点位，等待顾客取餐'
+    return Object.assign({}, b, {
+      statusTagClass: tagCls,
+      status_text: statusText,
+      // 已锁定·待配送：货已装好待发车（配单上货卡同款标记）
+      dispatchMark: b.ready_dispatch === true,
+      dispatchNote: note,
+      orders
+    })
+  },
+
+  // 批次卡面内点某单 → 进订单详情
+  goOrderDetail(e) {
+    const o = e.detail || {}
+    if (o && o.id) wx.navigateTo({ url: '/pages/orders/detail?id=' + o.id })
   },
 
   // 打开舱门（整批验证）。测试阶段：模拟成功；真实代码保留在下方分支。
@@ -121,7 +145,7 @@ Page({
       setTimeout(() => {
         wx.hideLoading()
         this.setData({ phase: 'open' })
-        wx.showToast({ title: '模拟开舱成功，请放货', icon: 'success', duration: 3000 })
+        wx.showModal({ title: '模拟开舱成功', content: '请放货', showCancel: false, confirmText: '知道了' })
       }, 600)
       return
     }
@@ -134,18 +158,18 @@ Page({
         if (data && data.waiting) {
           wx.showModal({
             title: '机器人前往上货点中',
-            content: (data.msg || '机器人还没到达上货点') + '，请稍候再点一次「打开舱门」',
+            content: data.msg || '机器人还没到达上货点，请稍后再试',
             showCancel: false,
             confirmText: '知道了'
           })
           return
         }
         this.setData({ phase: 'open' })
-        wx.showToast({ title: '舱门已打开，请放货', icon: 'success', duration: 3000 })
+        wx.showModal({ title: '舱门已打开', content: '请放货', showCancel: false, confirmText: '知道了' })
       })
       .catch((e) => {
         wx.hideLoading()
-        wx.showToast({ title: (e && e.message) || '开舱失败', icon: 'none', duration: 3000 })
+        wx.showModal({ title: '开舱失败', content: (e && e.message) || '开舱失败，请稍后重试', showCancel: false, confirmText: '知道了' })
       })
   },
 
@@ -193,7 +217,10 @@ Page({
           }
         })
       })
-      .catch((e) => { wx.hideLoading(); wx.showToast({ title: (e && e.message) || '关舱失败', icon: 'none', duration: 3000 }) })
+      .catch((e) => {
+        wx.hideLoading()
+        wx.showModal({ title: '关舱失败', content: (e && e.message) || '关舱失败，请稍后重试', showCancel: false, confirmText: '知道了' })
+      })
   },
 
   // 开始配送（整批确认上货）。测试阶段：模拟成功并推进本地状态；真实代码保留在下方分支。
@@ -202,24 +229,28 @@ Page({
     if (!this.data.batch) return
     if (this.data.phase === 'dispatched') return
     if (this.data.phase !== 'loaded') {
-      wx.showToast({ title: '请先关闭舱门后再开始配送', icon: 'none', duration: 3000 })
+      wx.showModal({ title: '请先关闭舱门', content: '关闭舱门后才能开始配送', showCancel: false, confirmText: '知道了' })
       return
     }
     if (DEVICE_MOCK) {
       wx.showLoading({ title: '开始配送' })
-      request.post(api.batchMockDispatch, { batch_id: this.data.batch.id })
+      // silent：结果由下方确认弹窗展示，避免 request 默认悬浮 toast 与其重叠
+      request.post(api.batchMockDispatch, { batch_id: this.data.batch.id }, { silent: true })
         .then((r) => {
           wx.hideLoading()
           this.clearTimer()
           this.setData({ phase: 'dispatched', sliderX: 0 })
-          // 测试阶段提示：配送时间模拟为 ~10 秒后送达
-          wx.showToast({ title: (r && r.msg) || '已模拟开始配送', icon: 'none', duration: 2500 })
-          // 配送完成自动返回批次列表（上货配单页），无需页面内返回按钮
-          setTimeout(() => wx.navigateBack(), 1600)
+          // 测试阶段提示：配送时间模拟为 ~10 秒后送达；确认后返回批次列表
+          wx.showModal({
+            title: (r && r.msg) || '已模拟开始配送',
+            showCancel: false,
+            confirmText: '知道了',
+            success: () => wx.navigateBack()
+          })
         })
         .catch((e) => {
           wx.hideLoading()
-          wx.showToast({ title: (e && e.message) || '开始配送失败', icon: 'none', duration: 3000 })
+          wx.showModal({ title: '开始配送失败', content: (e && e.message) || '请稍后重试', showCancel: false, confirmText: '知道了' })
         })
       return
     }
@@ -230,12 +261,16 @@ Page({
         wx.hideLoading()
         this.clearTimer()
         this.setData({ phase: 'dispatched', sliderX: 0 })
-        wx.showToast({ title: '配送已开始', icon: 'success', duration: 3000 })
-        setTimeout(() => wx.navigateBack(), 2200)
+        wx.showModal({
+          title: '配送已开始',
+          showCancel: false,
+          confirmText: '知道了',
+          success: () => wx.navigateBack()
+        })
       })
       .catch((e) => {
         wx.hideLoading()
-        wx.showToast({ title: (e && e.message) || '开始配送失败', icon: 'none', duration: 3000 })
+        wx.showModal({ title: '开始配送失败', content: (e && e.message) || '请稍后重试', showCancel: false, confirmText: '知道了' })
       })
   },
 

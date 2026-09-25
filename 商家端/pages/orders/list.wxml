@@ -35,8 +35,8 @@
   <view class="list" wx:else>
     <batch-card
       wx:for="{{groups}}" wx:key="id"
-      b="{{item}}" showProgress="{{true}}" showGoods="{{true}}"
-      bind:ordertap="goDetailByOrder" />
+      b="{{item}}" showProgress="{{true}}" showGoods="{{true}}" orderTap="{{true}}"
+      bind:cardtap="goBatchDetail" bind:ordertap="goDetailByOrder" />
     <empty-view show="{{!groups.length}}" text="暂无订单" icon="order" />
   </view>
 

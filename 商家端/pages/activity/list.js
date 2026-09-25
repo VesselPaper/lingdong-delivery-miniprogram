@@ -1,12 +1,15 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
+const role = require('../../utils/role')
 
 Page({
   data: {
-    activities: []
+    activities: [],
+    isOwner: false
   },
 
   onShow() {
+    this.setData({ isOwner: role.isOwner() })
     this.load()
   },
 

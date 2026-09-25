@@ -2,18 +2,20 @@ const api = require('../../utils/api')
 const request = require('../../utils/request')
 const shopState = require('../../utils/shopState')
 const push = require('../../utils/push')
+const role = require('../../utils/role')
 
 Page({
   data: {
     stats: { pending: 0, ready_load: 0, delivering: 0, pickup: 0, exception: 0, aftersale: 0, cancel_requests: 0 },
     shopOpen: true,
-    pendingBatchCount: 0
+    pendingBatchCount: 0,
+    isOwner: false
   },
 
   onLoad() {
-    // 收到「新订单」推送 → 局部刷新（不整页重载）
+    // 收到「新订单 / 批次定型」推送 → 局部刷新（不整页重载）
     this._onPush = (msg) => {
-      if (msg && msg.type === 'order_created') { this.load(); this.loadPendingBatches() }
+      if (msg && (msg.type === 'order_created' || msg.type === 'batch_dispatched')) { this.load(); this.loadPendingBatches() }
     }
     push.subscribe(this._onPush)
   },
@@ -24,7 +26,7 @@ Page({
 
   async onShow() {
     await shopState.loadShop()
-    this.setData({ shopOpen: shopState.isOpen() })
+    this.setData({ shopOpen: shopState.isOpen(), isOwner: role.isOwner() })
     this.load()
     this.loadPendingBatches()
   },

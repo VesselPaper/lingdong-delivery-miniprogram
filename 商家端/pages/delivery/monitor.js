@@ -345,6 +345,12 @@ Page({
     if (o && o.id) wx.navigateTo({ url: '/pages/orders/detail?id=' + o.id })
   },
 
+  // 点批次卡面 → 进批次详情页（进度 + 订单商品 + 配送状态说明）
+  goBatchDetail(e) {
+    const b = e.detail || {}
+    if (b && b.id) wx.navigateTo({ url: '/pages/device/batchDetail?id=' + b.id })
+  },
+
   // 本车二维码 → 打印贴车（商家配单上货 / 用户扫码取餐共用此码）
   goRobotQr(e) {
     const sn = (e.currentTarget.dataset && e.currentTarget.dataset.sn) || ''
