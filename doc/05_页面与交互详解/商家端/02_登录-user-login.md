@@ -1,18 +1,19 @@
-# 商家登录（微信一键登录 + 邀请码）
+# 商家登录（账号密码，2026-09-24 起替代微信+邀请码）
 > 页面路径：pages/user/login（商家端小程序）
 
-
-- **数据来源**：`onShow` 读本地缓存 `runtimeFlags.login === 'demo'`，决定按钮文案「模拟登录（演示）」或「微信一键登录」，并显示对应演示模式说明行。
-- **页面构成**：顶部品牌区（圆形 logo + 「零栋商家」+「商家登录管理商品与配送」）；中部「商家邀请码」输入框（占位「首次登录必填，由店主提供」）+ 提示「商家权限只能凭邀请码授予，客户端无法自行声明身份」；底部主按钮 + 协议声明「登录即同意《商家入驻协议》与《隐私政策》」。
+- **数据来源**：无外部数据；表单为用户输入（用户名 + 密码）。
+- **页面构成**：顶部品牌区（圆形 logo + 「零栋商家」+「商家登录管理商品与配送」）；两个输入框——用户名（占位「请输入用户名」）、密码（`type="password"`，确认键触发登录）；底部主按钮「登 录」（登录中显示「登录中…」并置灰防重复提交）。
 - **交互清单**：
 
 | 按钮/交互 | 触发函数 | 行为与调用的接口 | 后续链路/跳转 |
 | --- | --- | --- | --- |
-| 邀请码输入 | onCodeInput | 更新 `merchantCode` | — |
-| 微信一键登录 | wechatLogin | `wx.login` 取 code → POST /api/auth/login（body：`code、client:'merchant'、nickname:'零栋铺子'、merchant_code`，`needAuth:false`） | 校验通过后 `wx.switchTab` → /pages/index/index |
+| 用户名输入 | onUsernameInput | 更新 `username` | — |
+| 密码输入 | onPasswordInput | 更新 `password` | — |
+| 登录（按钮/确认键） | accountLogin | POST /api/auth/login（body：`username、password、client:'merchant'`，`needAuth:false`） | 校验通过后 `wx.switchTab` → /pages/index/index |
 
-- **重点链路**：登录接口显式传 `needAuth: false`（否则被 `request` 的未登录拦截永远发不出去）；`client:'merchant'` 供后端选择商家端 appid/secret 走真实 code2session，不再传 `role` —— 服务端不接受客户端自报身份，商家权限只能凭 `merchant_code` 授予。**先校验身份再落盘**：`res.user.role !== 'merchant'` 时弹窗「当前不是商家账号」并直接 return，绝不写 token —— 否则下次冷启动跳过登录页，之后所有 `/merchant/*` 都会 403，用户只看到「无权限」却没有任何路径回登录页。通过后依次写 `token`、`userInfo`、`runtimeFlags`（运行模式标志），置 `autoEnterShop = true`，toast「登录成功」后 500ms `wx.switchTab` 回首页。
-- **状态与边界**：`logging` 防重复提交（按钮置灰）；失败 toast 展示后端 `msg` 或兜底文案；演示模式提示「当前后端未配置商家端微信凭据，登录为演示模式（不产生真实微信身份）」。
+- **重点链路**：登录接口显式传 `needAuth: false`（否则被 `request` 的未登录拦截永远发不出去）；账号由管理员在管理员网页「商家管理」页创建（店主/店员）。**先校验身份再落盘**：`res.user.role !== 'merchant'` 时弹窗「当前不是商家账号」并直接 return，绝不写 token —— 否则下次冷启动跳过登录页，之后所有 `/merchant/*` 都会 403，用户只看到「无权限」却没有任何路径回登录页。通过后依次写 `token`、`userInfo`（含 `merchant_role`）、`runtimeFlags`（运行模式标志），置 `autoEnterShop = true`，toast「登录成功」后 500ms `wx.switchTab` 回首页。
+- **权限落地**：`utils/role.js` 提供 `isOwner()`（读 `userInfo.merchant_role === 'owner'`）；店员登录后首页自动隐藏店主专属入口（活动管理、商铺设置），商品列表隐藏新增/改价，`goods/edit`、`activity/edit` 页 onLoad 有店主守卫。
+- **状态与边界**：`logging` 防重复提交（按钮置灰）；本地先校验用户名/密码非空；失败 toast 展示后端 `msg` 或兜底文案。
 
 ---
 

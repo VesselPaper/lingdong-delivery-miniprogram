@@ -43,8 +43,8 @@
 │   ├── server.js                   # 装配入口：加载 .env、挂载 5 域路由、静态托管管理员页/大屏
 │   ├── db.js                       # 建表、迁移、种子数据（商品/点位/店铺）
 │   ├── domains/                    # 分层域：user/goods/order/delivery/admin（每域 queries/service/routes）
-│   ├── services/                   # 共享服务：platform（平台对接）/ runtime / promotion（活动计价）/ merchantInvite（邀请码）/ batch / wxpay / orderCancel / adminAuth（管理员账号）/ seq（订单批次号原子取号）/ push（WS 实时推送）
-│   ├── tools/                      # 维护脚本：merchant_invite.js 邀请码管理 / admin_user.js 管理员账号 / gen_cat_icons.js 首页分类图标生成
+│   ├── services/                   # 共享服务：platform（平台对接）/ runtime / promotion（活动计价）/ batch / wxpay / orderCancel / adminAuth（管理员账号）/ seq（订单批次号原子取号）/ push（WS 实时推送）
+│   ├── tools/                      # 维护脚本：admin_user.js 管理员账号 / gen_cat_icons.js 首页分类图标生成
 │   ├── data/lingdong.db            # SQLite 数据库（首次启动自动创建+种子数据）
 │   ├── uploads/                    # 商家上传的商品图片
 │   └── .env.example                # 环境变量模板（复制为 .env 填写）
