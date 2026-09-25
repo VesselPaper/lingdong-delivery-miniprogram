@@ -30,7 +30,7 @@ function startServer() {
       env: {
         ...process.env,
         RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB,
-        PAY_MOCK: 'true', BATCH_WAIT_MS: '100000', MERCHANT_INVITE_CODE: 'test-invite',
+        PAY_MOCK: 'true', BATCH_WAIT_MS: '100000',
         WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '',
         SUMMON_DELIVERY: 'false', STATUS_EVENTS_MS: '300'
       },

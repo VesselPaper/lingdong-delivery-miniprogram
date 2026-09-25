@@ -11,8 +11,38 @@ module.exports = {
     return Number(info.lastInsertRowid)
   },
   updateNickname: (store, id, nickname) => store.prepare('UPDATE users SET nickname=? WHERE id=?').run(nickname, id),
-  // 持正确邀请码的学生升级为商家
+  // 持正确邀请码的学生升级为商家（邀请码机制已退役，2026-09-24 起不再调用，保留防误删）
   upgradeToMerchant: (store, id) => store.prepare("UPDATE users SET role='merchant' WHERE id=?").run(id),
+
+  // ---------- 商家账号体系（2026-09-24 起：账号密码登录 + 店主/店员分级） ----------
+  // users 表仍是单一用户表：openid 用户（微信登录）与 username 商家账号共存；
+  // 商家账号 = username 非空 + role='merchant'，token 为登录签发的随机串（可吊销）。
+  findByUsername: (store, username) => store.prepare('SELECT * FROM users WHERE username=?').get(String(username || '').trim()),
+  setToken: (store, id, token) => store.prepare('UPDATE users SET token=? WHERE id=?').run(String(token), Number(id)),
+  clearToken: (store, id) => store.prepare('UPDATE users SET token=NULL WHERE id=?').run(Number(id)),
+  // 商家账号列表（管理员网页「商家管理」）：只出管理字段，绝不返回密码/token
+  // 排序：店主在前、店员在后；同角色内启用在前、新创建在前
+  merchantList: (store) => store.prepare(
+    `SELECT id, username, nickname, merchant_role, status, created_at
+     FROM users WHERE role='merchant' AND username IS NOT NULL AND username!=''
+     ORDER BY (merchant_role='owner') DESC, status DESC, id DESC`).all(),
+  createMerchantAccount: (store, { username, passwordHash, nickname = '', merchantRole = 'staff' }) => {
+    const info = store.prepare(
+      `INSERT INTO users (username, password_hash, role, merchant_role, nickname)
+       VALUES (?,?,'merchant',?,?)`)
+      .run(String(username), String(passwordHash), merchantRole === 'owner' ? 'owner' : 'staff', String(nickname || '').slice(0, 50))
+    return Number(info.lastInsertRowid)
+  },
+  updateMerchantRole: (store, id, role) => store.prepare(
+    "UPDATE users SET merchant_role=? WHERE id=? AND role='merchant' AND username IS NOT NULL AND username!=''")
+    .run(role === 'owner' ? 'owner' : 'staff', Number(id)),
+  // 重置密码：同时吊销当前 token，强制用新密码重新登录
+  updateMerchantPassword: (store, id, hash) => store.prepare(
+    'UPDATE users SET password_hash=?, token=NULL WHERE id=?').run(String(hash), Number(id)),
+  // 禁用/启用：禁用同时吊销 token
+  setMerchantStatus: (store, id, status) => store.prepare(
+    'UPDATE users SET status=?, token=NULL WHERE id=?').run(status ? 1 : 0, Number(id)),
+
   // 逐字段更新：undefined/null 表示「本次不改这个字段」，避免只传昵称时把手机号清空
   updateProfile: (store, id, nickname, phone, avatar) => {
     if (nickname !== undefined && nickname !== null) {

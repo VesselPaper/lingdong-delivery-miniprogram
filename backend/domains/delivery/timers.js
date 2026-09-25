@@ -12,6 +12,8 @@ const BATCH_SCAN_MS = Number(process.env.BATCH_SCAN_MS || 15 * 1000)
 const POLL_MS = Number(process.env.PLATFORM_POLL_MS || 8000)
 const SUMMON_WATCHDOG_MS = Number(process.env.SUMMON_WATCHDOG_MS || 5 * 1000)
 const healAt = new Map()
+// 自动定型失败节流(batch_id->ts)：车离线/忙时至少 60s 再试，避免每 15s 刷平台查询与日志
+const autoRetryAt = new Map()
 // 上货点「有单就守着」：车最后一次成功召唤上货点的时间(device_sn->ts)，到点前续一次，车物理不离开。
 const keepAt = new Map()
 // 召唤节流(device_sn->ts)：机器人离线/召唤失败时至少 30s 再试，避免刷爆平台。
@@ -49,10 +51,12 @@ function start(store, deps) {
   s.scanPickupTimeouts(store, deps).catch(() => {})
 
   // ---------- ④ 批次自动派车（一车多单）+ 模拟配送到达 ----------
-  // 组单中的批次满足任一条件即自动派车：
-  //  1) 达到一车容量上限（BATCH_MAX_ORDERS，默认 12 单）
-  //  2) 自动接单模式开启且批次成立超过 BATCH_WAIT_MS（默认 90s）
-  // 手动「派车」按钮始终可用。
+  // 组单中的批次满足任一条件即自动定型（status 0→1，指派设备锁定）：
+  //  1) 达到一车容量上限（BATCH_MAX_ITEMS，默认 12 件）
+  //  2) 批次成立超过 BATCH_WAIT_MS（默认 90s）
+  // 定型后广播 batch_dispatched → 商家端刷新列表，卡面从「组单中」变为「待上货」，
+  // 不再一直停在组单中。手动「上货」/扫码始终可用；并发由 claimDispatch 保证不重复派车。
+  // 召唤模式（syncLoading=0）下 doDispatchBatch 只定型设备（不建越凡任务），车由看门狗⑤召到上货点待命。
   setInterval(async () => {
     try {
       // P1-4：模拟配送到达处理（不依赖营业状态、不依赖内存 setTimeout，重启后按落库时间补送达）
@@ -61,10 +65,6 @@ function start(store, deps) {
       // 跨域只读：店铺营业状态（goods 域；保持与原先 server.js 相同的直接读法）
       const shop = store.prepare('SELECT * FROM shops WHERE id=1').get() || {}
       if (shop.business_status !== 'open') return
-      // status IN (0,1)：组单中(0)持续收单召唤待命；待上货(1)已定型指派设备，仍需确保车在上货点
-      // （问题1修复：此前只在 status=0 召唤，商家快速定型后扫描停止召唤，车没到上货点就开舱会失败）
-      // 2026-09-17：Route B 改 syncLoading=0 后不再召唤 —— 直接任务在定型时创建，车自行导航到上货点
-      // （任务状态 30=到达上货点，开舱门禁以此为准）。召唤的 lightTask 无法取消，会挡住配送任务启动。
       const openBatches = store.prepare('SELECT * FROM delivery_batches WHERE status IN (0,1) ORDER BY id ASC').all()
       for (const b of openBatches) {
         const cnt = store.prepare(`
@@ -73,7 +73,23 @@ function start(store, deps) {
           WHERE o.batch_id=? AND o.status IN (1,2)`).get(b.id)
         const n = Number(cnt && cnt.c || 0)
         if (n <= 0) continue
-        // 仅扫描留空（不再召唤）；批次在定型时由 doDispatchBatch 创建直接任务驱动车辆
+        // 待上货(1)已定型，只需由看门狗⑤保持在位，这里无事可做
+        if (Number(b.status) !== 0) continue
+        const items = Number(cnt && cnt.items || 0)
+        const created = new Date(String(b.created_at || '').replace(' ', 'T')).getTime()
+        const age = Date.now() - (isNaN(created) ? Date.now() : created)
+        const full = items >= Number(deps.batch.BATCH_MAX_ITEMS || 12)
+        if (!full && age < Number(deps.batch.BATCH_WAIT_MS || 90 * 1000)) continue
+        // 失败节流：上次尝试（成功与否）后 60s 内不再重试
+        if (Date.now() - (autoRetryAt.get(b.id) || 0) < 60 * 1000) continue
+        autoRetryAt.set(b.id, Date.now())
+        try {
+          await s.doDispatchBatch(store, deps, b.id, '')
+          console.log('[batch] 自动定型 ' + b.batch_no + (full ? ' 满容' : ' 超时') + ' items=' + items)
+        } catch (e) {
+          // 无空闲车 / 车忙等：节流后下轮再试，不中断扫描
+          console.warn('[batch] 自动定型失败 batch=' + b.id + ' ' + e.message)
+        }
       }
     } catch (e) { console.warn('[batch] 自动派车扫描异常', e.message) }
   }, BATCH_SCAN_MS)

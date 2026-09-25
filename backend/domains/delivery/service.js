@@ -274,20 +274,19 @@ async function doDispatchBatch(store, deps, batchId, deviceSn) {
       if (r && r.device_sn) sn = r.device_sn
     }
     if (!sn) {
-      // 无可用车：给商家明确提示（设备状态 + 引导），而不是笼统报错
-      let reason = '机器人未上线或处于忙碌状态'
+      // 无可用车：给商家明确提示，而不是笼统报错（文案从简，不列设备明细）
+      let reason = '请确认无人车已开机上线'
       try {
         const dev = await deps.platform.getDeviceList()
         if (dev.ok && dev.robots && dev.robots.length) {
-          const states = dev.robots.map((x) => `${x.name || x.device_sn}（${x.online ? '在线·' + (x.machine_text || '未知') : '离线'}）`).join('、')
-          reason = '当前设备：' + states + '。请先开机上线后再派车上货'
+          reason = '请先开机上线后再派车上货'
         } else if (dev.ok && (!dev.robots || !dev.robots.length)) {
-          reason = '平台暂无已注册机器人，请联系越凡确认设备配置'
+          reason = '平台暂无已注册机器人，请联系越凡配置'
         } else if (dev.msg) {
-          reason = '查询设备状态失败：' + dev.msg
+          reason = '查询设备状态失败，请稍后重试'
         }
       } catch (e) { /* 设备状态查询失败则用默认文案 */ }
-      throw new Error('暂无可用无人车：' + reason)
+      throw new Error('暂无空闲车辆，' + reason)
     }
     const busy = await deps.platform.isRobotBusy(store, sn)
     if (busy.busy) throw new Error(busy.msg)
@@ -315,6 +314,10 @@ async function doDispatchBatch(store, deps, batchId, deviceSn) {
     // 兜底置为配送中（已由并入批次时置 2）
     store.prepare("UPDATE orders SET status=2, updated_at=datetime('now','localtime') WHERE batch_id=? AND status=1").run(batchId)
     console.log('[batch] 批次定型 ' + b.batch_no + ' 共' + orders.length + '单（路线待开始配送时规划）')
+    // 定型完成推送：商家端收到后刷新列表（组单中批次 → 待上货），否则卡面会一直停在「组单中」
+    if (deps.push && deps.push.broadcast) {
+      try { deps.push.broadcast({ type: 'batch_dispatched', batch_id: batchId, batch_no: b.batch_no }) } catch (e) { /* 推送失败不影响定型 */ }
+    }
     return deps.batch.getBatchDetail(store, batchId)
   } catch (e) {
     // 回滚：作废本轮已创建的任务 + 批次退回组单中（device_sn/route 一并清掉，避免下次派车沿用旧路线）

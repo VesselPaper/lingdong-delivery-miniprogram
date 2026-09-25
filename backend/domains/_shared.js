@@ -58,11 +58,12 @@ function toStock(v, fallback = 99) {
 
 // 工厂：注入 store 后返回依赖它的中间件与审计函数（store 由 server.js 注入，无模块级单例）
 function createShared(store) {
-  // 简易鉴权：token = openid 的哈希，正式环境可换 JWT
+  // 简易鉴权：token = 账号密码登录签发的随机串（users.token）或用户端微信 openid（兼容存量）。
+  // 2026-09-24：商家账号登录签发随机 token（可吊销）；用户端微信登录仍以 openid 为 token，两者互不冲突。
   function auth(req, res, next) {
     const token = (req.headers.authorization || '').replace('Bearer ', '')
     if (!token) return res.status(401).json({ code: 401, msg: '未登录' })
-    const row = store.prepare('SELECT * FROM users WHERE openid=?').get(token)
+    const row = store.prepare('SELECT * FROM users WHERE token=? OR openid=?').get(token, token)
     if (!row) return res.status(401).json({ code: 401, msg: '登录失效' })
     req.user = row
     next()
@@ -70,7 +71,19 @@ function createShared(store) {
 
   function merchantGuard(req, res, next) {
     auth(req, res, () => {
-      if (req.user.role !== 'merchant') return res.status(403).json({ code: 403, msg: '无权限' })
+      const u = req.user
+      if (!u || u.role !== 'merchant') return res.status(403).json({ code: 403, msg: '无权限' })
+      // 2026-09-24 起商家权限只认账号体系：username 非空且启用。
+      // 旧微信商家账号（无 username）与停用账号一律拒绝——封死「微信登录直接当商家」的历史路径。
+      if (!u.username || Number(u.status) !== 1) return res.status(403).json({ code: 403, msg: '账号已停用或无效' })
+      next()
+    })
+  }
+
+  // 店主专属守卫：在 merchantGuard 基础上要求 merchant_role==='owner'
+  function ownerGuard(req, res, next) {
+    merchantGuard(req, res, () => {
+      if (req.user.merchant_role !== 'owner') return res.status(403).json({ code: 403, msg: '需要店主权限' })
       next()
     })
   }
@@ -205,7 +218,7 @@ function createShared(store) {
     next()
   }
 
-  return { auth, merchantGuard, adminGuard, audit, auditMw, ok, maskPhone, toStock }
+  return { auth, merchantGuard, ownerGuard, adminGuard, audit, auditMw, ok, maskPhone, toStock }
 }
 
 module.exports = { createShared, ok, maskPhone, toStock, ADMIN_TOKEN, assetAbs, PUBLIC_ORIGIN }

@@ -12,7 +12,7 @@ const service = require('./service')
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads')
 
 module.exports = (store, deps) => {
-  const { merchantGuard, audit, ok } = createShared(store)
+  const { merchantGuard, ownerGuard, audit, ok } = createShared(store)
   const runtime = deps.runtime
   const router = express.Router()
 
@@ -35,7 +35,8 @@ module.exports = (store, deps) => {
   // ---------- 店铺状态 ----------
   router.get('/merchant/shop', merchantGuard, (req, res) => ok(res, service.shopWithRuntime(q.getShop(store), runtime)))
 
-  router.put('/merchant/shop', merchantGuard, (req, res) => {
+  // 店铺设置（营业状态/自动接单/配送费）：店主专属（店员不开放，避免误操作歇业/改价）
+  router.put('/merchant/shop', ownerGuard, (req, res) => {
     const { business_status, auto_accept, delivery_fee } = req.body || {}
     const cur = q.getShop(store)
     // 未传的字段保留原值（此前 business_status 缺省会被强制成 open，导致单改配送费会把歇业店改回营业）
@@ -94,7 +95,8 @@ module.exports = (store, deps) => {
     }
   })
 
-  router.post('/merchant/goods', merchantGuard, (req, res) => {
+  // 新建商品：店主专属（含定价）
+  router.post('/merchant/goods', ownerGuard, (req, res) => {
     const { name, price, original_price, image, category, stock, description, barcode, unit } = req.body || {}
     if (!name) return res.status(400).json({ code: 400, msg: '商品名称不能为空' })
     // 库存缺省 99：与商家端表单提示「不填默认 99」保持一致
@@ -104,7 +106,8 @@ module.exports = (store, deps) => {
     ok(res, { id })
   })
 
-  router.put('/merchant/goods', merchantGuard, (req, res) => {
+  // 编辑商品（含改价）：店主专属；店员补货只走 stock/status 接口
+  router.put('/merchant/goods', ownerGuard, (req, res) => {
     const { id, name, price, original_price, image, category, stock, description, status, barcode, unit } = req.body || {}
     if (!id) return res.status(400).json({ code: 400, msg: '缺少商品 id' })
     const cur = q.findById(store, id)
@@ -127,10 +130,10 @@ module.exports = (store, deps) => {
     ok(res)
   })
 
-  // ---------- 商家端活动管理（发布/编辑/上下线/删除） ----------
-  router.get('/merchant/activities', merchantGuard, (req, res) => ok(res, q.merchantActivities(store)))
+  // ---------- 商家端活动管理（发布/编辑/上下线/删除）——店主专属 ----------
+  router.get('/merchant/activities', ownerGuard, (req, res) => ok(res, q.merchantActivities(store)))
 
-  router.post('/merchant/activities', merchantGuard, (req, res) => {
+  router.post('/merchant/activities', ownerGuard, (req, res) => {
     const { title, subtitle = '', image = '', link = '', sort = 0, type = 'custom', config, start_at = '', end_at = '' } = req.body || {}
     if (!title) return res.status(400).json({ code: 400, msg: '活动标题不能为空' })
     const cfgJson = typeof config === 'string' ? config : JSON.stringify(config || {})
@@ -139,7 +142,7 @@ module.exports = (store, deps) => {
     ok(res, { id })
   })
 
-  router.put('/merchant/activities', merchantGuard, (req, res) => {
+  router.put('/merchant/activities', ownerGuard, (req, res) => {
     const { id, title, subtitle, image, link, sort, type, config, start_at, end_at } = req.body || {}
     if (!id) return res.status(400).json({ code: 400, msg: '缺少活动ID' })
     const cur = q.findActivityById(store, id)
@@ -150,13 +153,13 @@ module.exports = (store, deps) => {
   })
 
   // 活动上下线：status 1 发布（用户端可见）/ 0 下线
-  router.put('/merchant/activities/status', merchantGuard, (req, res) => {
+  router.put('/merchant/activities/status', ownerGuard, (req, res) => {
     q.updateActivityStatus(store, req.body.id, req.body.status)
     audit(req, 'activity/status', 'activity#' + req.body.id, 'status=' + Number(req.body.status))
     ok(res)
   })
 
-  router.delete('/merchant/activities', merchantGuard, (req, res) => {
+  router.delete('/merchant/activities', ownerGuard, (req, res) => {
     q.deleteActivity(store, req.body.id)
     audit(req, 'activity/delete', 'activity#' + req.body.id, '')
     ok(res)

@@ -1,14 +1,14 @@
-// user 域业务逻辑：登录（注册/升级商家，含邀请码校验 + 登录限流）、资料更新、购物车折后价
+// user 域业务逻辑：登录（用户端微信 / 商家端账号密码）、资料更新、购物车折后价
 // 依赖注入：service 函数显式接收 (store, deps)；deps.runtime 提供登录凭据与运行模式。
-// 邀请码服务（merchantInvite.js）为共享服务，纯函数 + store 注入，本域直接 require（与 goods 域
-// require goodsStats 同款模式，不产生 require 环）。
+// 2026-09-24：商家端登录从「微信+邀请码」改为「账号密码（管理员网页创建，店主/店员分级）」，
+// 邀请码机制退役（merchantInvite.js 已删除）；密码哈希复用 adminAuth 的 scrypt 方案。
 
 const crypto = require('crypto')
 const q = require('./queries')
-const invite = require('../../services/merchantInvite')
+const adminAuth = require('../../services/adminAuth')
 const promotion = require('../../services/promotion')
 
-// 登录限流（按来源 IP）：防止对邀请码做暴力试错。
+// 登录限流（按来源 IP）：防止暴力试密码。
 // 内存级、单进程足够；多副本需换 Redis。
 const LOGIN_LIMIT = 20
 const LOGIN_WIN = 10 * 60 * 1000
@@ -41,26 +41,52 @@ function demoOpenid(code) {
   return 'demo_' + crypto.createHash('sha1').update(String(code)).digest('hex').slice(0, 24)
 }
 
-// 登录：真实微信 code2session（凭据就绪时）或演示模式。
+// 登录：用户端走真实微信 code2session（凭据就绪时）；商家端走账号密码（管理员网页创建）。
 // 返回 { error: {status, msg} } 或 { data }；HTTP 状态码由 routes 层翻译。
-// 商家授权规则（收紧加固）：
-//   - 商家端(client=merchant)：老商家 openid 免码续登；否则必填且校验邀请码 → 403；
-//   - 用户端：填了正确邀请码则可凭码升级为商家（填错不报错、保持学生）；
-//   - bind=真实登录态（!!creds）：首次使用绑定 openid（一码一微信）；demo 档跳过绑定便于联调。
+// 商家账号规则（2026-09-24）：
+//   - 商家端(client=merchant)：必须「用户名+密码」；校验 scrypt 密码 + 账号启用(status=1)；
+//     成功签发随机 token（存 users.token，可吊销），返回 user 含 merchant_role（owner/staff）；
+//   - 用户端(client=user)：微信登录（openid 即 token），与商家账号体系互不相干；
+//   - 邀请码机制已退役：任何入口都不再校验 merchant_code，学生也不再能凭码升级为商家。
 async function login(store, deps, body, ip) {
-  const { code, nickname = '', merchant_code = '', client = 'user' } = body || {}
-  if (!code) return { error: { status: 400, msg: '缺少登录凭证' } }
+  const { code, nickname = '', username = '', password = '', client = 'user' } = body || {}
   const clientKey = client === 'merchant' ? 'merchant' : 'user'
 
-  // 限流：失败累计过多则暂时拒绝（防暴力试码）
+  // 限流：失败累计过多则暂时拒绝（防暴力试密码/试码）
   if (loginFail.count(ip) >= LOGIN_LIMIT) {
     return { error: { status: 429, msg: '登录尝试过于频繁，请稍后再试' } }
   }
 
+  // ==================== 商家端：账号密码登录 ====================
+  if (client === 'merchant') {
+    const u = String(username || '').trim()
+    const p = String(password || '')
+    if (!u || !p) { loginFail.add(ip); return { error: { status: 400, msg: '请输入账号和密码' } } }
+    const row = q.findByUsername(store, u)
+    if (!row || row.role !== 'merchant' || !adminAuth.verifyPassword(p, row.password_hash || '')) {
+      loginFail.add(ip)
+      return { error: { status: 403, msg: '账号或密码错误' } }
+    }
+    if (Number(row.status) !== 1) { loginFail.add(ip); return { error: { status: 403, msg: '账号已停用，请联系管理员' } } }
+    const token = crypto.randomBytes(32).toString('hex')
+    q.setToken(store, row.id, token)
+    loginFail.ok(ip)
+    const rt = deps.runtime
+    return {
+      data: {
+        token,
+        user: q.findById(store, row.id),
+        runtime: { mode: rt.mode, device_mock: rt.deviceMock, pay_mock: !rt.realPay, login: rt.loginMode(clientKey) }
+      }
+    }
+  }
+
+  // ==================== 用户端：微信登录（不变） ====================
+  if (!code) return { error: { status: 400, msg: '缺少登录凭证' } }
   let openid = ''
   const creds = deps.runtime.loginCreds(clientKey)
   if (creds) {
-    // 真实微信登录：零栋GO（用户端）与零栋商家（商家端）是不同小程序，用各自的 appid/secret
+    // 真实微信登录：零栋GO（用户端）
     try {
       const u = 'https://api.weixin.qq.com/sns/jscode2session'
         + '?appid=' + encodeURIComponent(creds.appid)
@@ -82,44 +108,16 @@ async function login(store, deps, body, ip) {
     openid = demoOpenid(code)
   }
 
-  // ---------- 邀请码校验 / 商家授权 ----------
-  const givenCode = String(merchant_code || '').trim()
-  let wantsMerchant = false
-  const existingUser = q.findByOpenid(store, openid)
-
-  if (client === 'merchant') {
-    if (existingUser && existingUser.role === 'merchant') {
-      // 已是商家的老用户不必每次输码（身份=该微信账号，复用既有授权）
-      wantsMerchant = true
-    } else {
-      if (!givenCode) { loginFail.add(ip); return { error: { status: 403, msg: '请填写商家邀请码' } } }
-      const v = invite.verify(store, givenCode, openid, !!creds)
-      if (!v.ok) { loginFail.add(ip); return { error: { status: 403, msg: invite.message(v.reason) } } }
-      wantsMerchant = true
-    }
-  } else {
-    // 用户端：填了正确邀请码则可凭码升级为商家（不允许越权声明）
-    if (givenCode && invite.verify(store, givenCode, openid, !!creds).ok) {
-      wantsMerchant = true
-    }
-  }
-
-  let user = existingUser
+  let user = q.findByOpenid(store, openid)
   if (!user) {
-    // 新注册：只有持正确邀请码才成为商家
-    const id = q.create(store, openid, nickname || '微信用户', wantsMerchant ? 'merchant' : 'student')
+    // 新用户一律学生（邀请码机制退役后不再存在「凭码升级商家」路径）
+    const id = q.create(store, openid, nickname || '微信用户', 'student')
     user = q.findById(store, id)
   } else {
     if (nickname) q.updateNickname(store, user.id, nickname)
-    // 已是商家的老用户不必每次输码；持正确邀请码则可把学生升级为商家
-    if (wantsMerchant && user.role !== 'merchant') {
-      q.upgradeToMerchant(store, user.id)
-      console.log(`[auth] 用户 ${user.id} 凭邀请码升级为商家`)
-    }
     user = q.findById(store, user.id)
   }
   loginFail.ok(ip)
-  // runtime 标志随登录下发：商家端据此决定设备控制走真实还是模拟分支（不再前端硬编码）
   const rt = deps.runtime
   return {
     data: {

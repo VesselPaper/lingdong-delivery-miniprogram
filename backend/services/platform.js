@@ -910,7 +910,7 @@ async function summonDeliveryToStop(store, batch, stop) {
   if (!store || !batch || !batch.device_sn || !stop) return { ok: false, msg: '参数不完整' }
   const lm = store.prepare('SELECT * FROM landmarks WHERE id=?').get(String(stop.landmark_id))
   if (!lm || !lm.platform_landmark_id) {
-    return { ok: false, msg: '点位「' + (stop.landmark_name || stop.landmark_id) + '」未配置平台映射，无法召唤' }
+    return { ok: false, msg: '配送点未配置平台映射，无法召唤' }
   }
   const r = await summonToPoint(store, batch.device_sn, lm.platform_landmark_id, Number(process.env.SUMMON_STOP_EXPIRE_MIN || 20))
   if (!r.ok) return { ok: false, msg: '召唤到点位失败：' + r.msg, device_sn: batch.device_sn }
@@ -1566,12 +1566,12 @@ async function loadingVerify(deviceSn, platformTaskId, strategies) {
       deviceSn, strategies: strategies || {}, autoOpen: false
     })
     if (!m || m.code !== 'COMM_200') {
-      return { ok: false, msg: (m && m.msg) || '上货验证失败（verify/match）' }
+      return { ok: false, msg: (m && m.msg) || '上货验证失败，请稍后重试' }
     }
     const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/loading/verify', {
       deviceSn, id: Number(platformTaskId), strategies: strategies || {}, autoOpen: true
     })
-    return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '上货验证失败（loading/verify）' }
+    return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '上货验证失败，请稍后重试' }
   } catch (e) {
     return { ok: false, msg: '上货验证异常：' + e.message }
   }
@@ -1642,7 +1642,7 @@ async function robotAtLoadingPoint(store, deviceSn) {
   if (!t) return { ok: false, msg: '未找到该设备的配送任务，请先「上货定型」', at_loading_point: false, distance_m: null }
   return {
     ok: false,
-    msg: '无人车正在前往上货点（' + (t.status_text || '状态 ' + t.task_status) + '），请等待其到达后再开舱',
+    msg: '无人车正在前往上货点，请等待其到达后再开舱',
     at_loading_point: false,
     distance_m: null
   }
@@ -1691,9 +1691,9 @@ async function robotAtPoint(store, deviceSn, landmarkId, landmark) {
       } catch (_e) { /* 采样失败不阻断 */ }
       return { ok: true, at_point: true, distance_m: dist }
     }
-    return { ok: false, msg: '机器人尚未到达点位（距目标 ' + dist.toFixed(1) + 'm）', at_point: false, distance_m: dist }
+    return { ok: false, msg: '机器人尚未到达上货点，请稍后再试', at_point: false, distance_m: dist }
   } catch (e) {
-    return { ok: false, msg: '判断到达异常：' + e.message, at_point: false, distance_m: null }
+    return { ok: false, msg: '到达判断失败，请稍后重试', at_point: false, distance_m: null }
   }
 }
 
@@ -1706,7 +1706,7 @@ async function isRobotBusy(store, deviceSn) {
   const active = store.prepare(`
     SELECT COUNT(*) c FROM delivery_tasks d JOIN orders o ON o.id = d.order_id
     WHERE d.device_sn=? AND d.void_at IS NULL AND d.task_status BETWEEN 50 AND 79`).get(deviceSn)
-  if (active && Number(active.c) > 0) return { ok: false, busy: true, msg: '无人车正在配送中，请等其返回后再派车' }
+  if (active && Number(active.c) > 0) return { ok: false, busy: true, msg: '无人车正在配送，请稍后再试' }
   // 召唤多单配送：车正被逐点推进投递（delivery_mode='summon' 且配送中(2) 且已下发召唤任务）→ 也算忙。
   // 否则车停在取餐点等待时是 lightTask 态，会被下方 machine_status 判定为「空闲」，商家可强行「上货」
   // 打断正在投递的车召回上货点（问题4）。正在投递/待命于上货点(status=1/2)的分界线就是这个 active summon 批次。
@@ -1714,22 +1714,22 @@ async function isRobotBusy(store, deviceSn) {
     SELECT id FROM delivery_batches
     WHERE device_sn=? AND delivery_mode='summon' AND status=2 AND light_task_id IS NOT NULL AND light_task_id!=''
     LIMIT 1`).get(deviceSn)
-  if (summonBatch) return { ok: false, busy: true, msg: '无人车正在配送中，请等其配送完成后再上货' }
+  if (summonBatch) return { ok: false, busy: true, msg: '无人车正在配送，请稍后再上货' }
   const r = await getDeviceList()
   if (r.ok && r.robots && r.robots.length) {
     const me = r.robots.find((x) => x.device_sn === deviceSn)
     if (me) {
-      if (!me.online) return { ok: false, busy: true, msg: '无人车当前离线，无法派车' }
+      if (!me.online) return { ok: false, busy: true, msg: '无人车已离线，请先开机上线' }
       // lightTask=召唤待命（车正被叫到上货点等待，正是要派它的时候），不算忙碌；
       // 2026-09-16 真机实测：召唤成功后车停在 lightTask 态，若仍按忙处理，「上货」会一直报「无人车正在召唤」
       const busyStatus = ['Delivery', 'delivery', 'patrol', 'Patrol', 'exception', 'remoteDevOps', 'update', 'interaction']
       if (busyStatus.includes(me.machine_status)) {
-        return { ok: false, busy: true, msg: '无人车正在' + (me.machine_text || '忙碌') + '，请等其空闲后再派车' }
+        return { ok: false, busy: true, msg: '无人车正在' + (me.machine_text || '忙碌') + '，请稍后再试' }
       }
       return { ok: true, busy: false, msg: '' }
     }
   }
-  return { ok: false, busy: true, msg: '无法确认无人车状态（设备列表查询失败或未找到该车）' }
+  return { ok: false, busy: true, msg: '无法确认无人车状态，请稍后重试' }
 }
 
 // ---------------- 取消/退款时的真实召回（P0-4 修复） ----------------

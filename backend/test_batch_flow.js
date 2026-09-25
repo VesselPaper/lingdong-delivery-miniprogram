@@ -12,18 +12,23 @@ const BASE = 'http://127.0.0.1:' + PORT + '/api'
 let child = null
 function startServer() {
   return new Promise((resolve, reject) => {
-    // env 共享码兜底已于 2026-09-24 停用：回归用的 test-invite 需以「表码」形式预置进临时库
+    // 商家账号体系（2026-09-24 起：账号密码登录）：回归用的 testmerchant 账号以「用户名+scrypt密码」预置进临时库
     try {
       const { DatabaseSync } = require('node:sqlite')
-      const inviteSvc = require('./services/merchantInvite')
+      const adminAuth = require('./services/adminAuth')
       const db0 = new DatabaseSync(TMP_DB)
-      db0.exec(`CREATE TABLE IF NOT EXISTS merchant_invites (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, code_hash TEXT UNIQUE, name TEXT, note TEXT,
-        bound_openid TEXT DEFAULT '', active INTEGER DEFAULT 1,
-        created_at TEXT DEFAULT (datetime('now','localtime')))`)
-      db0.prepare('INSERT OR IGNORE INTO merchant_invites (code_hash, name) VALUES (?,?)').run(inviteSvc.sha('test-invite'), '测试商家')
+      db0.exec(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, openid TEXT UNIQUE, nickname TEXT, avatar TEXT, phone TEXT,
+        role TEXT DEFAULT 'student', landmark_id TEXT DEFAULT '', landmark_name TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now','localtime')),
+        username TEXT UNIQUE, password_hash TEXT, merchant_role TEXT DEFAULT '', token TEXT, status INTEGER DEFAULT 1)`)
+      // 预置 meta 标记，避免 db.js 的 merchant_role_reset_at 一次性修正把预置账号降回 student
+      db0.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`)
+      db0.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('merchant_role_reset_at', datetime('now','localtime'))").run()
+      db0.prepare("INSERT OR IGNORE INTO users (username, password_hash, role, merchant_role, status, nickname) VALUES (?,?,'merchant','owner',1,'测试商家')")
+        .run('testmerchant', adminAuth.hashPassword('test123456'))
       db0.close()
-    } catch (e) { /* 预置失败不阻断：server 启动时表已存在则跳过 */ }
+    } catch (e) { /* 预置失败不阻断 */ }
     child = spawn(process.execPath, ['server.js'], {
       cwd: __dirname,
       env: { ...process.env, RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB, PAY_MOCK: 'true', BATCH_WAIT_MS: '100000', WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '', SUMMON_DELIVERY: 'false' },
@@ -65,8 +70,8 @@ function assert(cond, msg) {
     console.log('[1] server up (mock, port ' + PORT + ')')
 
     // 登录：商家 + 学生
-    const mer = await api('POST', '/auth/login', { code: 'merchant-test-' + Date.now(), merchant_code: 'test-invite', nickname: '测试商家' })
-    assert(mer.code === 0, '商家登录')
+    const mer = await api('POST', '/auth/login', { username: 'testmerchant', password: 'test123456', client: 'merchant', nickname: '测试商家' })
+    assert(mer.code === 0, '商家登录（账号密码）')
     const mToken = mer.data.token
     const stu = await api('POST', '/auth/login', { code: 'student-test-' + Date.now(), role: 'student', nickname: '测试学生' })
     assert(stu.code === 0, '学生登录')
@@ -267,15 +272,20 @@ function assert(cond, msg) {
     // 独立起一个临时 server（端口 3101 + 独立临时库 + 极小超时窗口），用 test-complete 即时送达，不依赖 mock 到达计时。
     const PORT2 = 3101
     const TMP_DB2 = path.join(os.tmpdir(), 'lingdong_pickup_test_' + Date.now() + '.db')
-    try { // env 码停用后回归码以表码形式预置（与主流程一致）
+    try { // 商家账号以「用户名+密码」预置进第二临时库（与主流程一致）
       const { DatabaseSync } = require('node:sqlite')
-      const inviteSvc = require('./services/merchantInvite')
+      const adminAuth = require('./services/adminAuth')
       const db0 = new DatabaseSync(TMP_DB2)
-      db0.exec(`CREATE TABLE IF NOT EXISTS merchant_invites (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, code_hash TEXT UNIQUE, name TEXT, note TEXT,
-        bound_openid TEXT DEFAULT '', active INTEGER DEFAULT 1,
-        created_at TEXT DEFAULT (datetime('now','localtime')))`)
-      db0.prepare('INSERT OR IGNORE INTO merchant_invites (code_hash, name) VALUES (?,?)').run(inviteSvc.sha('test-invite'), '测试商家')
+      db0.exec(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, openid TEXT UNIQUE, nickname TEXT, avatar TEXT, phone TEXT,
+        role TEXT DEFAULT 'student', landmark_id TEXT DEFAULT '', landmark_name TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now','localtime')),
+        username TEXT UNIQUE, password_hash TEXT, merchant_role TEXT DEFAULT '', token TEXT, status INTEGER DEFAULT 1)`)
+      // 预置 meta 标记，避免 merchant_role_reset_at 一次性修正把预置账号降回 student
+      db0.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`)
+      db0.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('merchant_role_reset_at', datetime('now','localtime'))").run()
+      db0.prepare("INSERT OR IGNORE INTO users (username, password_hash, role, merchant_role, status, nickname) VALUES (?,?,'merchant','owner',1,'测试商家')")
+        .run('testmerchant', adminAuth.hashPassword('test123456'))
       db0.close()
     } catch (e) { /* 忽略 */ }
     const child2 = spawn(process.execPath, ['server.js'], {
@@ -300,7 +310,7 @@ function assert(cond, msg) {
       }, 300)
     })
     try {
-      const m2 = await api2('POST', '/auth/login', { code: 'merchant-pk-' + Date.now(), merchant_code: 'test-invite', nickname: '测试商家' })
+      const m2 = await api2('POST', '/auth/login', { username: 'testmerchant', password: 'test123456', client: 'merchant', nickname: '测试商家' })
       const mTok2 = m2.data.token
       const s2 = await api2('POST', '/auth/login', { code: 'student-pk-' + Date.now(), role: 'student', nickname: '测试学生' })
       const sTok2 = s2.data.token

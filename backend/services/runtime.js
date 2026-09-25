@@ -79,8 +79,6 @@ const realLogin = !!(wxAppid && wxSecret) || !!(merchantWxAppid && merchantWxSec
 // 商家端不再硬编码该开关，由 /api/shop/status 与登录响应下发。
 const deviceMock = mode === 'demo'
 
-const merchantInviteCode = process.env.MERCHANT_INVITE_CODE || ''
-
 // 召唤多单配送（SUMMON_DELIVERY=true）：弃用越凡配送任务接口，改用
 // 「召唤(summonToPoint) + 开关舱门(drawerCtrl)」逐点推进。默认 false=沿用一单一单送。
 const summonDelivery = envFlag('SUMMON_DELIVERY')
@@ -178,11 +176,6 @@ function check() {
   if (realPlatform && !callbackToken) {
     warnings.push('无法派生 PLATFORM_CALLBACK_TOKEN（PLATFORM_SECRET 为空）：平台回调将不做防伪校验')
   }
-  if (merchantInviteCode) {
-    // 2026-09-24 起 env 共享码兜底已停用：公共口令不符合真实商家入驻做法，商家权限只认 merchant_invites 表。
-    // 配置了该环境变量也不再生效，提示迁移为表码（管理员网页「商家管理」或 tools/merchant_invite.js add）。
-    warnings.push(`MERCHANT_INVITE_CODE 已停用（不再作为商家邀请码生效）：请用管理员网页「商家管理」或 tools/merchant_invite.js 创建表码（当前 env 值若在用，add --code 迁移为表码后移除）`)
-  }
 
   return { ok: errors.length === 0, errors, warnings }
 }
@@ -222,24 +215,8 @@ function describe() {
     route_count_weight: routeCountWeight,
     arrive_radius_m: arriveRadiusM,
     pos_m_per_unit: posMPerUnit,
-    merchant_invite_configured: !!merchantInviteCode,
     callback_token_configured: !!callbackToken
   }
-}
-
-// 未配置邀请码时，商家登录一律拒绝（安全默认：宁可挡住自己，不可放开越权）
-function canGrantMerchant() {
-  return !!merchantInviteCode
-}
-
-function verifyMerchantCode(code) {
-  if (!merchantInviteCode) return false
-  const given = String(code || '')
-  if (!given) return false
-  // 定长比较，避免通过响应时间侧信道逐位猜解
-  const a = crypto.createHash('sha256').update(given).digest()
-  const b = crypto.createHash('sha256').update(merchantInviteCode).digest()
-  return crypto.timingSafeEqual(a, b)
 }
 
 // 派车告警已按要求静默：pilot 档连接生产平台的真实调度风险只在启动摘要提示一次，
@@ -260,7 +237,6 @@ module.exports = {
   platformBase,
   platformHost,
   callbackToken,
-  merchantInviteCode,
   summonDelivery,
   routeCountWeight,
   arriveRadiusM,
@@ -268,8 +244,6 @@ module.exports = {
   check,
   assertBootable,
   describe,
-  canGrantMerchant,
-  verifyMerchantCode,
   warnIfUnsafeDispatch,
   loginMode,
   loginCreds

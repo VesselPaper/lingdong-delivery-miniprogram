@@ -35,8 +35,6 @@ const wxpay = require('./services/wxpay')
 const wxmp = require('./services/wxmp')
 const batch = require('./services/batch')
 const orderCancel = require('./services/orderCancel')
-// 商家邀请码：登录校验在 user 域 service 内；此处用于启动日志统计有效码数
-const invite = require('./services/merchantInvite')
 // 管理员账号（方案A）：用户名+密码 → session token
 const adminAuth = require('./services/adminAuth')
 
@@ -125,7 +123,7 @@ app.use('/api', orderRoutes(store, {
 }))
 app.use('/api', deliveryRoutes(store, {
   runtime, platform, batch, orderCancel,
-  goods: goodsService, order: orderService, wxmp
+  goods: goodsService, order: orderService, wxmp, push
 }))
 // 召唤多单配送推进钩子：批次内任一订单被取走（order.fulfillOrder→batch.countPicked→notify），
 // 由 delivery 域判断「当前楼栋是否全取完 → 停 5s → 召唤下一栋 / 全部送完召回完成」。
@@ -146,7 +144,7 @@ adminLive.start(store, { runtime, platform })
 // delivery 域 4 个后台定时器统一装配：①轮询兜底 ②超时未接单 ③取餐超时两段式 ④批次自动派车（domains/delivery/timers.js）
 deliveryTimers.start(store, {
   runtime, platform, batch, orderCancel,
-  goods: goodsService, order: orderService
+  goods: goodsService, order: orderService, push
 })
 
 // 业务状态流水采集器（常驻，与 WS 订阅者无关）：每 2.5s 比对订单/批次/任务状态快照，
@@ -173,9 +171,9 @@ const server = app.listen(PORT, BIND_HOST, () => {
   }
   console.log(`[lingdong-backend]   设备控制：${d.device_mock ? '本地模拟（开舱/关舱/派发均为假成功）' : '真实分支（调用平台设备控制接口）'}`)
   console.log(`[lingdong-backend]   召唤多单配送：${d.summon_delivery ? '开启（summonToPoint + drawerCtrl 逐点推进，不建越凡配送任务）' : '关闭（沿用一单一单送）'}  路线单数权重 α=${d.route_count_weight}  到达半径 ${d.arrive_radius_m}m`)
-  // 邀请码状态：以 merchant_invites 表的有效条数 + 旧单一码 env 为准（按商家一条、首绑、可吊销）
-  const invCount = invite.configuredCount(store)
-  console.log('[lingdong-backend]   商家邀请码已启用：' + invCount + ' 个有效' + (invCount ? '' : ' → 尚未配置，商家端登录将被拒绝'))
+  // 商家账号体系（2026-09-24 起）：账号密码登录 + 店主/店员分级，由管理员网页「商家管理」页维护
+  const merchantAcctCount = store.prepare("SELECT COUNT(*) AS c FROM users WHERE role='merchant' AND username IS NOT NULL AND username!='' AND status=1").get()
+  console.log('[lingdong-backend]   商家账号已启用：' + (merchantAcctCount ? merchantAcctCount.c : 0) + ' 个（账号密码登录，管理员网页「商家管理」维护）')
 
   // 管理员账号（方案A）：非演示档必须存在至少一个启用的管理员账号，否则管理员网页无法登录
   const adminEnabled = adminAuth.enabledCount(store)
@@ -203,8 +201,10 @@ push.attach(server, {
         WHERE s.token=? AND s.expires_at > datetime('now','localtime') AND u.status=1`).get(String(token))
       if (s) return true
     } catch (e) { /* 忽略 */ }
-    // 普通登录 token（用户/商家小程序）
-    try { return !!store.prepare('SELECT 1 FROM users WHERE openid=?').get(String(token)) } catch (e) { return false }
+    // 普通登录 token：用户端 token=openid；商家端（2026-09-24 账号体系）token=随机hex 存 users.token，两类都要认
+    try {
+      return !!store.prepare('SELECT 1 FROM users WHERE openid=? OR token=?').get(String(token), String(token))
+    } catch (e) { return false }
   }
 })
 

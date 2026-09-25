@@ -13,16 +13,21 @@ const WAIT = (ms) => new Promise((r) => setTimeout(r, ms))
 let child = null
 function startServer() {
   return new Promise((resolve, reject) => {
-    // env 共享码兜底已于 2026-09-24 停用：回归用的 test-invite 需以「表码」形式预置进临时库
+    // 商家账号体系（2026-09-24 起：账号密码登录）：回归用的 testmerchant 账号预置进临时库
     try {
       const { DatabaseSync } = require('node:sqlite')
-      const inviteSvc = require('./services/merchantInvite')
+      const adminAuth = require('./services/adminAuth')
       const db0 = new DatabaseSync(TMP_DB)
-      db0.exec(`CREATE TABLE IF NOT EXISTS merchant_invites (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, code_hash TEXT UNIQUE, name TEXT, note TEXT,
-        bound_openid TEXT DEFAULT '', active INTEGER DEFAULT 1,
-        created_at TEXT DEFAULT (datetime('now','localtime')))`)
-      db0.prepare('INSERT OR IGNORE INTO merchant_invites (code_hash, name) VALUES (?,?)').run(inviteSvc.sha('test-invite'), '测试商家')
+      db0.exec(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, openid TEXT UNIQUE, nickname TEXT, avatar TEXT, phone TEXT,
+        role TEXT DEFAULT 'student', landmark_id TEXT DEFAULT '', landmark_name TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now','localtime')),
+        username TEXT UNIQUE, password_hash TEXT, merchant_role TEXT DEFAULT '', token TEXT, status INTEGER DEFAULT 1)`)
+      // 预置 meta 标记，避免 db.js 的 merchant_role_reset_at 一次性修正把预置账号降回 student
+      db0.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`)
+      db0.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('merchant_role_reset_at', datetime('now','localtime'))").run()
+      db0.prepare("INSERT OR IGNORE INTO users (username, password_hash, role, merchant_role, status, nickname) VALUES (?,?,'merchant','owner',1,'测试商家')")
+        .run('testmerchant', adminAuth.hashPassword('test123456'))
       db0.close()
     } catch (e) { /* 预置失败不阻断 */ }
     child = spawn(process.execPath, ['server.js'], {
@@ -104,7 +109,7 @@ function routeUnitTest() {
     await startServer()
     console.log('[1] server up (mock + SUMMON_DELIVERY=true, port ' + PORT + ')')
 
-    const mer = await api('POST', '/auth/login', { code: 'merchant-summon-' + Date.now(), merchant_code: 'test-invite', nickname: '测试商家' })
+    const mer = await api('POST', '/auth/login', { username: 'testmerchant', password: 'test123456', client: 'merchant', nickname: '测试商家' })
     assert(mer.code === 0, '商家登录')
     const mT = mer.data.token
     const stu = await api('POST', '/auth/login', { code: 'student-summon-' + Date.now(), role: 'student', nickname: '测试学生' })

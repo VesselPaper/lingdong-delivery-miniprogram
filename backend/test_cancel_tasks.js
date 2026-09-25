@@ -31,7 +31,7 @@ function startServer() {
       env: {
         ...process.env,
         RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB,
-        PAY_MOCK: 'true', BATCH_WAIT_MS: '100000', MERCHANT_INVITE_CODE: 'test-invite',
+        PAY_MOCK: 'true', BATCH_WAIT_MS: '100000',
         WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '',
         SUMMON_DELIVERY: 'false', STATUS_EVENTS_MS: '300'
       },
@@ -81,10 +81,13 @@ function assert(cond, msg) {
     const adminAuth = require('./services/adminAuth')
     const boot = new DatabaseSync(TMP_DB)
     adminAuth.createAdmin(boot, { username: ADMIN_USER, password: ADMIN_PASS, nickname: '测试管理员' })
+    // 商家账号（2026-09-24 起：账号密码登录 + 店主角色）
+    boot.prepare("INSERT OR IGNORE INTO users (username, password_hash, role, merchant_role, status, nickname) VALUES (?,?,'merchant','owner',1,'测试商家')")
+      .run('testmerchant', adminAuth.hashPassword('test123456'))
     boot.close()
     db = new DatabaseSync(TMP_DB)
 
-    const mer = await api('POST', '/auth/login', { code: 'merchant-x-' + Date.now(), merchant_code: 'test-invite', nickname: '测试商家' })
+    const mer = await api('POST', '/auth/login', { username: 'testmerchant', password: 'test123456', client: 'merchant', nickname: '测试商家' })
     const mToken = mer.data.token
     const stu = await api('POST', '/auth/login', { code: 'student-x-' + Date.now(), role: 'student', nickname: '测试学生' })
     const sToken = stu.data.token

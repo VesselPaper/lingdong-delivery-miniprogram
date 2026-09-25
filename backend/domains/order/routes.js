@@ -324,7 +324,7 @@ module.exports = (store, deps) => {
     else if (status !== '' && status !== undefined) { sql += ' WHERE status=?'; args.push(Number(status)) }
     sql += ' ORDER BY id DESC'
     const getItems = store.prepare('SELECT id, goods_id, goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?')
-    const getBatch = store.prepare('SELECT batch_no, daily_seq, seq_date, created_at, status, total_items, route FROM delivery_batches WHERE id=?')
+    const getBatch = store.prepare('SELECT id, batch_no, daily_seq, seq_date, created_at, status, total_items, route FROM delivery_batches WHERE id=?')
     const stageText = { accept: '待接单', load: '待上货', deliver: '配送中', pickup: '待取货' }[stage] || ''
     const rows = store.prepare(sql).all(...args).map((o) => {
       const items = getItems.all(o.id)
@@ -334,7 +334,7 @@ module.exports = (store, deps) => {
         if (b) {
           let rt = ''
           try { rt = (JSON.parse(b.route || '[]') || []).map((r) => r.landmark_name).filter(Boolean).join(' → ') } catch (e) { rt = '' }
-          batchInfo = { batch_no: b.batch_no, daily_seq: Number(b.daily_seq || b.id), code_short: seqSvc.batchShortOf(b.seq_date, b.created_at, b.daily_seq || b.id), status: b.status, total_items: Number(b.total_items || 0), route_text: rt }
+          batchInfo = { id: b.id, batch_no: b.batch_no, daily_seq: Number(b.daily_seq || b.id), code_short: seqSvc.batchShortOf(b.seq_date, b.created_at, b.daily_seq || b.id), status: b.status, total_items: Number(b.total_items || 0), route_text: rt }
         }
       }
       return {

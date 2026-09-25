@@ -22,7 +22,13 @@ function init() {
       role TEXT DEFAULT 'student',
       landmark_id TEXT DEFAULT '',   -- 当前配送楼栋（首页/我的页/结算页三处共用同一份，空=未选择）
       landmark_name TEXT DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now','localtime'))
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      -- 商家账号体系（2026-09-24 起：账号密码登录 + 店主/店员分级，替代微信+邀请码）
+      username TEXT UNIQUE,          -- 商家登录账号（管理员网页创建）
+      password_hash TEXT,            -- scrypt salt$hash（复用 adminAuth 方案）
+      merchant_role TEXT DEFAULT '', -- 'owner'=店主 / 'staff'=店员 / ''=非商家账号
+      token TEXT,                    -- 登录签发的随机 session token（可吊销；用户端微信登录仍用 openid 作 token）
+      status INTEGER DEFAULT 1       -- 1 启用 / 0 禁用（禁用后 token 失效无法登录）
     );
     CREATE TABLE IF NOT EXISTS addresses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -443,6 +449,23 @@ function migrate(db) {
       value TEXT
     )
   `)
+
+  // 一次性迁移：老库 users 表补商家账号列（新库建表已含，此处只为存量库 ALTER；幂等由 meta 标记保证）
+  const acctDone = db.prepare("SELECT value FROM meta WHERE key='merchant_account_cols_at'").get()
+  if (!acctDone) {
+    const cols = [
+      ['username', 'TEXT'],
+      ['password_hash', 'TEXT'],
+      ["merchant_role", "TEXT DEFAULT ''"],
+      ['token', 'TEXT'],
+      ['status', 'INTEGER DEFAULT 1']
+    ]
+    for (const [name, def] of cols) {
+      try { db.exec(`ALTER TABLE users ADD COLUMN ${name} ${def}`) } catch (e) { /* 已存在则忽略（重复 ALTER 报错） */ }
+    }
+    db.prepare("INSERT INTO meta (key, value) VALUES ('merchant_account_cols_at', datetime('now','localtime'))").run()
+    console.log('[db] users 表已扩展商家账号列（username/password_hash/merchant_role/token/status）')
+  }
 
   // 商家邀请码（按商家一条，只存哈希；首次使用绑定 openid，可逐个吊销）
   // code_hash = sha256(邀请码.toUpperCase())。明文只在「生成邀请码」那一刻由维护脚本打印。

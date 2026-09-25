@@ -9,7 +9,7 @@ const q = require('./queries')
 const s = require('./service')
 
 module.exports = (store, deps) => {
-  const { auth, merchantGuard, audit, ok } = createShared(store)
+  const { auth, merchantGuard, ownerGuard, audit, ok } = createShared(store)
   const router = express.Router()
   const PICKUP = deps.order // PICKUP_REOPEN_WINDOW_MS / MAX_PICKUP_OPEN / ORDER_STATUS 等常量
 
@@ -351,7 +351,7 @@ module.exports = (store, deps) => {
       // 问题4门禁兜底：若该车正在做召唤配送（别的批次/本批已在投递），不打断它回上货点，直接提示暂无空闲机器人。
       if (!deps.runtime.deviceMock) {
         const busyGuard = await deps.platform.isRobotBusy(store, b.device_sn)
-        if (busyGuard.busy) return res.status(400).json({ code: 400, msg: '暂无空闲机器人：' + (busyGuard.msg || '无人车正在配送中，请等其配送完成后再上货') })
+        if (busyGuard.busy) return res.status(400).json({ code: 400, msg: busyGuard.msg || '无人车正在配送，请稍后再上货' })
       }
       // 到达门禁按「机器人真实到达信号」判断（召唤任务 status=30 arrivedPoint），不再用位置测距估判。
       // 车未到 → 返回 200 {waiting:true}，前端给友好等待提示，稍后重试（已存在的召唤不重复创建，避免进度重置）。
@@ -563,8 +563,8 @@ module.exports = (store, deps) => {
   router.post('/platform/callback/exception', (req, res) => s.handleExceptionCallback(deps, req, res))
   router.post('/platform/cb/:token/exception', (req, res) => s.handleExceptionCallback(deps, req, res))
 
-  // ---------- 平台点位同步（商家端入口） ----------
-  router.post('/merchant/landmarks/sync', merchantGuard, async (req, res) => {
+  // ---------- 平台点位同步（商家端入口）：店主专属（点位是运维数据，店员不开放） ----------
+  router.post('/merchant/landmarks/sync', ownerGuard, async (req, res) => {
     const r = await deps.platform.syncLandmarks(store)
     r.ok ? ok(res, r) : res.status(500).json({ code: 500, msg: r.msg || '同步失败' })
   })
@@ -670,8 +670,8 @@ module.exports = (store, deps) => {
       return res.status(404).json({
         code: 404,
         msg: otherReady.length
-          ? '本车暂无待上货批次：待上货批次已派给其他无人车，请扫对应车辆'
-          : '当前没有待配单的订单，新订单接单后会自动组单，请稍后再试'
+          ? '本车暂无待上货批次，请扫对应的无人车'
+          : '当前没有待配单订单，新订单接单后会自动组单'
       })
     }
     // 记录设备编号到批次与批次内任务
