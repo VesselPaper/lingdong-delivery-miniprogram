@@ -19,6 +19,50 @@ const keepAt = new Map()
 // 召唤节流(device_sn->ts)：机器人离线/召唤失败时至少 30s 再试，避免刷爆平台。
 const keepTryAt = new Map()
 
+
+// 空闲可派的车有几台（v2 时机层用）。
+//   可用车 = 总车数 − 占用车的【并集】
+//   占用 = 离线的  ∪  平台报忙的  ∪  被未完成批次占用（待上货/配送中）的
+//   取并集是为了避免同一台车被扣两次（比如一台车既在配送中、平台又报 Delivery）。
+//   总车数取平台设备列表的条数，不写死；演示档/平台不可用时退回 BATCH_TOTAL_CARS（默认 2）。
+// 不变量自检的日志节流（有问题时最多 60s 打一次，避免刷屏）
+let lastInvariantLog = 0
+
+const BUSY_MACHINE = ['Delivery', 'delivery', 'patrol', 'Patrol', 'exception', 'remoteDevOps', 'update', 'interaction']
+async function carState(store, deps) {
+  // 被未完成批次占用的车（含「已派车但还没出发」的待上货批次）
+  const byBatch = new Set(store.prepare(`
+    SELECT DISTINCT device_sn FROM delivery_batches WHERE status IN (1,2) AND device_sn IS NOT NULL AND device_sn != ''
+  `).all().map((r) => String(r.device_sn)))
+  // 没指派设备号的未完成批次：演示档不指认真车，device_sn 一直是空。
+  // 一台车对一个批次，按数量计入占用 —— 否则演示档里永远显示"车都空着"。
+  // 真实档下批次一定有 device_sn，noSn 恒为 0，不影响真实计算。
+  const noSn = Number(store.prepare(
+`    SELECT COUNT(*) c FROM delivery_batches WHERE status IN (1,2) AND (device_sn IS NULL OR device_sn = '')
+  `).get().c || 0)
+  const occupied = new Set(byBatch)
+  let total = 0, source = 'config', offline = 0, machineBusy = 0
+  let r = null
+  try { r = await deps.platform.getDeviceList() } catch (e) { r = null }
+  if (r && r.ok && Array.isArray(r.robots) && r.robots.length) {
+    total = r.robots.length
+    source = 'platform'
+    for (const rb of r.robots) {
+      const sn = String(rb.device_sn || '')
+      if (!sn) continue
+      if (!rb.online) { occupied.add(sn); offline++; continue }
+      if (BUSY_MACHINE.includes(String(rb.machine_status || ''))) { occupied.add(sn); machineBusy++ }
+    }
+  } else {
+    total = Number(process.env.BATCH_TOTAL_CARS || 2)
+  }
+  const occupiedCount = occupied.size + noSn
+  return {
+    total, occupied: occupiedCount,
+    available: Math.max(0, total - occupiedCount),
+    source, offline, machine_busy: machineBusy, by_batch: byBatch.size, no_sn: noSn
+  }
+}
 function start(store, deps) {
   // ---------- ① 真实模式任务状态轮询兜底 ----------
   if (deps.runtime.realPlatform) {
@@ -66,6 +110,17 @@ function start(store, deps) {
       const shop = store.prepare('SELECT * FROM shops WHERE id=1').get() || {}
       if (shop.business_status !== 'open') return
       const openBatches = store.prepare('SELECT * FROM delivery_batches WHERE status IN (0,1) ORDER BY id ASC').all()
+
+      // v2：先算出本轮该锁哪些批次（情况1/情况2、窗口、优先级都在 batch 模块里决策）。
+      // legacy：planAutoLock 返回 null，仍走逐批 shouldAutoLock 的老路径，且不查平台。
+      let planOrder = null
+      if (deps.batch.BATCH_ALGO === 'v2' && typeof deps.batch.planAutoLock === 'function') {
+        const cars = await carState(store, deps)
+        const plan = deps.batch.planAutoLock(store, { cars }) || []
+        planOrder = new Map(plan.map((id, i) => [Number(id), i]))
+      }
+
+      const todo = []
       for (const b of openBatches) {
         const cnt = store.prepare(`
           SELECT COUNT(DISTINCT o.id) c, IFNULL(SUM(oi.quantity),0) items
@@ -76,10 +131,17 @@ function start(store, deps) {
         // 待上货(1)已定型，只需由看门狗⑤保持在位，这里无事可做
         if (Number(b.status) !== 0) continue
         const items = Number(cnt && cnt.items || 0)
-        const created = new Date(String(b.created_at || '').replace(' ', 'T')).getTime()
-        const age = Date.now() - (isNaN(created) ? Date.now() : created)
-        const full = items >= Number(deps.batch.BATCH_MAX_ITEMS || 12)
-        if (!full && age < Number(deps.batch.BATCH_WAIT_MS || 90 * 1000)) continue
+        // 定型规则收敛到 batch 模块，本定时器只负责调度。
+        if (planOrder) {
+          if (!planOrder.has(Number(b.id))) continue
+        } else if (!deps.batch.shouldAutoLock(store, b, items)) continue
+        todo.push({ b, items })
+      }
+      // 按计划顺序执行 = 派车优先级（第一张订单最早的先走，车不够时先发得出去）
+      if (planOrder) todo.sort((x, y) => planOrder.get(Number(x.b.id)) - planOrder.get(Number(y.b.id)))
+
+      for (const { b, items } of todo) {
+        const full = items >= Number(deps.batch.BATCH_MAX_ITEMS || 12) // 仅用于下面日志措辞
         // 失败节流：上次尝试（成功与否）后 60s 内不再重试
         if (Date.now() - (autoRetryAt.get(b.id) || 0) < 60 * 1000) continue
         autoRetryAt.set(b.id, Date.now())
@@ -89,6 +151,18 @@ function start(store, deps) {
         } catch (e) {
           // 无空闲车 / 车忙等：节流后下轮再试，不中断扫描
           console.warn('[batch] 自动定型失败 batch=' + b.id + ' ' + e.message)
+        }
+      }
+
+      // 不变量自检（收口）：检查"件数≤12 / 每趟≤15分 / 站点≥1 / 订单最终发得出去"。
+      // 只在发现问题时打日志，最多 60s 一次。checkInvariants 不存在时（老版本）自动跳过。
+      if (typeof deps.batch.checkInvariants === 'function') {
+        const inv = deps.batch.checkInvariants(store)
+        if (!inv.ok && Date.now() - lastInvariantLog > 60 * 1000) {
+          lastInvariantLog = Date.now()
+          console.warn('[batch] 不变量自检发现 ' + inv.violations.length + ' 处问题：')
+          for (const x of inv.violations.slice(0, 10)) console.warn('         · [' + x.type + '] ' + x.detail)
+          if (inv.violations.length > 10) console.warn('         · …还有 ' + (inv.violations.length - 10) + ' 处')
         }
       }
     } catch (e) { console.warn('[batch] 自动定型扫描异常', e.message) }
@@ -166,4 +240,4 @@ function start(store, deps) {
   }
 }
 
-module.exports = { start, BATCH_SCAN_MS }
+module.exports = { start, BATCH_SCAN_MS, carState }
