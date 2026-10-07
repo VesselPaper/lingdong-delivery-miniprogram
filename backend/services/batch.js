@@ -754,15 +754,146 @@ function getBatchDetail(store, batchId) {
     device_sn: b.device_sn, total_orders: orders.length, total_items: totalItems, picked_orders: picked,
     delivery_mode: b.delivery_mode || '', current_stop: Number(b.current_stop || 0),
     loaded_at: b.loaded_at || '', ready_dispatch: !!(Number(b.status) === 1 && b.loaded_at),
+    // 舱门已开（open-bin 落库、close-bin 清空）：上货页据此判断该显示「放货中」还是重新开舱。
+    // 开舱已自动化，不能靠配送任务状态推断 —— 演示档不推进任务状态，真机档回调也可能延迟。
+    bin_opened: !!b.bin_opened_at,
     created_at: b.created_at, dispatched_at: b.dispatched_at, completed_at: b.completed_at,
     route: cleanStops, route_text: routeText, route_stops_text: distinctLandmarks.join('、'),
     orders
   }
 }
 
+// ---------- 提前提醒：车现在开到哪了 / 我这一单还有多久到 ----------
+// 目的：让用户提前下楼。原先用户只看到「配送中」三个字，无从判断该不该动身，
+// 结果车到了、人还在楼上，每站白等 V2.stopWaitSec（70 秒），一路往后拖累后面的站。
+// 提前 BATCH_ADVANCE_STOPS 站开始提示，把用户下楼反应时间从约 100 秒压到约 40 秒。
+const ADVANCE_STOPS = Math.max(1, Number(process.env.BATCH_ADVANCE_STOPS || 2))
+
+// 批次路线的规范形态：[{ stop, landmark_id, pt:{x,y}|null, n:该站单数 }]
+// 直接读 batch.route（planRoute 已排好序），这个顺序就是车实际走的顺序，这里绝不重排 ——
+// 用户看到的「还有 N 站」必须和车真实的行进顺序一致。
+// route 为空时（老数据 / 演示档订单被 mock 自动送达）按 landmark_id 回退分组，顺序取点位 sort。
+function batchStopsOf(store, batch) {
+  let raw = []
+  try { raw = JSON.parse(batch.route || '[]') } catch (e) { raw = [] }
+  if (!Array.isArray(raw)) raw = []
+  let stops = raw.map((r, i) => ({
+    stop: Number(r.stop || i + 1),
+    landmark_id: String(r.landmark_id || ''),
+    pt: landmarkPointOf(store, r.landmark_id),
+    n: Array.isArray(r.order_ids) ? Math.max(1, r.order_ids.length) : 1
+  }))
+  if (!stops.length) {
+    const rows = store.prepare(`
+      SELECT o.landmark_id AS lid, COUNT(*) AS n, MIN(l.sort) AS srt
+      FROM orders o LEFT JOIN landmarks l ON l.id = o.landmark_id
+      WHERE o.batch_id = ? AND o.landmark_id IS NOT NULL AND o.landmark_id != ''
+      GROUP BY o.landmark_id ORDER BY srt, o.landmark_id`).all(batch.id)
+    stops = rows.map((r, i) => ({
+      stop: i + 1, landmark_id: String(r.lid || ''), pt: landmarkPointOf(store, r.lid), n: Number(r.n || 1)
+    }))
+  }
+  return stops
+}
+
+// 车当前在第几站（1-based；0 = 还没出发）。
+// 取该批次所有任务里「已进入配送阶段」（状态 60 去往取货点 ~ 89）的【最大】站号：
+// 前面的站任务停在 70(已到达)/80(完成)，取最小会永远卡在第 1 站，所以必须取最大。
+function batchCurrentStop(store, batchId, stops) {
+  const idx = new Map(stops.map((s, i) => [s.landmark_id, i + 1]))
+  let cur = 0
+  const rows = store.prepare(`
+    SELECT t.task_status AS st, o.landmark_id AS lid
+    FROM delivery_tasks t JOIN orders o ON o.id = t.order_id
+    WHERE o.batch_id = ? AND t.void_at IS NULL`).all(batchId)
+  for (const r of rows) {
+    const st = Number(r.st || 0)
+    if (st < 60 || st >= 90) continue
+    const s = idx.get(String(r.lid || ''))
+    if (s && s > cur) cur = s
+  }
+  return cur
+}
+
+// 从「车现在的位置」走到第 toStop 站的预计分钟数。
+// 不含上货时间（V2.loadingSec）—— 那是出发前的事，用户等的是这段。
+// 口径与 v2EstimateTripMin 一致：路网距离 ÷ 车速 + 中途每站(停靠+等用户) + 中途每单开舱。
+function remainingEtaMin(loadingPt, stops, fromStop, toStop) {
+  const from = Math.max(0, Number(fromStop) || 0)
+  const to = Math.max(1, Number(toStop) || 1)
+  let cur = from >= 1 ? (stops[from - 1] || {}).pt : loadingPt
+  let dist = 0
+  for (let i = from; i <= to - 1; i++) {           // stops 下标 = 站号 - 1；含我这站那一段
+    const p = (stops[i] || {}).pt
+    if (cur && p) dist += Math.sqrt(Math.pow(cur.x - p.x, 2) + Math.pow(cur.y - p.y, 2)) * V2.detour
+    if (p) cur = p
+  }
+  let dwellSec = 0
+  for (let i = from; i <= to - 2; i++) {           // 严格在我这站【之前】的中途站
+    dwellSec += V2.stopServiceSec + V2.stopWaitSec + Number((stops[i] || {}).n || 0) * V2.perOrderOpenSec
+  }
+  return dist / Math.max(1, V2.speedMpm) + dwellSec / 60
+}
+
+// 给一张订单算出「提前提醒」所需的全部信息。纯读、无副作用 —— 追踪页每 3 秒轮询调一次也很轻。
+// 返回 state：none(无批次) / waiting(还没出发) / approaching(在路上) / arriving(已到本楼) / done(已结束)
+function orderAhead(store, order) {
+  const blank = {
+    state: 'none', stops_ahead: null, eta_min: null, total_stops: null,
+    current_stop: null, my_stop: null, prepare: false, text: ''
+  }
+  if (!order || !order.batch_id) return blank
+  const b = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(order.batch_id)
+  if (!b) return blank
+  const st = Number(b.status)
+  if (st === 3) return Object.assign({}, blank, { state: 'done' })
+  if (st === 4) return blank
+  if (st === 0) return Object.assign({}, blank, { state: 'waiting', text: '商家已接单，正在组车' })
+  if (st === 1) return Object.assign({}, blank, { state: 'waiting', text: '机器人正在上货，马上出发' })
+
+  const stops = batchStopsOf(store, b)
+  if (!stops.length) return Object.assign({}, blank, { state: 'waiting', text: '机器人正在上货，马上出发' })
+  const my = stops.findIndex((s) => s.landmark_id === String(order.landmark_id || '')) + 1
+  if (!my) return Object.assign({}, blank, { state: 'waiting', total_stops: stops.length })
+
+  const cur = batchCurrentStop(store, b.id, stops)
+  const ahead = Math.max(0, my - cur)
+  const loading = loadingPointOf(store)
+  const eta = remainingEtaMin(lmPoint(loading), stops, cur, my)
+  const mins = Math.max(1, Math.round(eta))
+  const out = {
+    state: ahead <= 0 ? 'arriving' : 'approaching',
+    stops_ahead: ahead,
+    eta_min: Math.round(eta * 10) / 10,
+    total_stops: stops.length,
+    current_stop: cur,
+    my_stop: my,
+    prepare: ahead <= ADVANCE_STOPS,
+    text: ''
+  }
+  if (ahead <= 0) out.text = '机器人已到达您楼下，请尽快取餐'
+  else if (ahead === 1) out.text = '机器人还有 1 站到您楼下，约 ' + mins + ' 分钟，请准备下楼'
+  else out.text = '机器人还有 ' + ahead + ' 站到您楼下，约 ' + mins + ' 分钟，请提前下楼等候'
+  return out
+}
+
 module.exports = {
   BATCH_STATUS, BATCH_MAX_ORDERS, BATCH_MAX_ITEMS, BATCH_WAIT_MS, statusText, cleanName, landmarkNameOf,
   orderItemCount, getBatch, getOrCreateOpenBatch, addOrderToBatch, removeOrderFromBatch,
   countPicked, maybeCompleteBatch, onTaskStatus, planRoute, getBatchDetail,
-  registerSummonAdvance
+  registerSummonAdvance,
+  // 算法版本开关：BATCH_ALGO 是实际生效值（v2 未就绪时=legacy）；shouldAutoLock 是定型判定入口。
+  // 两套实现（legacy/v2）一并导出，便于测试直接对照。
+  BATCH_ALGO, BATCH_V2_READY,
+  shouldAutoLock, shouldAutoLockLegacy, shouldAutoLockV2, firstOrderAt,
+  BATCH_HOLD_MS, planAutoLock, planAutoLockV2, openBatchCount, resetSituation, currentSituation,
+  checkInvariants,
+  // 提前提醒（用户端追踪页轮询读取）
+  orderAhead, ADVANCE_STOPS, batchStopsOf, batchCurrentStop, remainingEtaMin,
+  loadingPointOf,
+  // v2 组批（纯函数层单独导出，便于单测与重放）
+  V2, v2EstimateTripMin, v2ScoreCandidate, v2RouteDistanceM, v2DistM, lmPoint, parseTime,
+  openBatchCandidates, landmarkPointOf,
+  getOrCreateOpenBatchLegacy, getOrCreateOpenBatchV2,
+  planRouteLegacy, planRouteV2
 }

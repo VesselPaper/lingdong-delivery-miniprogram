@@ -57,6 +57,9 @@ module.exports = {
   setBatchLightTask: (store, id, lightTaskId) => store.prepare("UPDATE delivery_batches SET light_task_id=?, updated_at=datetime('now','localtime') WHERE id=?").run(String(lightTaskId || ''), Number(id)),
   setBatchLoadedAt: (store, id) => store.prepare("UPDATE delivery_batches SET loaded_at=datetime('now','localtime'), updated_at=datetime('now','localtime') WHERE id=?").run(Number(id)),
   clearBatchLoadedAt: (store, id) => store.prepare("UPDATE delivery_batches SET loaded_at=NULL, updated_at=datetime('now','localtime') WHERE id=?").run(Number(id)),
+  // 舱门已开 / 已关：上货页据此判断「该显示放货中还是重新开舱」（开舱已自动化，见 batchDetail.ensureBinOpen）
+  setBatchBinOpened: (store, id) => store.prepare("UPDATE delivery_batches SET bin_opened_at=datetime('now','localtime'), updated_at=datetime('now','localtime') WHERE id=?").run(Number(id)),
+  clearBatchBinOpened: (store, id) => store.prepare("UPDATE delivery_batches SET bin_opened_at=NULL, updated_at=datetime('now','localtime') WHERE id=?").run(Number(id)),
   revertDispatch: (store, id) => store.prepare("UPDATE delivery_batches SET status=0, status_text='组单中', device_sn='', route='', dispatched_at=NULL, updated_at=datetime('now','localtime') WHERE id=?")
     .run(Number(id)),
   revertDispatchNoRoute: (store, id) => store.prepare("UPDATE delivery_batches SET status=0, status_text='组单中', dispatched_at=NULL, updated_at=datetime('now','localtime') WHERE id=?")

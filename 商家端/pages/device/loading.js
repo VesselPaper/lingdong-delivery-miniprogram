@@ -130,9 +130,10 @@ Page({
     if (o && o.id) wx.navigateTo({ url: '/pages/orders/detail?id=' + o.id })
   },
 
-  // 进入批次上货详情页
+  // 进入批次上货详情页（点「上货（N件）」）
   //  - 组单中批次（status=0）：先创建配送任务定型（机器人已在上货点待命），再进入上货页
   //  - 待上货批次（status=1）：已定型，直接进入上货页
+  // 舱门由批次上货页自动打开（batchDetail.ensureBinOpen），商家不再手动点「打开舱门」。
   async enterBatch(item) {
     if (!item || !item.id) return
     const st = Number(item.status)

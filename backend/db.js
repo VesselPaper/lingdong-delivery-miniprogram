@@ -232,6 +232,13 @@ function migrate(db) {
   // 召唤模式无配送任务，无法用任务状态推断「货已装好」；用它持久化 close-bin 后「已锁定」状态，
   // 供商家批次详情 inferPhase（问题2）与批次列表标注（问题3）。开始配送/完成/取消时清空。
   if (!batchCols.includes('loaded_at')) db.exec("ALTER TABLE delivery_batches ADD COLUMN loaded_at TEXT")
+  // delivery_batches：舱门已打开标记（open-bin 落库，close-bin 清空）。
+  // 上货改版 2026-10-06：开舱改为进页面自动执行、且移除了手动开舱按钮，于是「舱门开没开」
+  // 必须能持久判断 —— 否则退出重进后页面不知道已开过舱，会把开舱指令重复下发给真车
+  // （真实档每次开舱都 grantControl，重复下发会多占一个控制会话）。
+  // 注意：不能用配送任务状态(40)代替 —— 演示档 verifyBatchLoading 不推进任务状态，
+  // 真机档若平台回调延迟也会短暂为空，据此判断会让页面误以为没开舱而反复重试。
+  if (!batchCols.includes('bin_opened_at')) db.exec("ALTER TABLE delivery_batches ADD COLUMN bin_opened_at TEXT")
   // 历史数据回填：按创建日期逐日累计编号（id 即当日创建顺序）
   db.exec(`UPDATE delivery_batches SET daily_seq=(
     SELECT COUNT(*) FROM delivery_batches b2

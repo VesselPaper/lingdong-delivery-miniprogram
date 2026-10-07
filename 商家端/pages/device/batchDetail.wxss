@@ -28,6 +28,22 @@
   color: #8A5A00;
 }
 
+/* 删除批次（店主专属）：用一条分隔线跟上方操作区隔开 ——
+   挨着圆形「立即配送」放，误点一下就是好几单被取消，缓冲必须留够 */
+.del-batch {
+  margin-top: 16rpx;
+  padding-top: 32rpx;
+  border-top: 2rpx solid #EEEEEE;
+}
+
+.del-batch-hint {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  line-height: 1.5;
+  color: #999999;
+  text-align: center;
+}
+
 /* 派发滑块 / 成功态 */
 .dispatch-zone {
   margin-top: 8rpx;
@@ -72,35 +88,41 @@
   font-weight: 600;
 }
 
-.slider-area {
-  width: 600rpx;
-  height: 100rpx;
-  margin: 0 auto;
-  border-radius: 50rpx;
-  background: #E8EDF7;
-  position: relative;
-  box-sizing: border-box;
+/* 自动开舱状态区：舱门未开时展示（自动开舱中 / 等待机器人到上货点 / 开舱失败） */
+.open-status {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  background: #F4F8FD;
+  border: 2rpx solid #CFE0F2;
+  border-radius: 16rpx;
+  padding: 24rpx;
 }
 
-.slider-thumb {
-  width: 120rpx;
-  height: 100rpx;
-  border-radius: 50rpx;
-  background: var(--brand);
+.open-status-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
+  gap: 16rpx;
 }
 
-.slider-arrow {
-  color: #fff;
-  font-size: 40rpx;
+.open-status-text {
+  flex: 1;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #3078C0;
+  line-height: 1.4;
 }
 
-.dispatch-label {
-  text-align: center;
-  margin-top: 16rpx;
+.open-status-sub {
+  font-size: 24rpx;
+  color: #999999;
+  line-height: 1.5;
+  padding-left: 48rpx;
+}
+
+.open-retry {
+  align-self: flex-start;
+  margin-left: 48rpx;
 }
 
 .success-box {

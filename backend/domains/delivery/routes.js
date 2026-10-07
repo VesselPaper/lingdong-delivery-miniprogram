@@ -394,6 +394,10 @@ module.exports = (store, deps) => {
     const { batch_id } = req.body || {}
     const b = q.batchById(store, batch_id)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
+    // 开舱幂等（上货改版 2026-10-06）：舱门已经开过就直接返回成功，不再重复下发平台指令。
+    // 开舱已改为「进上货页自动执行 + 失败自动重试」，同一批次被多次调用是常态；
+    // 真实档每次开舱都会 grantControl 并存 ctrlId，重复下发会多占一个控制会话（前一个泄漏）。
+    if (b.bin_opened_at) return ok(res, { batch_id: b.id, opened: 0, already_open: true })
     // 召唤多单配送：无配送任务，开舱=先召唤到上货点 + 到达门禁(lightTask status=30) + drawerCtrl(1)
     if (deps.runtime.summonDelivery) {
       if (!b.device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号，请先派车定型' })
@@ -416,6 +420,7 @@ module.exports = (store, deps) => {
       const opened = await deps.platform.drawerCtrl(b.device_sn, 1)
       if (!opened.ok) return res.status(502).json({ code: 502, msg: '开舱失败：' + opened.msg })
       q.setBatchLoading(store, b.id)
+      q.setBatchBinOpened(store, b.id)
       audit(req, 'device/batch-open', 'batch#' + b.id, '召唤开舱 device_sn=' + b.device_sn)
       return ok(res, { batch_id: b.id, opened: b.total_orders, summoned: true })
     }
@@ -449,6 +454,7 @@ module.exports = (store, deps) => {
       opened = results.length
     }
     q.setBatchLoading(store, b.id)
+    q.setBatchBinOpened(store, b.id)
     audit(req, 'device/batch-open', 'batch#' + b.id, 'opened=' + opened)
     ok(res, { batch_id: b.id, opened })
   })
@@ -458,12 +464,18 @@ module.exports = (store, deps) => {
     const { batch_id } = req.body || {}
     const b = q.batchById(store, batch_id)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
-    if (!b.device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号，请先扫码' })
+    // 设备号门禁只对真实档有意义（要拿它去调平台）。演示档没有真车：doDispatchBatch 只在
+    // realPlatform 分支选车，device_sn 恒为空；这里若照样拦，「配单页点『上货』→ 立即配送」
+    // 这条入口必然卡在关舱，而 drawerCtrl 在演示档本就是假成功（platform-http MOCK 直接 return ok）。
+    // 扫码入口会写入 device_sn，但列表入口不该被迫先扫码。
+    if (!b.device_sn && !deps.runtime.deviceMock) return res.status(400).json({ code: 400, msg: '缺少设备编号，请先扫码' })
     const r = await deps.platform.drawerCtrl(b.device_sn, 0)
     if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg })
     // 关舱 = 货已装好，但可能先不回「立即配送」页（稍后/退出）。落 loaded_at 持久化「已上货待配送」，
     // 供商家重进 batchDetail 时 inferPhase 恢复「立即配送」，以及批次列表标注「已上货待配送」。
     q.setBatchLoadedAt(store, b.id)
+    // 舱门已关 → 清「已开舱」标记，批次重回「配货中」语义（若再开舱会重新置位）
+    q.clearBatchBinOpened(store, b.id)
     audit(req, 'device/batch-close', 'batch#' + b.id, 'device_sn=' + b.device_sn)
     ok(res)
   })

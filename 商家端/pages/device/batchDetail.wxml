@@ -4,8 +4,8 @@
     <view class="card lp-banner {{atLoadingPoint ? 'lp-ok' : 'lp-wait'}}" wx:if="{{scanSn}}">
       <view class="lp-banner-title">{{atLoadingPoint ? '无人车已在上货点 ✓' : '无人车未在上货点'}}</view>
       <view class="lp-banner-sub text-weak text-sm">
-        <text wx:if="{{atLoadingPoint}}">设备 {{scanSn}} 已就位，可以开舱上货</text>
-        <text wx:else>{{loadMsg || ('设备 ' + scanSn + ' 距上货点约 ' + dist + ' 米，请等待其返回后再上货')}}</text>
+        <text wx:if="{{atLoadingPoint}}">设备 {{scanSn}} 已就位，舱门将自动打开</text>
+        <text wx:else>{{loadMsg || ('设备 ' + scanSn + ' 距上货点约 ' + dist + ' 米，到达后会自动开舱')}}</text>
       </view>
     </view>
 
@@ -19,15 +19,27 @@
         <view class="pending-tip-text">批次尚未派车定型，如需上货请返回配单上货页点击上货</view>
       </view>
 
-      <view class="btn btn-block" hover-class="btn-hover" wx:if="{{phase === 'scanned'}}" bindtap="openBin">{{mock ? '模拟打开舱门' : '打开舱门'}}</view>
-      <view class="btn btn-block" hover-class="btn-hover" wx:if="{{phase === 'open'}}" bindtap="closeBin">{{mock ? '模拟关舱' : '关舱'}}</view>
+      <!-- 自动开舱中 / 等待机器人到达上货点：无手动开舱按钮，页面自己重试 -->
+      <view class="open-status" wx:if="{{phase === 'scanned'}}">
+        <view class="open-status-row">
+          <t-icon name="{{opening ? 'time' : 'info-circle'}}" size="32rpx" color="{{opening ? '#3078C0' : '#F5A623'}}" />
+          <text class="open-status-text">{{opening ? '正在打开舱门…' : (openError || '准备打开舱门…')}}</text>
+        </view>
+        <view class="open-status-sub" wx:if="{{!opening}}">机器人到达上货点后舱门会自动打开，无需手动操作</view>
+        <view class="btn btn-sm open-retry" wx:if="{{canRetryOpen}}" hover-class="btn-hover" bindtap="retryOpenBin">重新尝试开舱</view>
+      </view>
 
-      <view class="dispatch-zone" wx:if="{{phase === 'loaded'}}">
-        <view class="dispatch-hint {{countdown > 0 ? '' : 'warn'}}">{{countdownText || '货品已上齐，可以开始配送'}}</view>
-        <!-- 圆形「开始配送」按钮（舱门已关闭后才会出现） -->
-        <view class="dispatch-circle" hover-class="dispatch-circle-hover" bindtap="dispatchAll">
+      <!-- 舱已开（请放货）/ 已关舱（货已装好）：同一个「立即配送」入口 -->
+      <view class="dispatch-zone" wx:if="{{phase === 'open' || phase === 'loaded'}}">
+        <view class="dispatch-hint {{hintWarn ? 'warn' : ''}}">
+          <text wx:if="{{countdownText}}">{{countdownText}}</text>
+          <text wx:elif="{{phase === 'open'}}">舱门已打开，请放入货品，放好后点击下方按钮</text>
+          <text wx:else>货品已装好，点击按钮立即出发</text>
+        </view>
+        <!-- 圆形「立即配送」按钮：点击后弹二次确认，确认即关舱并发车 -->
+        <view class="dispatch-circle" hover-class="dispatch-circle-hover" bindtap="confirmDispatch">
           <t-icon name="play-circle" size="44rpx" color="#ffffff" />
-          <text class="dispatch-circle-text">开始配送</text>
+          <text class="dispatch-circle-text">立即配送</text>
         </view>
       </view>
 

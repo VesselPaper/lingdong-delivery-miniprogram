@@ -149,8 +149,30 @@ function assert(cond, msg) {
     // 批次开舱/关舱/派发
     const openBin = await api('POST', '/merchant/device/batch/open-bin', { batch_id: batchId }, mToken)
     assert(openBin.code === 0, '批次开舱（' + openBin.data.opened + ' 任务验证）')
+
+    // 【商家端上货改版 2026-10-06】开舱已自动化（进上货页自动执行），页面靠后端持久标记判断阶段。
+    // 不能用配送任务状态代替：演示档 verifyBatchLoading 不推进任务状态（实测恒为 0），
+    // 据此判断会让上货页以为没开舱而无限重试。此处锁死这个契约。
+    const afterOpen = await api('GET', '/merchant/delivery/batch/detail?batch_id=' + batchId, null, mToken)
+    assert(afterOpen.data.bin_opened === true,
+      '开舱后 bin_opened=true（上货页据此显示「请放货 + 立即配送」）')
+    assert(afterOpen.data.ready_dispatch === false, '开舱后未标记可派发（ready_dispatch=false，仍需放货）')
+
+    // 幂等：页面重进 / 自动重试会再次调用开舱，必须直接返回成功且不重复下发平台指令
+    // （真实档每次开舱都会 grantControl，重复下发会多占一个控制会话）
+    const openAgain = await api('POST', '/merchant/device/batch/open-bin', { batch_id: batchId }, mToken)
+    assert(openAgain.code === 0 && openAgain.data.already_open === true,
+      '重复开舱幂等返回（already_open=true，不再下发开舱指令）')
+
     const closeBin = await api('POST', '/merchant/device/batch/close-bin', { batch_id: batchId }, mToken)
     assert(closeBin.code === 0, '批次关舱')
+
+    // 关舱 = 货已装好：ready_dispatch 置位、bin_opened 清空 ——
+    // 商家重进上货页才会是「立即配送」，而不是以为舱还开着又去开一次
+    const afterClose = await api('GET', '/merchant/delivery/batch/detail?batch_id=' + batchId, null, mToken)
+    assert(afterClose.data.ready_dispatch === true, '关舱后 ready_dispatch=true（重进上货页恢复为「立即配送」）')
+    assert(afterClose.data.bin_opened === false, '关舱后 bin_opened 清空（舱门状态不再为「已开」）')
+
     const batchDisp = await api('POST', '/merchant/device/batch/dispatch', { batch_id: batchId }, mToken)
     assert(batchDisp.code === 0, '批次开始配送（' + batchDisp.data.dispatched + ' 任务）')
 
