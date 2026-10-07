@@ -59,6 +59,7 @@
 | pages/device/batchDetail 批次上货 | [14_批次上货-device-batchDetail.md](商家端/14_批次上货-device-batchDetail.md) |
 | pages/goods/list 商品管理 | [15_商品管理-goods-list.md](商家端/15_商品管理-goods-list.md) |
 | pages/goods/edit 商品编辑 | [16_商品编辑-goods-edit.md](商家端/16_商品编辑-goods-edit.md) |
+| pages/goods/batch 商品批量录入 | [24_商品批量录入-goods-batch.md](商家端/24_商品批量录入-goods-batch.md) |
 | pages/activity/list 活动管理 | [17_活动管理-activity-list.md](商家端/17_活动管理-activity-list.md) |
 | pages/activity/edit 活动编辑 | [18_活动编辑-activity-edit.md](商家端/18_活动编辑-activity-edit.md) |
 | pages/delivery/monitor 配送监控 | [19_配送监控-delivery-monitor.md](商家端/19_配送监控-delivery-monitor.md) |

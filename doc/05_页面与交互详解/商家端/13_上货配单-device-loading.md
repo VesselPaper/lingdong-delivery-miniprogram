@@ -15,6 +15,7 @@
 | 批次内订单子卡 | goOrderDetail | 读 `e.detail.id` | navigateTo /pages/orders/detail?id= |
 
 - **重点链路（上货按钮 → enterBatch → 批次详情/上货）**：`enterBatch(item)` 只由上货按钮触发——待上货批次（status=1）且 `robot_busy === true` 时弹窗拦截「暂无空闲机器人」（content 用后端 `robot_busy_msg`）；组单中批次（status=0）先 `showLoading('创建配送任务')` 并 POST /api/merchant/delivery/batch/dispatch `{batch_id}` 定型（机器人已到上货点待命，正常流程后端会自动定型，此处手动点按钮为即时定型），失败用弹窗（而非一闪而过的 toast）展示后端可操作提示「暂时无法上货」；成功后 `wx.navigateTo` → /pages/device/batchDetail?id=。
+  **本页不开舱**（2026-10-06 改版）：舱门由批次上货页**进页面自动打开**（`batchDetail.ensureBinOpen`，见 14 号文档），所以点「上货」不会卡在本页等开舱；配单页、扫车身码、退出重进三条入口共用同一处开舱逻辑。
 - **状态与边界**：只展示组单中 + 待上货两类批次；配送中/待取货请到任务页与配送监控查看（页头注释明示）。`decorate` 给卡面附加 `dispatchMark`（`ready_dispatch === true` → 「已锁定·待配送」标签）、`robotBusy/robotBusyLabel`（车忙提示）；组单中/待上货阶段订单统一显示「待上货」、已取显示「已取」、status=6 显示「配送异常」。`scanRobot` 失败时 `cancel` 静默返回，其余弹窗展示后端提示（车离线/车忙/无单可上/批次已派给别的车等）；二维码无效 toast「二维码无效，请扫无人车上的二维码」。空态区分「无批次」与「搜索无结果」两种文案。
 - **组单中卡面动态效果**：batch-card 对 status=0 的批次显示**旋转圆环 + 「组单中」**（`@keyframes batch-spin`，见 23 号组件说明）；自动定型完成推送后重拉，卡面变为「待上货」标签——即组单完成的即时反馈。
 
