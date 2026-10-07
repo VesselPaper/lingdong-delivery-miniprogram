@@ -14,9 +14,9 @@
 //   · v2 档必须真的跑在 v2 上（日志里不能出现"回落 legacy"的警告）
 //
 // 用法：
-//   node test_batch_v2_e2e.js           跑两档并对比（约 6~7 分钟）
-//   node test_batch_v2_e2e.js v2        只跑 v2（约 3 分钟）
-//   node test_batch_v2_e2e.js legacy    只跑 legacy
+//   node tests/test_batch_v2_e2e.js           跑两档并对比（约 6~7 分钟）
+//   node tests/test_batch_v2_e2e.js v2        只跑 v2（约 3 分钟）
+//   node tests/test_batch_v2_e2e.js legacy    只跑 legacy
 //
 // 参数说明：为了跑得快，攒单上限被压成 60 秒（真实是 15 分钟）。
 //   窗口/批次的【结构】验证有效，绝对分钟数不能直接换算到生产。
@@ -26,11 +26,11 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { DatabaseSync } = require('node:sqlite')
-const batchMod = require('./services/batch.js')
+const batchMod = require('../services/batch.js')
 
 const PORT = 3211
 const BASE = 'http://127.0.0.1:' + PORT + '/api'
-const BE = __dirname
+const BE = path.join(__dirname, '..')
 
 // ★ 真实点位坐标（米制，来自平台 landInfo 同步结果）。
 // 为什么必须自带：全新数据库的 landmarks 表坐标全是 (0,0) —— 坐标是后端跟平台同步时
@@ -88,7 +88,7 @@ async function api(method, p, body, token) {
 
 // 临时库是空的，不预置账号就没法登录商家端（与 test_batch_flow.js 同一套做法）
 function seedMerchant(dbPath) {
-  const adminAuth = require('./services/adminAuth')
+  const adminAuth = require('../services/adminAuth')
   const db0 = new DatabaseSync(dbPath)
   db0.exec(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT, openid TEXT UNIQUE, nickname TEXT, avatar TEXT, phone TEXT,

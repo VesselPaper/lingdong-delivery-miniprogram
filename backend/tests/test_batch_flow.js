@@ -15,7 +15,7 @@ function startServer() {
     // 商家账号体系（2026-09-24 起：账号密码登录）：回归用的 testmerchant 账号以「用户名+scrypt密码」预置进临时库
     try {
       const { DatabaseSync } = require('node:sqlite')
-      const adminAuth = require('./services/adminAuth')
+      const adminAuth = require('../services/adminAuth')
       const db0 = new DatabaseSync(TMP_DB)
       db0.exec(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT, openid TEXT UNIQUE, nickname TEXT, avatar TEXT, phone TEXT,
@@ -30,7 +30,7 @@ function startServer() {
       db0.close()
     } catch (e) { /* 预置失败不阻断 */ }
     child = spawn(process.execPath, ['server.js'], {
-      cwd: __dirname,
+      cwd: path.join(__dirname, '..'),
       env: { ...process.env, RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB, PAY_MOCK: 'true', BATCH_WAIT_MS: '100000', WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '', SUMMON_DELIVERY: 'false' },
       stdio: ['ignore', 'pipe', 'pipe']
     })
@@ -296,7 +296,7 @@ function assert(cond, msg) {
     const TMP_DB2 = path.join(os.tmpdir(), 'lingdong_pickup_test_' + Date.now() + '.db')
     try { // 商家账号以「用户名+密码」预置进第二临时库（与主流程一致）
       const { DatabaseSync } = require('node:sqlite')
-      const adminAuth = require('./services/adminAuth')
+      const adminAuth = require('../services/adminAuth')
       const db0 = new DatabaseSync(TMP_DB2)
       db0.exec(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT, openid TEXT UNIQUE, nickname TEXT, avatar TEXT, phone TEXT,
@@ -311,7 +311,7 @@ function assert(cond, msg) {
       db0.close()
     } catch (e) { /* 忽略 */ }
     const child2 = spawn(process.execPath, ['server.js'], {
-      cwd: __dirname,
+      cwd: path.join(__dirname, '..'),
       env: { ...process.env, RUN_MODE: 'demo', PORT: String(PORT2), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB2, PAY_MOCK: 'true',
         BATCH_WAIT_MS: '100000', WX_APPID: '', WX_SECRET: '', MERCHANT_WX_APPID: '', MERCHANT_WX_SECRET: '',
         PICKUP_TIMEOUT_MS: '1500', PICKUP_RETRY_TIMEOUT_MS: '1500', PICKUP_PICKING_GUARD_MS: '60000', PICKUP_SCAN_MS: '300', BATCH_SCAN_MS: '300', MOCK_ARRIVE_MS: '300', SUMMON_DELIVERY: 'false' },

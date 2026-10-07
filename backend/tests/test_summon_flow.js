@@ -16,7 +16,7 @@ function startServer() {
     // 商家账号体系（2026-09-24 起：账号密码登录）：回归用的 testmerchant 账号预置进临时库
     try {
       const { DatabaseSync } = require('node:sqlite')
-      const adminAuth = require('./services/adminAuth')
+      const adminAuth = require('../services/adminAuth')
       const db0 = new DatabaseSync(TMP_DB)
       db0.exec(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT, openid TEXT UNIQUE, nickname TEXT, avatar TEXT, phone TEXT,
@@ -31,7 +31,7 @@ function startServer() {
       db0.close()
     } catch (e) { /* 预置失败不阻断 */ }
     child = spawn(process.execPath, ['server.js'], {
-      cwd: __dirname,
+      cwd: path.join(__dirname, '..'),
       env: {
         ...process.env,
         RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true',
@@ -83,21 +83,21 @@ function routeUnitTest() {
   }
   // α=0.5：有效距离 楼栋1=100/√5≈44.7 < 楼栋2=90.25 → 先送楼栋1（单数拽路线）
   process.env.ROUTE_COUNT_WEIGHT = '0.5'
-  let batch = require('./services/batch')
+  let batch = require('../services/batch')
   const dbA = mk()
   let r = batch.planRoute(dbA, dbA.prepare('SELECT * FROM orders').all())
   assert(String(r[0].landmark_id) === '1', 'α=0.5：5 单楼栋1 先送（有效距离更小）→ 首站楼栋1, 实际=' + r[0].landmark_name)
   dbA.close()
 
   // α=0：退化为纯最近邻 → 近一点的楼栋2 先送
-  delete require.cache[require.resolve('./services/batch')]
+  delete require.cache[require.resolve('../services/batch')]
   process.env.ROUTE_COUNT_WEIGHT = '0'
-  batch = require('./services/batch')
+  batch = require('../services/batch')
   const dbB = mk()
   r = batch.planRoute(dbB, dbB.prepare('SELECT * FROM orders').all())
   assert(String(r[0].landmark_id) === '2', 'α=0：退化为纯最近邻 → 首站楼栋2, 实际=' + r[0].landmark_name)
   dbB.close()
-  delete require.cache[require.resolve('./services/batch')]
+  delete require.cache[require.resolve('../services/batch')]
   process.env.ROUTE_COUNT_WEIGHT = '0.5'
 }
 

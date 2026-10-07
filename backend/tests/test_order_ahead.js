@@ -21,7 +21,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { DatabaseSync } = require('node:sqlite')
-const batch = require('./services/batch.js')
+const batch = require('../services/batch.js')
 
 let pass = 0, fail = 0
 function ok(cond, msg) {

@@ -26,7 +26,7 @@ let db = null
 function startServer() {
   return new Promise((resolve, reject) => {
     child = spawn(process.execPath, ['server.js'], {
-      cwd: __dirname,
+      cwd: path.join(__dirname, '..'),
       env: {
         ...process.env,
         RUN_MODE: 'demo', PORT: String(PORT), PLATFORM_MOCK: 'true', LINGDONG_DB: TMP_DB,
@@ -79,7 +79,7 @@ const lastAudit = () => db.prepare('SELECT * FROM audit_logs ORDER BY id DESC LI
     await startServer()
     console.log('[1] server up (mock, port ' + PORT + ')')
 
-    const adminAuth = require('./services/adminAuth')
+    const adminAuth = require('../services/adminAuth')
     const boot = new DatabaseSync(TMP_DB)
     adminAuth.createAdmin(boot, { username: ADMIN_USER, password: ADMIN_PASS, nickname: '测试管理员' })
     boot.close()
