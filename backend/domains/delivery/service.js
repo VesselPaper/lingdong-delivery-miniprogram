@@ -612,6 +612,40 @@ function processMockArrivals(store, deps) {
   }
 }
 
+// ---------- 批次删除（商家端「删除批次」） ----------
+// 与管理员「清理批次」同一套落账口径，但逐项容错：不因一条订单失败就整批中断，
+// 否则会留下「批次已置取消、部分订单还挂在车上」的半截状态，机器人可能因此卡死。
+//   1) 释放设备控制权（先释放：控制权不放手，这台车后续批次拿不到）
+//   2) 批内活跃订单逐单统一落账：作废任务 + 回补库存 + 摘批次 + 平台召回
+//   3) 批次置已取消（status=4）并清 device_sn —— 不清 device_sn 该车会一直被算作"这单还在跑"，白占运力
+// 返回 { batch_id, cancelled, failed[] }；审计由调用方（路由）写。
+async function deleteBatch(store, deps, b) {
+  const out = { batch_id: b.id, cancelled: 0, failed: [] }
+  if (b.ctrl_id) {
+    try {
+      const rel = await deps.platform.releaseControl(b.device_sn, b.ctrl_id)
+      if (rel.ok) q.clearBatchCtrl(store, b.id)
+      else out.failed.push('释放控制权：' + rel.msg)
+    } catch (e) { out.failed.push('释放控制权：' + e.message) }
+  }
+  // order 域统一落账（本域只借它的 service，不复制取消逻辑）
+  const orderDeps = { orderCancel: deps.orderCancel, platform: deps.platform }
+  for (const o of q.batchOrders(store, b.id)) {
+    try {
+      const r = await deps.order.applyOrderCancelled(store, orderDeps, o, { reason: '商家删除批次' })
+      if (r.claimed) out.cancelled++
+    } catch (e) { out.failed.push('订单#' + o.id + '：' + e.message) }
+  }
+  q.cleanBatch(store, b.id)
+  // 任务被删光但车还在外面 → 让它回上货点等 3 分钟（无人上货则释放），避免"车停在半路没人管"。
+  // 不 await：回程判断有自己的等待窗口，不该让商家点一下删除干等几秒。
+  if (b.device_sn) {
+    const sn = b.device_sn
+    setImmediate(() => { try { settleRobotAtLoading(store, deps, sn) } catch (e) { /* 回程失败不影响删除结果 */ } })
+  }
+  return out
+}
+
 module.exports = {
   batchCtrl, MOCK_ARRIVE_MS,
   pickupContext, doDispatchBatch,
@@ -621,5 +655,5 @@ module.exports = {
   moveStopToEnd, revisitUnpickedOrder, rejectUnpickedOrder,
   scanPickupTimeouts, scanStuckDeliveries, processMockArrivals,
   startSummonDelivery, advanceSummonDelivery, ensureLoadingArrival, settleRobotAtLoading,
-  ensureStopArrival
+  ensureStopArrival, deleteBatch
 }

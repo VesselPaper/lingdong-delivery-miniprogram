@@ -348,6 +348,18 @@
 .stale { color: var(--red); font-weight: 700; }
 .stale-soft { color: var(--amber); }
 
+/* ---------- 只读提示条 ---------- */
+/* 配送数据页：删除订单/清理批次已迁到商家端小程序，本页只监控。写清楚原因，
+   否则运维会以为菜单里的删除项是"漏了"，反复找。 */
+.readonly-hint {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 12px; padding: 9px 12px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: rgba(138, 138, 148, .06);
+  font-size: 12px; line-height: 1.5; color: var(--ink-3);
+}
+.readonly-hint svg { width: 15px; height: 15px; flex: none; color: var(--line-strong); }
+
 /* ---------- 日志（本次会话回显） ---------- */
 .log {
   max-height: 250px; overflow: auto;

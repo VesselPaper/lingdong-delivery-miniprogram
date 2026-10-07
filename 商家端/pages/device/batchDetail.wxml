@@ -47,6 +47,12 @@
         <view class="success-icon"><t-icon name="check-circle-filled" size="96rpx" color="#2BA471" /></view>
         <view class="success-text">{{dispatchNote}}</view>
       </view>
+
+      <!-- 删除批次（店主专属）：2026-10-07 从管理员网页「清理批次」迁来；店员看不到这个按钮 -->
+      <view class="del-batch" wx:if="{{canDeleteBatch}}">
+        <view class="btn btn-sm btn-block btn-danger" hover-class="btn-hover" bindtap="deleteBatch">删除批次</view>
+        <view class="del-batch-hint">删除会取消批内全部订单、回补库存并召回机器人，不可撤销</view>
+      </view>
     </view>
   </block>
   <view class="card" wx:else>

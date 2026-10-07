@@ -378,6 +378,28 @@ module.exports = (store, deps) => {
     b ? ok(res, b) : res.status(404).json({ code: 404, msg: '批次不存在' })
   })
 
+  // 删除批次（商家端，店主专属）：2026-10-07 从管理员网页「清理批次」迁移过来。
+  // 管理员网页改成只读后，批次的删除权归商家——谁的单谁来清，出问题也不用再找管理员。
+  // 只允许删活跃批次（组单中/待上货/配送中）：已是终态的批次直接拒，
+  // 避免重复点把刚清完的批次再清一遍，把已回补的库存又动一次。
+  // 落账细节见 service.deleteBatch（释放控制权 → 批内订单逐单统一落账 → 批次置已取消）。
+  router.post('/merchant/delivery/batch/delete', ownerGuard, async (req, res) => {
+    const batchId = Number((req.body || {}).batch_id || 0)
+    const b = q.batchById(store, batchId)
+    if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
+    if ([0, 1, 2].indexOf(Number(b.status)) < 0) {
+      return res.status(400).json({ code: 400, msg: '该批次已是终态，无需删除' })
+    }
+    try {
+      const out = await s.deleteBatch(store, deps, b)
+      audit(req, 'batch/delete', 'batch#' + batchId,
+        'cancelled=' + out.cancelled + ' failed=' + out.failed.length)
+      ok(res, out)
+    } catch (e) {
+      res.status(500).json({ code: 500, msg: '删除批次失败：' + e.message })
+    }
+  })
+
   // 批次派车（一车多单）：规划路线 + 创建全部平台任务，可指定机器人（P1-7 并发抢占见 service.doDispatchBatch）
   router.post('/merchant/delivery/batch/dispatch', merchantGuard, async (req, res) => {
     const { batch_id, device_sn } = req.body || {}

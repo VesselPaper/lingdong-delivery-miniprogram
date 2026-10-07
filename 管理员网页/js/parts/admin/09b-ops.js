@@ -57,11 +57,9 @@
       function () { run(label, p, body, successMsg) })
   }
 
-  // 删除订单：作废任务 + 回补库存 + 摘批次 + 平台召回（order 域统一落账）
-  window.actCancelOrder = function (oid) {
-    confirmRun('删除订单 ' + oid, '/order/cancel', { order_id: oid },
-      '删除订单 ' + oid + '？将关闭其平台任务并同步取消本地订单，防止机器人卡死。', '订单 ' + oid + ' 已删除')
-  }
+  // 2026-10-07：「删除订单」「清理批次」已迁到商家端小程序，本页不再有这两个动作，
+  // 对应的 actCancelOrder / actCancelBatch 一并删除（后端 /admin/order/cancel、/admin/batch/cancel 保留，
+  // 供回归测试与「一键初始化」复用，只是管理页不再提供入口）。
   // 关闭平台任务 + 本地作废（一键）
   window.actCloseVoid = function (tid) {
     confirmRun('关闭并作废任务 ' + tid, '/task/close-void', { task_id: tid },
@@ -69,11 +67,6 @@
   }
   // 仅本地作废（不动平台任务）
   window.actVoid = function (tid) { run('本地作废任务 ' + tid, '/task/void', { task_id: tid }) }
-  // 清理批次：删批内活跃订单（平台召回+本地取消）+ 释放控制权 + 批次置 4
-  window.actCancelBatch = function (bid) {
-    confirmRun('清理批次 ' + bid, '/batch/cancel', { batch_id: bid },
-      '清理批次 ' + bid + '？将删除批次内全部订单（含平台任务）并释放控制权。', '批次 ' + bid + ' 已清理')
-  }
 
   // ---------- 选择弹窗（召唤目标点 / 开关舱） ----------
   var pickCtx = null

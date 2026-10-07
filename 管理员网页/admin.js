@@ -4,17 +4,20 @@
    本文件是 IIFE 的第一片（01-core）：头部注释、常量、基础工具。
    收尾（启动 + `})()`）在最后一片 09-ops.js。
 
-   页面结构（2026-09 重构）：
+   页面结构（2026-09 重构；2026-10-07 起「配送数据」只读）：
    · 总览：机器人（卡片 + 校园实时地图 + 异常告警）/ 操作日志（服务端审计 + 状态字典 + 会话回显）
-   · 配送数据：批次 / 订单 / 任务 三标签 × 活跃 / 历史 / 全部 三分段，卡片式展示
+   · 配送数据：批次 / 订单 / 任务 三标签 × 活跃 / 历史 / 全部 三分段，卡片式展示（**只读**）
    · 设置：账号 / 危险操作（机器人控制页 2026-09-26 移除：控制权与点位同步均由业务自动管理）
    · 商家管理：创建账号 / 已创建列表（编辑弹窗：改用户名 / 改权限 / 重置密码 / 删除账号）
 
    交互约定（铁律）：
-   · 破坏性操作（删除订单 / 清理批次 / 关闭并作废 / 仅作废）只从右键菜单进入，无行内按钮；
+   · 破坏性操作（关闭并作废 / 仅作废）只从右键菜单进入，无行内按钮；
      卡片整卡点击 = 打开详情抽屉。
-   · 所有删除 / 清理 / 关闭操作均走后端统一落账（作废任务 + 回补库存 + 摘批次 + 平台召回），
-     保证机器人状态、用户端、商家端同步，杜绝死锁。
+   · **2026-10-07 权限迁移**：「删除订单」「清理批次」改由商家端小程序执行
+     （店主专属 + 二次确认），管理员网页只保留机器人本体相关的配置与监控，不再维护订单批次。
+     因此本页批次/订单菜单里没有删除项——不是漏了，是权限不在管理员这边了。
+   · 保留下来的任务级操作（关闭并作废 / 仅作废）仍走后端统一落账
+     （作废任务 + 回补库存 + 摘批次 + 平台召回），保证机器人状态、用户端、商家端同步，杜绝死锁。
    · 操作日志读服务端 audit_logs（成功与失败都在），前端内存日志只作会话回显。
    ============================================================ */
 (function () {
@@ -296,8 +299,9 @@
 
 
   // ---------- 右键上下文菜单 ----------
-  // 破坏性操作（删除订单 / 清理批次 / 关闭并作废 / 仅作废）只在这里出现，卡片上没有行内按钮，
+  // 破坏性操作（关闭并作废 / 仅作废）只在这里出现，卡片上没有行内按钮，
   // 避免同一操作存在多处入口；非破坏性项（复制编号 / 在地图查看）也一并放这里。
+  // 2026-10-07：删除订单 / 清理批次已迁到商家端小程序（配送数据页改为只读），本页不再提供这两个入口。
   var ctxOpen = false
   function showCtx(x, y, title, items) {
     var m = $('ctxMenu')
@@ -342,9 +346,6 @@
       { icon: 'i-copy', label: '复制订单号', run: function () { copyText(o.order_no, '订单号已复制') } },
       { icon: 'i-timeline', label: '查看详情与时间线', run: function () { openDrawer('order', o.id) } }
     ]
-    if ([0, 1, 2, 3, 6].indexOf(Number(o.status)) >= 0) {
-      items.push({ icon: 'i-trash', label: '删除订单', danger: true, run: function () { actCancelOrder(o.id) } })
-    }
     showCtx(ev.clientX, ev.clientY, '订单 ' + (o.code_short || o.id) + ' · ' + o.order_no, items)
     return false
   }
@@ -361,9 +362,6 @@
     ]
     if (Number(b.status) === 2 && parseRoute(b).length > 0) {
       items.push({ icon: 'i-map', label: '在地图查看配送站位', run: function () { goBatchMap(b.id) } })
-    }
-    if ([0, 1, 2].indexOf(Number(b.status)) >= 0) {
-      items.push({ icon: 'i-trash', label: '清理批次', danger: true, run: function () { actCancelBatch(b.id) } })
     }
     showCtx(ev.clientX, ev.clientY, '批次 ' + (b.code_short || b.id) + ' · ' + b.batch_no, items)
     return false
@@ -1595,11 +1593,9 @@
       function () { run(label, p, body, successMsg) })
   }
 
-  // 删除订单：作废任务 + 回补库存 + 摘批次 + 平台召回（order 域统一落账）
-  window.actCancelOrder = function (oid) {
-    confirmRun('删除订单 ' + oid, '/order/cancel', { order_id: oid },
-      '删除订单 ' + oid + '？将关闭其平台任务并同步取消本地订单，防止机器人卡死。', '订单 ' + oid + ' 已删除')
-  }
+  // 2026-10-07：「删除订单」「清理批次」已迁到商家端小程序，本页不再有这两个动作，
+  // 对应的 actCancelOrder / actCancelBatch 一并删除（后端 /admin/order/cancel、/admin/batch/cancel 保留，
+  // 供回归测试与「一键初始化」复用，只是管理页不再提供入口）。
   // 关闭平台任务 + 本地作废（一键）
   window.actCloseVoid = function (tid) {
     confirmRun('关闭并作废任务 ' + tid, '/task/close-void', { task_id: tid },
@@ -1607,11 +1603,6 @@
   }
   // 仅本地作废（不动平台任务）
   window.actVoid = function (tid) { run('本地作废任务 ' + tid, '/task/void', { task_id: tid }) }
-  // 清理批次：删批内活跃订单（平台召回+本地取消）+ 释放控制权 + 批次置 4
-  window.actCancelBatch = function (bid) {
-    confirmRun('清理批次 ' + bid, '/batch/cancel', { batch_id: bid },
-      '清理批次 ' + bid + '？将删除批次内全部订单（含平台任务）并释放控制权。', '批次 ' + bid + ' 已清理')
-  }
 
   // ---------- 选择弹窗（召唤目标点 / 开关舱） ----------
   var pickCtx = null

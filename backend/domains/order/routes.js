@@ -12,7 +12,7 @@ const s = require('./service')
 const seqSvc = require('../../services/seq')
 
 module.exports = (store, deps) => {
-  const { auth, merchantGuard, audit, ok, maskPhone } = createShared(store)
+  const { auth, merchantGuard, ownerGuard, audit, ok, maskPhone } = createShared(store)
   const router = express.Router()
 
   // ---------- 下单 ----------
@@ -380,6 +380,24 @@ module.exports = (store, deps) => {
       items,
       batch: batchInfo
     })
+  })
+
+  // 可删除的订单状态：待支付/待接单/配送中/已送达/配送异常（沿用管理页原口径；已完成/已取消/已退款是终态，不可删）
+  const ORDER_DELETABLE = [0, 1, 2, 3, 6]
+
+  // 删除订单（商家端，店主专属）：2026-10-07 从管理员网页「删除订单」迁移过来。
+  // 走 order 域统一落账（作废任务 + 回补库存 + 摘批次 + 平台召回）——不做"只删本地这一行"：
+  // 订单删了、车还在送货，机器人会一直卡到平台超时，这正是原管理页那句确认提示在防的事。
+  router.post('/merchant/order/delete', ownerGuard, async (req, res) => {
+    const order = q.findById(store, (req.body || {}).order_id)
+    if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
+    if (ORDER_DELETABLE.indexOf(Number(order.status)) < 0) {
+      return res.status(400).json({ code: 400, msg: '该订单已是终态，不能删除' })
+    }
+    const r = await s.applyOrderCancelled(store, deps, order, { reason: '商家删除订单' })
+    audit(req, 'order/delete', 'order#' + order.id,
+      '订单 ' + (order.order_no || order.id) + ' 删除：claimed=' + r.claimed + ' 终态=' + r.finalStatus + ' 平台任务=' + r.tasks.length)
+    ok(res, { claimed: r.claimed, final_status: r.finalStatus, tasks: r.tasks.length })
   })
 
   // 商家接单（真实业务：店铺歇业时后端拒绝接单；接单即并入当前配送批次，待批次派车）

@@ -31,6 +31,8 @@ const api = {
   // 一车多单：配送批次
   batchList: '/merchant/delivery/batch/list',
   batchDetail: '/merchant/delivery/batch/detail',
+  // 删除批次（店主专属）：2026-10-07 从管理员网页「清理批次」迁来
+  batchDelete: '/merchant/delivery/batch/delete',
   batchDispatch: '/merchant/delivery/batch/dispatch',
   batchOpenBin: '/merchant/device/batch/open-bin',
   batchCloseBin: '/merchant/device/batch/close-bin',

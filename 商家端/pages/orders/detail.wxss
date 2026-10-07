@@ -143,6 +143,21 @@
   margin-top: 16rpx;
 }
 
+/* 删除订单（店主专属）：用分隔线与上方操作区隔开，避免挨着「接单并装车」被误点 */
+.del-order {
+  margin-top: 16rpx;
+  padding-top: 32rpx;
+  border-top: 2rpx solid #EEEEEE;
+}
+
+.del-order-hint {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  line-height: 1.5;
+  color: #999999;
+  text-align: center;
+}
+
 .pay-sheet {
   display: flex;
   flex-direction: column;

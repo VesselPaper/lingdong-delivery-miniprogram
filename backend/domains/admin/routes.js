@@ -403,6 +403,9 @@ module.exports = (store, deps) => {
   })
 
   // 本地取消订单（cancelLocal：作废任务+回补库存+摘批次；随后平台召回关任务）
+  // 2026-10-07：管理页「配送数据」已改为只读，本接口不再有页面入口；删除权移交商家端
+  // POST /merchant/order/delete。接口保留：① test_status_events / test_audit_mw 用它验证
+  // 「管理员操作者归属」与「审计标注」；② 与保留的「一键初始化」同源，删掉也只是少一个入口。
   router.post('/admin/order/cancel', adminGuard, async (req, res) => {
     const order = q.orderById(store, Number((req.body || {}).order_id || 0))
     if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
@@ -430,6 +433,8 @@ module.exports = (store, deps) => {
   })
 
   // 清理批次：删除批次内全部活跃订单（平台召回+本地取消）+ 释放控制权 + 批次置4
+  // 2026-10-07：与上面同理，管理页已无入口；商家端对应 POST /merchant/delivery/batch/delete
+  // （业务实现收口在 delivery/service.deleteBatch，本接口保留原有内联写法不动）。
   router.post('/admin/batch/cancel', adminGuard, async (req, res) => {
     const batchId = Number((req.body || {}).batch_id || 0)
     const b = q.batchById(store, batchId)

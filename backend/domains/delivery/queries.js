@@ -72,6 +72,14 @@ module.exports = {
   batchAdvanceIfDelivered: (store, id) => store.prepare("UPDATE delivery_batches SET status=2, status_text='配送中', updated_at=datetime('now','localtime') WHERE id=? AND status=1").run(Number(id)),
   arrivedBatches: (store) => store.prepare("SELECT * FROM delivery_batches WHERE status=2 AND mock_arrive_at IS NOT NULL AND mock_arrive_at <= datetime('now','localtime')").all(),
 
+  // ---------- 批次删除/清理（商家端「删除批次」） ----------
+  // 从 admin/queries.js 搬过来：delivery_batches 属于本域（05 方案「按数据项分层」），
+  // 管理员侧仍留着自己那份（admin 的 cleanBatch 写「测试清理已取消」，是测试口径的文案）。
+  batchOrders: (store, batchId) => store.prepare('SELECT * FROM orders WHERE batch_id=? AND status IN (0,1,2,3,6)').all(Number(batchId)),
+  clearBatchCtrl: (store, id) => store.prepare("UPDATE delivery_batches SET ctrl_id='' WHERE id=?").run(Number(id)),
+  // 批次置已取消：清空 device_sn 让该车不再被认为"还在跑这一批"（否则会占着运力）
+  cleanBatch: (store, id) => store.prepare("UPDATE delivery_batches SET status=4, status_text='已取消', device_sn='', updated_at=datetime('now','localtime') WHERE id=?").run(Number(id)),
+
   // ---------- landmarks ----------
   landmarksAll: (store) => store.prepare('SELECT * FROM landmarks ORDER BY sort').all(),
   landmarksWithPos: (store) => store.prepare('SELECT id,name,type,pos_x,pos_y FROM landmarks WHERE pos_x IS NOT NULL AND pos_y IS NOT NULL').all(),

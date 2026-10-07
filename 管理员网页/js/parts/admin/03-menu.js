@@ -1,7 +1,8 @@
 
   // ---------- 右键上下文菜单 ----------
-  // 破坏性操作（删除订单 / 清理批次 / 关闭并作废 / 仅作废）只在这里出现，卡片上没有行内按钮，
+  // 破坏性操作（关闭并作废 / 仅作废）只在这里出现，卡片上没有行内按钮，
   // 避免同一操作存在多处入口；非破坏性项（复制编号 / 在地图查看）也一并放这里。
+  // 2026-10-07：删除订单 / 清理批次已迁到商家端小程序（配送数据页改为只读），本页不再提供这两个入口。
   var ctxOpen = false
   function showCtx(x, y, title, items) {
     var m = $('ctxMenu')
@@ -46,9 +47,6 @@
       { icon: 'i-copy', label: '复制订单号', run: function () { copyText(o.order_no, '订单号已复制') } },
       { icon: 'i-timeline', label: '查看详情与时间线', run: function () { openDrawer('order', o.id) } }
     ]
-    if ([0, 1, 2, 3, 6].indexOf(Number(o.status)) >= 0) {
-      items.push({ icon: 'i-trash', label: '删除订单', danger: true, run: function () { actCancelOrder(o.id) } })
-    }
     showCtx(ev.clientX, ev.clientY, '订单 ' + (o.code_short || o.id) + ' · ' + o.order_no, items)
     return false
   }
@@ -65,9 +63,6 @@
     ]
     if (Number(b.status) === 2 && parseRoute(b).length > 0) {
       items.push({ icon: 'i-map', label: '在地图查看配送站位', run: function () { goBatchMap(b.id) } })
-    }
-    if ([0, 1, 2].indexOf(Number(b.status)) >= 0) {
-      items.push({ icon: 'i-trash', label: '清理批次', danger: true, run: function () { actCancelBatch(b.id) } })
     }
     showCtx(ev.clientX, ev.clientY, '批次 ' + (b.code_short || b.id) + ' · ' + b.batch_no, items)
     return false

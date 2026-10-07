@@ -107,6 +107,7 @@ page {
 .btn-sm { height: 60rpx; font-size: 26rpx; padding: 0 24rpx; border-radius: 6rpx; }
 .btn-block { width: 100%; }
 .btn-disabled { background: #D8D8D8; color: #ffffff; }
+.btn-danger { background: #E64340; color: #ffffff; }
 .btn-outline-brand { background: #ffffff; color: var(--brand); border: 1rpx solid var(--brand); }
 .btn-hover { opacity: 0.82; }
 

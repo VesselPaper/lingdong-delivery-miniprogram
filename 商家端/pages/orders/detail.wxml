@@ -61,5 +61,10 @@
     <view class="btn btn-sm btn-block" wx:if="{{order.status === 1 && shopOpen}}" bindtap="confirmOrder">接单并装车</view>
     <view class="btn btn-sm btn-block btn-disabled" wx:if="{{order.status === 1 && !shopOpen}}">歇业中，暂不可接单</view>
     <!-- 配送中订单无需操作按钮：测试阶段开始配送后模拟 ~10 秒送达进入待取货；真实阶段由平台回调推进 -->
+    <!-- 删除订单（店主专属）：2026-10-07 从管理员网页迁来；店员看不到这个按钮 -->
+    <view class="del-order" wx:if="{{canDelete}}">
+      <view class="btn btn-sm btn-block btn-danger" hover-class="btn-hover" bindtap="deleteOrder">删除订单</view>
+      <view class="del-order-hint">删除会作废机器人任务、回补库存并通知用户，不可撤销</view>
+    </view>
   </view>
 </view>
