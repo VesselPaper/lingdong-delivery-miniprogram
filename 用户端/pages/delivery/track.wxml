@@ -29,6 +29,22 @@
       </view>
     </view>
 
+    <!-- 提前提醒：机器人还有几站到、大约几分钟，提示用户提前下楼。
+         数据来自 /delivery/track 的 ahead 字段（本页 3 秒轮询一次）。
+         prepare=true 才显示：已到楼下(红) / 还有 1~2 站(橙)，再远就不打扰用户。
+         目的：用户提前下楼、机器人到站即取，减少每站空等，后面的站也不会被拖累。 -->
+    <view wx:if="{{ahead && ahead.prepare}}" class="ahead-card {{ahead.state === 'arriving' ? 'is-arrive' : 'is-soon'}}">
+      <view class="ahead-icon">
+        <t-icon wx:if="{{ahead.state === 'arriving'}}" name="check-circle-filled" size="22" color="#E34D59" />
+        <t-icon wx:else name="time" size="22" color="#E37318" />
+      </view>
+      <view class="ahead-body">
+        <view class="ahead-title">{{ahead.text}}</view>
+        <view class="ahead-sub" wx:if="{{ahead.stops_ahead > 0}}">全程 {{ahead.total_stops}} 站 · 车在第 {{ahead.current_stop}} 站 · 您在第 {{ahead.my_stop}} 站</view>
+        <view class="ahead-sub" wx:else>请尽快下楼取餐，超时机器人会先送其他点位</view>
+      </view>
+    </view>
+
     <!-- 自绘地图：可双指缩放/平移，显示全部点位 + 配送路线 + 机器人实时位置（平台为 SLAM 坐标，无经纬度，故不用微信 map 组件） -->
     <view class="map-card" wx:if="{{map && map.landmarks}}">
       <view class="map-canvas"

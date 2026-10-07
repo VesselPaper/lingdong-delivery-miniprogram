@@ -7,6 +7,7 @@ Page({
     order: {},
     task: null,
     position: null,
+    ahead: null,             // 提前提醒：{ state, stops_ahead, eta_min, total_stops, my_stop, prepare, text }
     percent: null,           // P1-12：后端按地图 bbox 归一化的百分比坐标 {x,y}，无真实坐标时为 null
     map: null,               // 地图数据：{ bbox, landmarks[], route[] }（landmarks/route 均为百分比坐标）
     taskText: '等待接单',
@@ -124,6 +125,9 @@ Page({
         order: data,
         task,
         batch: data.batch || null,
+        // 提前提醒：后端算好「还有几站 / 约几分钟到 / 该不该准备下楼」。
+        // 用户端没有 WebSocket，本页 3 秒轮询一次即可拿到最新值（见页首轮询注释）。
+        ahead: data.ahead || null,
         position: data.position || null,
         percent: data.percent || null,
         map: data.map || null,

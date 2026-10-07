@@ -170,7 +170,10 @@ module.exports = (store, deps) => {
       position: pos,
       percent,
       map,
-      batch: batchInfo
+      batch: batchInfo,
+      // 提前提醒：车现在开到第几站、我这一单还有几站/几分钟到、要不要提前下楼。
+      // 用户端追踪页每 3 秒轮询本接口，直接读这个字段渲染横幅（用户端没有 WebSocket 通道）。
+      ahead: (deps.batch && typeof deps.batch.orderAhead === 'function') ? deps.batch.orderAhead(store, order) : null
     })
   })
 

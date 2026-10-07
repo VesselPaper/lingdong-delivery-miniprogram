@@ -230,3 +230,55 @@
   margin: 40rpx auto 0;
   width: 240rpx;
 }
+
+/* ---- 提前提醒横幅（还有几站到 / 请准备下楼）---- */
+/* 两档配色：is-soon=还需等待（橙，提示准备）；is-arrive=已到楼下（红，最紧急） */
+.ahead-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+  border-radius: 12rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+  border: 1rpx solid transparent;
+}
+
+.ahead-card.is-soon {
+  background: #FFF7E8;
+  border-color: #FFE0B2;
+}
+
+.ahead-card.is-arrive {
+  background: #FEF0F0;
+  border-color: #FBC4C4;
+}
+
+.ahead-icon {
+  flex-shrink: 0;
+  padding-top: 2rpx;
+}
+
+.ahead-body {
+  flex: 1;
+}
+
+.ahead-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.is-soon .ahead-title {
+  color: #E37318;
+}
+
+.is-arrive .ahead-title {
+  color: #E34D59;
+}
+
+.ahead-sub {
+  font-size: 22rpx;
+  color: #999999;
+  margin-top: 8rpx;
+  line-height: 1.4;
+}
