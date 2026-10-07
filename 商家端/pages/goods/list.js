@@ -55,6 +55,11 @@ Page({
     wx.navigateTo({ url: '/pages/goods/edit' })
   },
 
+  // 批量录入（Excel 粘贴 / 连续扫码）：同样店主专属，页面内也会再校验一次
+  batchAddGoods() {
+    wx.navigateTo({ url: '/pages/goods/batch' })
+  },
+
   editGoods(e) {
     wx.navigateTo({ url: '/pages/goods/edit?id=' + e.currentTarget.dataset.id })
   },

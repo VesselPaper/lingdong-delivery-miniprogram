@@ -12,7 +12,10 @@
   <view class="card stat-card">
     <view class="stat-head">
       <view class="stat-title">商品统计</view>
-      <view class="add-btn" wx:if="{{isOwner}}" bindtap="addGoods">新增商品</view>
+      <view class="head-btns" wx:if="{{isOwner}}">
+        <view class="add-btn ghost" bindtap="batchAddGoods">批量录入</view>
+        <view class="add-btn" bindtap="addGoods">新增商品</view>
+      </view>
     </view>
     <view class="stat-grid">
       <view class="stat-item">

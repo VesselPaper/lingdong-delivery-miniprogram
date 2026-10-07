@@ -8,6 +8,9 @@ const fs = require('fs')
 const { createShared, toStock } = require('../_shared')
 const q = require('./queries')
 const service = require('./service')
+// 外部条码库查询适配器（可替换）：扫到本地没有的条码时用它去外部查商品信息。
+// 现在还没拿到商铺接口，它是占位实现；接口到位后只改那一个文件。
+const goodsLookup = require('../../services/goodsLookup')
 
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads')
 
@@ -28,6 +31,38 @@ function cleanText(v, max) {
 function checkPrice(p) {
   const n = Number(p)
   return Number.isFinite(n) && n >= 0 && n <= 9999 ? n : null
+}
+
+// 批量录入单次上限：够一次录完一天的进货量，又不至于让一个请求长时间占住数据库。
+const BATCH_MAX = 200
+
+// 新增商品的字段归一化 + 校验。单个新增（POST /merchant/goods）与批量录入
+// （POST /merchant/goods/batch）共用这一套规则 —— 两处各写一份，迟早改一处漏一处，
+// 而校验口径不一致会直接变成「单条能加、批量加不进去」这类很难查的问题。
+// 返回 { ok: true, value } 或 { ok: false, reason }；reason 原样回给前端展示给商家。
+function normalizeNewGoods(body) {
+  const b = body || {}
+  const name = String(b.name === undefined || b.name === null ? '' : b.name).trim()
+  if (!name) return { ok: false, reason: '商品名称不能为空' }
+  if (name.length > 100) return { ok: false, reason: '商品名称过长' }
+  const price = checkPrice(b.price)
+  if (price === null) return { ok: false, reason: '价格不合法（0~9999）' }
+  const image = safeImageUrl(b.image)
+  if (image === null) return { ok: false, reason: '图片地址不合法' }
+  return {
+    ok: true,
+    value: {
+      name,
+      price,
+      original_price: Math.max(0, Number(b.original_price) || 0),
+      image,
+      category: cleanText(b.category || '', 50) || '其他',
+      stock: toStock(b.stock, 99),        // 与商家端表单提示「不填默认 99」一致
+      description: cleanText(b.description || '', 500),
+      barcode: cleanText(b.barcode || '', 64),
+      unit: cleanText(b.unit || '', 10)
+    }
+  }
 }
 
 module.exports = (store, deps) => {
@@ -114,28 +149,19 @@ module.exports = (store, deps) => {
     }
   })
 
-  // 新建商品：店主专属（含定价）
+  // 新建商品：店主专属（含定价）。字段校验复用 normalizeNewGoods，与批量录入同一套规则。
   router.post('/merchant/goods', ownerGuard, (req, res) => {
-    const { name, price, original_price, image, category, stock, description, barcode, unit } = req.body || {}
-    const n = String(name || '').trim()
-    if (!n) return res.status(400).json({ code: 400, msg: '商品名称不能为空' })
-    if (n.length > 100) return res.status(400).json({ code: 400, msg: '商品名称过长' })
-    const p = checkPrice(price)
-    if (p === null) return res.status(400).json({ code: 400, msg: '价格不合法（0~9999）' })
-    const img = safeImageUrl(image)
-    if (img === null) return res.status(400).json({ code: 400, msg: '图片地址不合法' })
-    // 库存缺省 99：与商家端表单提示「不填默认 99」保持一致
-    const st = toStock(stock, 99)
-    const id = q.insert(store, {
-      name: n, price: p,
-      original_price: Math.max(0, Number(original_price) || 0),
-      image: img,
-      category: cleanText(category || '', 50),
-      stock: st,
-      description: cleanText(description || '', 500),
-      barcode, unit
-    })
-    audit(req, 'goods/create', 'goods#' + id, 'name=' + n + ' price=' + p + ' stock=' + st)
+    const nv = normalizeNewGoods(req.body)
+    if (!nv.ok) return res.status(400).json({ code: 400, msg: nv.reason })
+    const v = nv.value
+    // 条码唯一：先查再插，好告诉商家「和哪个商品撞了」。不先查的话会撞唯一索引抛 500，
+    // 商家只看到一句「服务器错误」，完全不知道怎么办。
+    if (v.barcode) {
+      const dup = q.findByBarcode(store, v.barcode)
+      if (dup) return res.status(400).json({ code: 400, msg: '条码已存在（商品：' + dup.name + '）' })
+    }
+    const id = q.insert(store, v)
+    audit(req, 'goods/create', 'goods#' + id, 'name=' + v.name + ' price=' + v.price + ' stock=' + v.stock)
     ok(res, { id })
   })
 
@@ -158,6 +184,15 @@ module.exports = (store, deps) => {
     }
     // 编辑商品时未传 stock 字段 → 保留原库存；传了（含 0）→ 用传入值（修复「设 0 被重置」）
     const st = stock === undefined || stock === null || stock === '' ? cur.stock : toStock(stock, 99)
+    // 条码唯一：改条码时才需要查（自己不算撞）。不查的话唯一索引会抛 500，
+    // 商家只看到「服务器错误」，不知道是条码重复。
+    const bcNew = String(barcode !== undefined ? barcode : (cur.barcode || '')).trim()
+    if (bcNew && bcNew !== String(cur.barcode || '').trim()) {
+      const dup = q.findByBarcode(store, bcNew)
+      if (dup && Number(dup.id) !== Number(id)) {
+        return res.status(400).json({ code: 400, msg: '条码已存在（商品：' + dup.name + '）' })
+      }
+    }
     q.update(store, id, {
       name: n, price: p,
       original_price: original_price === undefined ? Number(cur.original_price || 0) : Math.max(0, Number(original_price) || 0),
@@ -166,7 +201,7 @@ module.exports = (store, deps) => {
       stock: st,
       description: description === undefined ? cur.description : cleanText(description || '', 500),
       status: status !== undefined ? Number(status) : 1,
-      barcode: barcode !== undefined ? barcode : (cur.barcode || ''),
+      barcode: bcNew,
       unit: unit !== undefined ? unit : (cur.unit || '')
     })
     audit(req, 'goods/update', 'goods#' + id, 'name=' + n + ' price=' + p + ' stock=' + st + ' status=' + (status !== undefined ? status : 1))
@@ -177,6 +212,121 @@ module.exports = (store, deps) => {
     q.updateStatus(store, req.body.id, req.body.status)
     audit(req, 'goods/status', 'goods#' + req.body.id, 'status=' + Number(req.body.status))
     ok(res)
+  })
+
+  // ---------- 批量录入：Excel 粘贴 / 连续扫码 ----------
+  // 语义：逐条独立处理，一条不合法不影响其余（部分成功）；每条的结果都回给前端，
+  // 前端只把失败那几行标红让商家改，不必整批重来。
+  // if_exists：条码在库里已存在时怎么办 —— 'skip'（默认，跳过并说明是哪个商品）
+  // 还是 'update'（按新值覆盖名称/售价/库存等，图片和描述保留原值）。
+  router.post('/merchant/goods/batch', ownerGuard, (req, res) => {
+    const body = req.body || {}
+    const items = Array.isArray(body.items) ? body.items : null
+    if (!items) return res.status(400).json({ code: 400, msg: '缺少 items 数组' })
+    if (!items.length) return res.status(400).json({ code: 400, msg: '没有要录入的商品' })
+    if (items.length > BATCH_MAX) return res.status(400).json({ code: 400, msg: '一次最多录入 ' + BATCH_MAX + ' 个商品' })
+    const ifExists = body.if_exists === 'update' ? 'update' : 'skip'
+
+    const results = []
+    const writes = []                 // 已过校验、待落库的条目
+    const seenBarcode = new Map()     // 条码 → 行号，用于批内查重
+    let skipped = 0, failed = 0
+
+    items.forEach((raw, i) => {
+      const line = i + 1
+      const nv = normalizeNewGoods(raw)
+      if (!nv.ok) {
+        failed++
+        results.push({ index: i, line, name: String((raw && raw.name) || '').trim(), barcode: String((raw && raw.barcode) || '').trim(), result: 'failed', reason: nv.reason })
+        return
+      }
+      const v = nv.value
+      if (v.barcode) {
+        // 批内查重：同一批里条码写重了只认第一条，后面的判失败并指出和哪一行撞了 ——
+        // 否则前一条会入库、后一条撞唯一索引，错误信息还看不出是哪两行。
+        const at = seenBarcode.get(v.barcode)
+        if (at) {
+          failed++
+          results.push({ index: i, line, name: v.name, barcode: v.barcode, result: 'failed', reason: '条码与第 ' + at + ' 行重复' })
+          return
+        }
+        seenBarcode.set(v.barcode, line)
+        const cur = q.findByBarcode(store, v.barcode)
+        if (cur) {
+          if (ifExists === 'skip') {
+            skipped++
+            results.push({ index: i, line, name: v.name, barcode: v.barcode, result: 'skipped', id: cur.id, reason: '条码已存在，已跳过（现有商品：' + cur.name + '）' })
+            return
+          }
+          writes.push({ kind: 'update', id: cur.id, v, i, line })
+          return
+        }
+      }
+      writes.push({ kind: 'insert', v, i, line })
+    })
+
+    // 落库放在一个事务里：中途异常就整批回滚，绝不留半截数据。
+    // 注意「某条不合法」在上面已经判完、不会走到这里抛异常，所以不影响"部分成功"的语义。
+    let created = 0, updated = 0
+    if (writes.length) {
+      store.exec('BEGIN')
+      try {
+        for (const w of writes) {
+          if (w.kind === 'insert') {
+            const id = q.insert(store, w.v)
+            created++
+            results.push({ index: w.i, line: w.line, name: w.v.name, barcode: w.v.barcode, result: 'created', id })
+          } else {
+            const cur = q.findById(store, w.id)
+            // q.update 是全字段覆盖：这里没提供的图片/描述/原价/状态沿用原值，
+            // 免得「只想改个价」把商家上传的图和描述一起清空。
+            q.update(store, w.id, {
+              name: w.v.name, price: w.v.price,
+              original_price: cur.original_price, image: cur.image || '',
+              category: w.v.category, stock: w.v.stock,
+              description: cur.description, status: cur.status,
+              barcode: w.v.barcode, unit: w.v.unit
+            })
+            updated++
+            results.push({ index: w.i, line: w.line, name: w.v.name, barcode: w.v.barcode, result: 'updated', id: w.id })
+          }
+        }
+        store.exec('COMMIT')
+      } catch (e) {
+        store.exec('ROLLBACK')
+        console.error('[goods/batch] ERROR', e && e.stack)
+        return res.status(500).json({ code: 500, msg: '批量写入失败，已全部回滚：' + e.message })
+      }
+    }
+
+    results.sort((a, b) => a.line - b.line)
+    audit(req, 'goods/batch', 'goods+' + created + '/' + updated, '新增=' + created + ' 更新=' + updated + ' 跳过=' + skipped + ' 失败=' + failed + ' if_exists=' + ifExists)
+    ok(res, { total: items.length, created, updated, skipped, failed, if_exists: ifExists, results })
+  })
+
+  // 按条码查商品（扫码录入用）。
+  // 「没查到」是扫码的正常结果、不是错误，所以照样返回 code 0，用 found 区分真假，
+  // 免得前端把 404 当异常抛出来弹一堆红字。
+  router.get('/merchant/goods/by-barcode', merchantGuard, async (req, res) => {
+    const code = String(req.query.code || '').trim()
+    if (!code) return res.status(400).json({ code: 400, msg: '缺少条码' })
+    const hit = q.findByBarcode(store, code)
+    if (hit) {
+      return ok(res, {
+        found: true, source: 'local',
+        goods: {
+          id: hit.id, name: hit.name, price: hit.price, category: hit.category,
+          unit: hit.unit, stock: hit.stock, status: hit.status, barcode: hit.barcode, image: hit.image
+        }
+      })
+    }
+    // 本地没有 → 交给「外部条码库」适配器。现阶段还没接入，它会返回未找到，
+    // 前端就退化成「条码已带上、请手动填写名称和价格」。接口到位后只改 goodsLookup 那一个文件。
+    const ext = await goodsLookup.lookupByBarcode(code)
+    if (ext && ext.ok && ext.goods) {
+      return ok(res, { found: true, source: ext.source || 'external', goods: ext.goods })
+    }
+    ok(res, { found: false, source: 'none', goods: null, msg: (ext && ext.msg) || '本地与外部条码库都没有这个条码' })
   })
 
   // ---------- 商家端活动管理（发布/编辑/上下线/删除）——店主专属 ----------

@@ -376,6 +376,18 @@ function migrate(db) {
   const goodsCols = db.prepare('PRAGMA table_info(goods)').all().map((c) => c.name)
   if (!goodsCols.includes('barcode')) db.exec("ALTER TABLE goods ADD COLUMN barcode TEXT DEFAULT ''")
   if (!goodsCols.includes('unit')) db.exec("ALTER TABLE goods ADD COLUMN unit TEXT DEFAULT ''")
+  // 商品条码唯一（部分索引，排除空条码）—— 2026-10-06 批量录入。
+  // 为什么必须是「部分」索引：goods.barcode 默认 ''，商家手工新增的商品可能不填条码；
+  // 普通 UNIQUE 会把所有空条码视为同一个值，第二条无条码商品就插不进来。
+  // WHERE 把空值排除在唯一性之外 → 空条码可以有任意多条，非空条码才唯一。
+  // 作用：把「同一商品录两遍」挡在库外（批量录入接口也会先查重，这里是最后一道闸）。
+  // 现存数据实测 216 条、0 空、0 重复，可直接建；老库若有重复会抛错，此处兜底不阻断启动。
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_goods_barcode_uniq
+      ON goods(barcode) WHERE barcode IS NOT NULL AND TRIM(barcode) <> ''`)
+  } catch (e) {
+    console.warn('[db] 商品条码唯一索引未建立（库内可能已有重复条码，人工核对后再建）：' + e.message)
+  }
 
   // 支付回调幂等表：微信对同一事件会重推，event_id 唯一约束即幂等键
   db.exec(`
@@ -541,13 +553,22 @@ function seed(db) {
   // 不再写入演示账号：登录必须走真实微信 code2session（WX_APPID / WX_SECRET）
 }
 
-// 门店真实商品（进销存）导入 —— 替换型、幂等。
+// 门店真实商品（进销存）导入 —— 按条码增量更新、幂等。
 // 数据源：backend/store_goods.json（从门店 Excel「名称/分类/条码/主单位/库存量/销售价」导出）。
 // 注意：data/ 目录被 .gitignore，因此数据文件放在 backend/ 根目录（随 Git 提交、人本地可复现）。
 // 幂等键：对数据文件内容做 sha256，写入 meta.store_goods_import_hash。
-// 变更数据文件后重启后端会自动把商品表整体替换为新库存；未变更则跳过，绝不在每次启动重复插入。
-// 替换会 DELETE 旧商品并清空购物车（旧商品不再存在，孤儿购物车无意义）——
-// 历史订单在 order_items 中留存了商品名快照，不受影响。
+// 变更数据文件后重启后端会自动同步；未变更则跳过，绝不在每次启动重复插入。
+//
+// 2026-10-06 改版（配合商品批量录入）：此前是「DELETE FROM goods + 整表重插」，等于把商品表整个
+// 交给这个文件。批量录入上线后商家能在小程序里自己加商品，那些商品还没进门店系统，
+// 一旦文件更新就会被整表删掉 —— 所以改成按条码 upsert：
+//   · 文件里有、库里也有（条码相同）→ 更新 名称/分类/单位/售价/库存/状态
+//   · 文件里有、库里没有            → 新增
+//   · 库里有、文件里没有            → 一律不动（商家自建商品由此保住）
+// 同时不再 DELETE cart、不再清 sqlite_sequence：商品不再被删，购物车与自增 id 无须重置。
+// 附带修掉两个副作用：① 商品图不再需要在删表前按条码快照回填（行还在，image 原样保留）；
+// ② goods.sales（销量）不再被重导清零（此前整表重插会写成默认 0）。
+// 已知取舍：门店在文件里删掉的商品不会跟着删（保留未动），只在日志里报出条数，需要时人工处理。
 function importStoreGoods(db) {
   const file = path.join(__dirname, 'store_goods.json')
   const meta = db.prepare("SELECT value FROM meta WHERE key='store_goods_import_hash'").get()
@@ -563,51 +584,56 @@ function importStoreGoods(db) {
   const hash = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
   if (meta && meta.value === hash) return
 
-  // 记录本次重导前已存在的商品图（按条码），重建后回填，避免清空已填的图片。
-  // 分工：此处只负责"保留商家已上传/已配的那批图"（按条码，DELETE 前快照，重建后贴回）。
-  // "给 image 为空的商品回填同名种子图"由启动兜底 applySeedImages() 统一负责（见其注释），
-  // 它只在 image 为空时补，绝不覆盖此处贴回的上传图 —— 两者不冲突、职责互补。
-  let imgByBc = {}
-  try {
-    const prev = db.prepare('SELECT barcode, image FROM goods WHERE image <> \'\'').all()
-    for (const p of prev) if (p.barcode) imgByBc[String(p.barcode).trim()] = p.image || ''
-  } catch (e) { imgByBc = {} }
-
+  // 按条码定位既有商品。空条码的商品无法用条码区分，退化为按名称匹配，
+  // 否则文件里每出现一次无条码商品、每轮导入就多插一条重复。
+  const selByBc = db.prepare("SELECT id FROM goods WHERE barcode=? AND TRIM(barcode)<>''")
+  const selByName = db.prepare("SELECT id FROM goods WHERE name=? AND (barcode IS NULL OR TRIM(barcode)='')")
+  // 只更新文件能给出权威值的列；image / original_price / description / sales 不在其中，原样保留。
+  const upd = db.prepare('UPDATE goods SET name=?, price=?, category=?, stock=?, status=?, unit=? WHERE id=?')
   const ins = db.prepare('INSERT INTO goods (name, price, original_price, image, category, stock, status, description, barcode, unit) VALUES (?,?,?,?,?,?,?,?,?,?)')
+
+  const before = Number(db.prepare('SELECT COUNT(*) AS c FROM goods').get().c || 0)
+  let created = 0, updated = 0, skipped = 0
   db.exec('BEGIN')
   try {
-    db.exec('DELETE FROM goods')
-    db.exec('DELETE FROM cart')
-    db.exec("DELETE FROM sqlite_sequence WHERE name='goods'")
     for (const r of rows) {
+      const name = String(r.name || '').trim()
+      if (!name) { skipped++; continue }   // 无名称的行不是商品，跳过但不中断整批
       const bc = String(r.barcode || '').trim()
-      const img = String(r.image || '').trim() || (imgByBc[bc] || '')
-      ins.run(
-        String(r.name || '').trim(),
-        Number(r.price || 0),
-        Number(r.original_price || 0),
-        img,
-        String(r.category || '其他').trim(),
-        Number(r.stock) >= 0 ? Number(r.stock) : 999,
-        r.status !== undefined ? Number(r.status) : 1,
-        String(r.description || '').trim(),
-        bc,
-        String(r.unit || '').trim()
-      )
+      const price = Number(r.price || 0)
+      const category = String(r.category || '其他').trim()
+      const stock = Number(r.stock) >= 0 ? Number(r.stock) : 999
+      const status = r.status !== undefined ? Number(r.status) : 1
+      const unit = String(r.unit || '').trim()
+      const cur = bc ? selByBc.get(bc) : selByName.get(name)
+      if (cur) {
+        upd.run(name, price, category, stock, status, unit, cur.id)
+        updated++
+      } else {
+        ins.run(name, price, Number(r.original_price || 0), String(r.image || '').trim(),
+          category, stock, status, String(r.description || '').trim(), bc, unit)
+        created++
+      }
     }
     db.prepare("INSERT INTO meta (key, value) VALUES ('store_goods_import_hash', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(hash)
     db.exec('COMMIT')
-    console.log(`[db] 门店商品已导入（替换）：${rows.length} 个商品`)
+    // 被更新的就是「文件覆盖到的既有商品」，其余既有商品都是文件里没有的 → 保留未动
+    const kept = Math.max(0, before - updated)
+    console.log(`[db] 门店商品已同步（按条码）：文件 ${rows.length} 行 → 新增 ${created}、更新 ${updated}` +
+      (skipped ? `、跳过 ${skipped}（缺名称）` : '') +
+      `；库内共 ${before + created} 条，其中 ${kept} 条不在本次文件里（保留未动）`)
   } catch (e) {
     db.exec('ROLLBACK')
     throw e
   }
 }
 
-// 商品种子图回填（幂等）：门店商品重导（importStoreGoods）会用 store_goods.json 整体替换商品表，
-// 而该文件不含图片列，会把所有 goods.image 清空，导致用户端/商家端商品图全部空白。
-// 这里在每次启动后，为「图片为空但有同名种子图」的商品填上 /store-img/<文件名>，其余（无种子图）保持为空、留待商家后台自行上传。
-// 幂等：只更新 image 为空的商品；已有图片（商家后台上传过 /uploads/...）绝不覆盖。
+// 商品种子图回填（幂等）：门店商品数据源自 Excel，不含图片列，所以同步进来的商品 image 是空的，
+// 用户端/商家端商品图会空白。这里在每次启动后，为「图片为空但有同名种子图」的商品填上
+// /store-img/<文件名>，其余（无种子图）保持为空、留待商家后台自行上传。
+// 幂等：只更新 image 为空的商品；已有图片（商家后台上传过 /uploads/...、或上一轮填过的）绝不覆盖。
+// 2026-10-06 起 importStoreGoods 已改为按条码更新、不再删行，商家上传的图不会再被清掉，
+// 本函数只负责「补上还缺图的商品」，与导入不再有先后依赖。
 function applySeedImages(db) {
   const dir = path.join(__dirname, 'seed_images')
   let files = []

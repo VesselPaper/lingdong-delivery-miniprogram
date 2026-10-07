@@ -15,6 +15,12 @@ module.exports = {
     return store.prepare(sql).all(...args)
   },
   findById: (store, id) => store.prepare('SELECT * FROM goods WHERE id=?').get(Number(id)),
+  // 按条码精确查（扫码录入用）。空条码不参与查询：否则所有「没填条码的商品」会互相匹配上。
+  findByBarcode: (store, code) => {
+    const c = String(code === undefined || code === null ? '' : code).trim()
+    if (!c) return undefined
+    return store.prepare('SELECT * FROM goods WHERE barcode=?').get(c)
+  },
 
   // ---------- goods（商家管理） ----------
   merchantList: (store) => store.prepare('SELECT * FROM goods ORDER BY id DESC').all(),

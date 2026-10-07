@@ -6,12 +6,17 @@ const api = {
   orders: '/merchant/orders',
   orderDetail: '/merchant/order/detail',
   orderConfirm: '/merchant/order/confirm',
+  // 删除订单（店主专属）：2026-10-07 从管理员网页迁来
+  orderDelete: '/merchant/order/delete',
   deliveryTestComplete: '/merchant/delivery/test-complete',
   goods: '/merchant/goods',
   goodsUpdate: '/merchant/goods',
   goodsStatus: '/merchant/goods/status',
   goodsCategories: '/merchant/goods/categories',
   goodsStock: '/merchant/goods/stock',
+  // 批量录入：一次提交多条新增 / 按条码查商品（扫码识别用）
+  goodsBatch: '/merchant/goods/batch',
+  goodsByBarcode: '/merchant/goods/by-barcode',
   upload: '/merchant/upload',
   deliveryMonitor: '/merchant/delivery/monitor',
   robots: '/merchant/robots',

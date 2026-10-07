@@ -1,0 +1,88 @@
+<view class="bp">
+  <!-- 输入方式：粘贴 / 扫码 -->
+  <view class="seg">
+    <view class="seg-item {{tab === 'paste' ? 'on' : ''}}" bindtap="onTab" data-tab="paste">从表格粘贴</view>
+    <view class="seg-item {{tab === 'scan' ? 'on' : ''}}" bindtap="onTab" data-tab="scan">扫码录入</view>
+  </view>
+
+  <view class="panel" wx:if="{{tab === 'paste'}}">
+    <view class="tip">
+      在 Excel / 表格里选中一片区域复制，再粘贴到下面的框里。列的先后顺序随便，
+      只要第一行有「名称、条码、分类、单位、售价、库存」这样的表头就能自动对上；
+      没有表头就按这个顺序认：名称 → 条码 → 分类 → 单位 → 售价 → 库存。
+    </view>
+    <textarea class="paste" placeholder="在这里长按粘贴" placeholder-class="ph" value="{{pasteText}}" bindinput="onPasteInput" auto-height />
+    <view class="btn-main" bindtap="doParse">解析成商品列表</view>
+  </view>
+
+  <view class="panel" wx:if="{{tab === 'scan'}}">
+    <view class="tip">
+      对着商品包装上的条码连着扫，扫一个加一行。库里已经录过的商品会自动带出名称、分类、单位和售价；
+      没录过的只带出条码，名称和售价要手动补。
+    </view>
+    <view class="scan-btn" bindtap="scanOne">
+      <t-icon name="scan" size="64rpx" color="#3078C0" />
+      <view class="scan-text">扫商品条码</view>
+    </view>
+  </view>
+
+  <!-- 待提交列表 -->
+  <view class="list-head">
+    <view class="lh-left">
+      待录入 <text class="num">{{rows.length}}</text> 条
+      <text class="bad-num" wx:if="{{badCount}}">· {{badCount}} 条待修正</text>
+    </view>
+    <view class="lh-right" wx:if="{{rows.length}}" bindtap="clearAll">清空</view>
+  </view>
+
+  <view class="summary" wx:if="{{summary}}">
+    上次提交：新增 {{summary.created}}、更新 {{summary.updated}}、跳过 {{summary.skipped}}、失败 {{summary.failed}}
+  </view>
+
+  <view class="row" wx:for="{{rows}}" wx:key="line">
+    <view class="row-top">
+      <view class="row-line">第 {{item.line}} 行</view>
+      <view class="row-del" bindtap="delRow" data-i="{{index}}">删除</view>
+    </view>
+    <input class="inp full" placeholder="商品名称（必填）" placeholder-class="ph" value="{{item.name}}"
+      data-i="{{index}}" data-field="name" bindinput="onRowField" bindblur="onRowBlur" />
+    <view class="grid2">
+      <input class="inp" placeholder="条码" placeholder-class="ph" value="{{item.barcode}}"
+        data-i="{{index}}" data-field="barcode" bindinput="onRowField" bindblur="onRowBlur" />
+      <input class="inp" type="digit" placeholder="售价（必填）" placeholder-class="ph" value="{{item.price}}"
+        data-i="{{index}}" data-field="price" bindinput="onRowField" bindblur="onRowBlur" />
+    </view>
+    <view class="grid3">
+      <input class="inp" placeholder="分类" placeholder-class="ph" value="{{item.category}}"
+        data-i="{{index}}" data-field="category" bindinput="onRowField" bindblur="onRowBlur" />
+      <input class="inp" placeholder="单位" placeholder-class="ph" value="{{item.unit}}"
+        data-i="{{index}}" data-field="unit" bindinput="onRowField" bindblur="onRowBlur" />
+      <input class="inp" type="number" placeholder="库存" placeholder-class="ph" value="{{item.stock}}"
+        data-i="{{index}}" data-field="stock" bindinput="onRowField" bindblur="onRowBlur" />
+    </view>
+    <view class="bad" wx:if="{{item.bad}}">{{item.bad}}</view>
+    <view class="res {{item.state}}" wx:elif="{{item.resultText}}">{{item.resultText}}</view>
+  </view>
+
+  <view class="empty" wx:if="{{!rows.length}}">还没有商品，先用上面任一种方式添加</view>
+
+  <!-- 提交区 -->
+  <view class="foot" wx:if="{{rows.length}}">
+    <view class="foot-row">
+      <view class="foot-label">条码已存在时</view>
+      <view class="foot-switch">
+        <text class="{{ifExists === 'skip' ? 'on' : ''}}">跳过</text>
+        <switch checked="{{ifExists === 'update'}}" color="#3078C0" bindchange="onIfExists" />
+        <text class="{{ifExists === 'update' ? 'on' : ''}}">更新</text>
+      </view>
+    </view>
+    <view class="foot-row">
+      <input class="inp bulk" placeholder="统一分类（只填给还没填分类的行）" placeholder-class="ph"
+        value="{{bulkCategory}}" bindinput="onBulkCategory" />
+      <view class="mini-btn" bindtap="applyBulkCategory">填入</view>
+    </view>
+    <view class="btn-main {{submitting ? 'disabled' : ''}}" bindtap="submit">
+      {{submitting ? '提交中…' : '提交录入 ' + rows.length + ' 条'}}
+    </view>
+  </view>
+</view>

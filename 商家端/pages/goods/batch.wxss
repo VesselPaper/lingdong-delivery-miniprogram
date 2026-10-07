@@ -1,0 +1,282 @@
+.bp {
+  padding: 0 24rpx 200rpx;
+}
+
+/* 输入方式切换 */
+.seg {
+  display: flex;
+  background: #F3F4F6;
+  border-radius: 12rpx;
+  padding: 6rpx;
+  margin: 20rpx 0;
+}
+
+.seg-item {
+  flex: 1;
+  text-align: center;
+  font-size: 28rpx;
+  color: #666666;
+  padding: 16rpx 0;
+  border-radius: 10rpx;
+}
+
+.seg-item.on {
+  background: #FFFFFF;
+  color: #3078C0;
+  font-weight: 500;
+}
+
+/* 说明与输入面板 */
+.panel {
+  background: #FFFFFF;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+}
+
+.tip {
+  font-size: 24rpx;
+  color: #888888;
+  line-height: 1.7;
+  margin-bottom: 20rpx;
+}
+
+.paste {
+  width: 100%;
+  min-height: 220rpx;
+  background: #F8F9FA;
+  border-radius: 12rpx;
+  padding: 20rpx;
+  font-size: 26rpx;
+  color: #111111;
+  box-sizing: border-box;
+}
+
+.ph {
+  color: #BBBBBB;
+}
+
+/* 扫码区 */
+.scan-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60rpx 0;
+  background: #F2F7FC;
+  border-radius: 12rpx;
+}
+
+.scan-text {
+  margin-top: 16rpx;
+  font-size: 28rpx;
+  color: #3078C0;
+}
+
+/* 主按钮 */
+.btn-main {
+  margin-top: 24rpx;
+  background: #3078C0;
+  color: #FFFFFF;
+  font-size: 30rpx;
+  text-align: center;
+  padding: 24rpx 0;
+  border-radius: 12rpx;
+}
+
+.btn-main.disabled {
+  opacity: 0.6;
+}
+
+/* 列表头 */
+.list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12rpx 4rpx;
+}
+
+.lh-left {
+  font-size: 28rpx;
+  color: #111111;
+}
+
+.lh-left .num {
+  color: #3078C0;
+  font-weight: 600;
+}
+
+.lh-left .bad-num {
+  font-size: 24rpx;
+  color: #E64340;
+}
+
+.lh-right {
+  font-size: 26rpx;
+  color: #999999;
+}
+
+.summary {
+  font-size: 24rpx;
+  color: #666666;
+  background: #F8F9FA;
+  border-radius: 10rpx;
+  padding: 14rpx 20rpx;
+  margin-bottom: 12rpx;
+}
+
+/* 商品行 */
+.row {
+  background: #FFFFFF;
+  border-radius: 16rpx;
+  padding: 20rpx;
+  margin-bottom: 16rpx;
+}
+
+.row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+}
+
+.row-line {
+  font-size: 24rpx;
+  color: #999999;
+}
+
+.row-del {
+  font-size: 24rpx;
+  color: #E64340;
+  padding: 4rpx 8rpx;
+}
+
+.inp {
+  background: #F8F9FA;
+  border-radius: 10rpx;
+  padding: 16rpx 18rpx;
+  font-size: 27rpx;
+  color: #111111;
+  box-sizing: border-box;
+}
+
+.inp.full {
+  width: 100%;
+}
+
+.grid2 {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 12rpx;
+}
+
+.grid2 .inp {
+  flex: 1;
+  min-width: 0;
+}
+
+.grid3 {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 12rpx;
+}
+
+.grid3 .inp {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 行内提示：红色=要改，其余=服务端结果 */
+.bad {
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #E64340;
+}
+
+.res {
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #666666;
+}
+
+.res.ok {
+  color: #2BA471;
+}
+
+.res.upd {
+  color: #3078C0;
+}
+
+.res.skip {
+  color: #D88600;
+}
+
+.res.fail {
+  color: #E64340;
+}
+
+.res.found {
+  color: #3078C0;
+}
+
+.res.new {
+  color: #D88600;
+}
+
+.empty {
+  text-align: center;
+  font-size: 26rpx;
+  color: #999999;
+  padding: 60rpx 0;
+}
+
+/* 底部提交区 */
+.foot {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #FFFFFF;
+  padding: 20rpx 24rpx calc(20rpx + env(safe-area-inset-bottom));
+  box-shadow: 0 -2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.foot-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.foot-label {
+  font-size: 26rpx;
+  color: #666666;
+  width: 200rpx;
+}
+
+.foot-switch {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.foot-switch text {
+  font-size: 26rpx;
+  color: #999999;
+}
+
+.foot-switch text.on {
+  color: #3078C0;
+}
+
+.inp.bulk {
+  flex: 1;
+  margin-right: 12rpx;
+}
+
+.mini-btn {
+  font-size: 26rpx;
+  color: #3078C0;
+  padding: 16rpx 24rpx;
+  background: #F2F7FC;
+  border-radius: 10rpx;
+}

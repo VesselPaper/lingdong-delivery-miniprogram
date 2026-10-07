@@ -53,6 +53,17 @@
   color: #3078C0;
 }
 
+/* 统计卡右上角两个入口：批量录入（次要）+ 新增商品（主要） */
+.head-btns {
+  display: flex;
+  align-items: center;
+  gap: 28rpx;
+}
+
+.add-btn.ghost {
+  color: #666666;
+}
+
 .stat-grid {
   display: flex;
   margin-top: 32rpx;

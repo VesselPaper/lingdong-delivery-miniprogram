@@ -23,6 +23,7 @@
     "pages/device/robotQr",
     "pages/goods/list",
     "pages/goods/edit",
+    "pages/goods/batch",
     "pages/activity/list",
     "pages/activity/edit",
     "pages/delivery/monitor",
