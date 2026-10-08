@@ -21,10 +21,18 @@ window.Map3DFlat = (function () {
   var started = false, ready = false
   var calib = null, groundImg = null, groundReady = false
   var view = null
-  var opts = { tilt: 54, zScale: 1.65, labels: true, paths: true, roads: true }
+  // carScale：车辆显示放大倍数（真车 1.3m 在校园尺度下只有几个像素；与 scene3d.buildCar 同一取舍）
+  var opts = {
+    tilt: 54, zScale: 1.65, labels: true, paths: true, roads: true,
+    carScale: (function () {
+      var mt = /[?&]carscale=([0-9.]+)/.exec(location.search)
+      var v = mt ? Number(mt[1]) : 0
+      return v > 0 ? v : 3.0
+    })()
+  }
   var viewT = { zoom: 1, panX: 0, panY: 0 }
   var staticCvs = null, staticCtx = null, staticDirty = true
-  var live = { bbox: null, robots: [], routes: [], landmarks: [] }
+  var live = { bbox: null, meta: null, robots: [], routes: [], landmarks: [] }
   var robotAnim = {}
   var demo = null
   var errEl = null, tipEl = null
@@ -279,21 +287,29 @@ window.Map3DFlat = (function () {
   }
 
   /* ---------------- 动态层（车辆 / 实时路线 / 呼吸点） ---------------- */
-  // 把一批"平台坐标的机器人"并进 robotAnim（每帧插值 → 连续移动）
+  // 平台世界坐标(米) → 场景像素：① robotpose 原始像素(px/py) ② meta 权威映射 ③ bbox 拉伸兜底
+  function robotToRadar(r) {
+    if (r.px != null && r.py != null && isFinite(num(r.px)) && isFinite(num(r.py))) return [num(r.px), num(r.py)]
+    if (r.x == null || r.y == null) return null
+    var conv = core.makePlatformToRadar(live.bbox, (calib && calib.radar_full_size[0]) || 0, (calib && calib.radar_full_size[1]) || 0, live.meta)
+    return conv ? conv(num(r.x), num(r.y)) : null
+  }
+  // 把一批机器人并进 robotAnim（目标点已是**场景像素**，每帧插值 → 连续移动）
   function ingestRobots(list) {
     var seen = {}
     for (var i = 0; i < (list || []).length; i++) {
       var r = list[i]
       if (!r || !r.device_sn) continue
-      if (r.x == null || r.y == null || !isFinite(num(r.x)) || !isFinite(num(r.y))) continue
+      var rp = robotToRadar(r)
+      if (!rp || !isFinite(rp[0]) || !isFinite(rp[1])) continue
       var sn = r.device_sn
       seen[sn] = 1
       var a = robotAnim[sn]
       if (a) {
-        a.tx = num(r.x); a.ty = num(r.y); a.tt = num(r.theta); a.on = true
+        a.tx = rp[0]; a.ty = rp[1]; a.tt = num(r.theta); a.on = true
         if (r.text) a.text = r.text
       } else {
-        robotAnim[sn] = { x: num(r.x), y: num(r.y), th: num(r.theta), tx: num(r.x), ty: num(r.y), tt: num(r.theta), on: true, text: r.text || '' }
+        robotAnim[sn] = { x: rp[0], y: rp[1], th: num(r.theta), tx: rp[0], ty: rp[1], tt: num(r.theta), on: true, text: r.text || '' }
       }
     }
     for (var k in robotAnim) if (!seen[k]) robotAnim[k].on = false
@@ -310,12 +326,13 @@ window.Map3DFlat = (function () {
     if (!started) return
     if (map) {
       live.bbox = map.bbox || null
+      live.meta = map.meta || null
       live.robots = map.robots || []
       live.routes = map.routes || []
       live.landmarks = map.landmarks || []
       ingestRobots(live.robots)
     } else if (!live.robots.length) {
-      live.bbox = null; live.routes = []; live.landmarks = []
+      live.bbox = null; live.meta = null; live.routes = []; live.landmarks = []
     }
   }
 
@@ -374,7 +391,7 @@ window.Map3DFlat = (function () {
 
     // 动态：实时路线（流动虚线）
     if (live.bbox && live.routes.length) {
-      var p2r = core.makePlatformToRadar(live.bbox, calib.radar_full_size[0], calib.radar_full_size[1])
+      var p2r = core.makePlatformToRadar(live.bbox, calib.radar_full_size[0], calib.radar_full_size[1], live.meta)
       if (p2r) {
         ctx.lineCap = 'round'
         for (var ri = 0; ri < live.routes.length; ri++) {
@@ -415,16 +432,10 @@ window.Map3DFlat = (function () {
       if (!demo) demo = initDemo()
       cars = demoCarsPos(t)
     }
-    // 平台坐标 -> 雷达像素
-    var conv = (live.bbox && anyLive) ? core.makePlatformToRadar(live.bbox, calib.radar_full_size[0], calib.radar_full_size[1]) : null
+    // 车辆坐标已是**场景像素**（ingestRobots 阶段换算完毕），这里直接画
     for (var ci = 0; ci < cars.length; ci++) {
       var c = cars[ci]
-      var wx = c.x, wy = c.y
-      if (c.live) {
-        if (!conv) continue          // 缺少平台 bbox 时无法换算，宁可不画也不画错位置
-        var q = conv(c.x, c.y); wx = q[0]; wy = q[1]
-      }
-      drawCar(ctx, view, wx, wy, c.theta, c.live)
+      drawCar(ctx, view, c.x, c.y, c.theta, c.live)
     }
 
     // 配送点呼吸（静态层之上的轻动效）
@@ -446,7 +457,7 @@ window.Map3DFlat = (function () {
   }
 
   function drawCar(g, v, x, y, theta, live) {
-    var geo = core.carGeometry(v, x, y, theta)
+    var geo = core.carGeometry(v, x, y, theta, null, opts.carScale)
     var base = geo.base, top = geo.top
     var cx = (top[0][0] + top[2][0]) / 2, cy = (top[0][1] + top[2][1]) / 2
     // 地面阴影

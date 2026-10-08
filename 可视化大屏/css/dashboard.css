@@ -109,7 +109,7 @@ main.grid{
 }
 .panel.grow{ flex:1; min-height:0; }
 .panel[hidden]{ display:none !important; }
-.panel-title,.panelHead h2{
+.panel-title{
   flex:none; font-size:17px; font-weight:700; color:#bfefff; letter-spacing:2px;
   border-left:3px solid var(--cyan); padding-left:10px; margin-bottom:10px;
   text-shadow:0 0 10px rgba(55,224,255,.55);
@@ -211,39 +211,51 @@ main.grid{
 @keyframes baseSpin{ from{ transform:rotateX(74deg) rotate(0deg);} to{ transform:rotateX(74deg) rotate(360deg);} }
 @keyframes pulse{ 0%,100%{ opacity:.5;} 50%{ opacity:1;} }
 
-/* ===== 中栏：地图卡片（结构与渲染逻辑不动，仅换肤） ===== */
+/* ===== 中栏：地图卡片头部（两行：①标题+图例+提示 ②控制工具栏） =====
+   关键：图例项/按钮/提示一律 white-space:nowrap + flex:none —— 否则面板一挤，
+   文字会按「一个字一行」竖向换行（"楼体透明"竖成 4 行），这正是之前版式混乱的原因。 */
 .mapCard{ position:relative; background:linear-gradient(160deg, rgba(10,26,52,.92), rgba(5,13,28,.96)); }
-.panelHead{
-  flex:none; display:flex; align-items:center; gap:14px;
+.mapHead{
+  flex:none; display:flex; flex-direction:column; gap:8px;
   border-left:3px solid var(--cyan); padding-left:10px; margin-bottom:10px;
 }
-.panelHead h2{ border-left:none; padding-left:0; margin-bottom:0; }
-.legend{ display:flex; gap:16px; font-size:12.5px; color:var(--txt-dim); margin-left:6px; }
-.legend .lg{ width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:5px; vertical-align:-1px; }
-.lgRoad{ background:var(--cyan); box-shadow:0 0 6px rgba(55,224,255,.8); }
+.mapHeadTop{ display:flex; align-items:center; gap:16px; min-width:0; }
+.mapHeadTop h2{
+  flex:none; font-size:17px; font-weight:700; color:#bfefff; letter-spacing:2px; white-space:nowrap;
+  text-shadow:0 0 10px rgba(55,224,255,.55);
+}
+.legend{ flex:none; display:flex; align-items:center; gap:14px; font-size:12.5px; color:var(--txt-dim); }
+.legend span{ flex:none; display:inline-flex; align-items:center; white-space:nowrap; }
+.legend .lg{ width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:5px; flex:none; }
+/* 图例配色与 3D 场景实际元素一致：楼栋(玻璃蓝) / 配送点(橙) / 无人车(白) / 雷达路线(青绿) / 校园道路(灰) */
+.lgBld{ background:#8fb6dd; box-shadow:0 0 6px rgba(143,182,221,.85); }
 .lgLm{ background:var(--orange); box-shadow:0 0 6px rgba(250,140,22,.8); }
-.lgCar{ background:var(--blue); box-shadow:0 0 6px rgba(22,119,255,.8); }
-.lgRoute{ background:var(--green); box-shadow:0 0 6px rgba(82,196,26,.8); }
-.lgPath{ background:#0b9fe4; box-shadow:0 0 6px rgba(11,159,228,.9); }
-.lgBld{ background:#9cbde4; box-shadow:0 0 6px rgba(156,189,228,.85); }
+.lgCar{ background:#eafcff; box-shadow:0 0 7px rgba(234,252,255,.95); }
+.lgPath{ background:#61f2db; box-shadow:0 0 7px rgba(97,242,219,.9); }
+.lgRoad{ background:#b8c9d8; box-shadow:0 0 6px rgba(184,201,216,.85); }
 
-/* ===== 立体地图控件 ===== */
-.map3dCtl{ display:flex; align-items:center; gap:10px; font-size:12px; color:var(--txt-dim); }
-.map3dCtl label{ display:flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap; }
+/* ===== 立体地图控件（第二行工具栏） ===== */
+.map3dCtl{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; color:var(--txt-dim); }
+.map3dCtl label{ flex:none; display:inline-flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap; }
 .map3dCtl input[type=range]{ width:70px; height:14px; accent-color:#37e0ff; cursor:pointer; }
 .map3dCtl button{
+  flex:none; white-space:nowrap;
   font-size:12px; color:var(--txt-faint); border:1px solid rgba(55,224,255,.28);
   background:rgba(55,224,255,.05); border-radius:4px; padding:1px 9px; cursor:pointer;
 }
 .map3dCtl button.on{ color:var(--cyan2); border-color:rgba(55,224,255,.55); background:rgba(55,224,255,.14); }
 .map3dCtl button:hover{ color:var(--cyan3); }
+/* 工具栏分组竖线：把「视角滑块」与「图层开关」在视觉上分开 */
+.ctlSep{ flex:none; width:1px; height:16px; background:rgba(55,224,255,.22); margin:0 3px; }
 .mapReset{
+  flex:none; white-space:nowrap;
   font-size:12px; color:var(--cyan2); border:1px solid rgba(55,224,255,.4);
   background:rgba(55,224,255,.08); border-radius:4px; padding:1px 12px; cursor:pointer;
 }
 .mapReset:hover{ color:var(--cyan3); box-shadow:0 0 8px rgba(55,224,255,.4); }
 .mapTip{
-  margin-left:auto; font-size:12px; color:var(--txt-faint); letter-spacing:1px;
+  margin-left:auto; flex:none; white-space:nowrap;
+  font-size:12px; color:var(--txt-faint); letter-spacing:1px;
   border:1px dashed rgba(55,224,255,.25); border-radius:4px; padding:1px 10px;
   background:rgba(7,20,44,.5);
 }

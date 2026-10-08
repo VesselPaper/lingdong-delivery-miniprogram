@@ -79,31 +79,117 @@
 
     <!-- ==================== 中栏：实时雷达地图（立体渲染 Map3D） ==================== -->
     <section class="panel mapCard">
-      <div class="panelHead">
-        <h2>校园配送地图</h2>
-        <div class="legend">
-          <span><i class="lg lgPath"></i>雷达路线</span>
-          <span><i class="lg lgBld"></i>楼栋</span>
-          <span><i class="lg lgLm"></i>配送点</span>
-          <span><i class="lg lgCar"></i>无人车</span>
+      <div class="mapHead">
+        <!-- 第一行：标题 + 图例 + 状态提示（互不挤压，一律不换行） -->
+        <div class="mapHeadTop">
+          <h2>校园配送地图</h2>
+          <div class="legend">
+            <span><i class="lg lgBld"></i>楼栋</span>
+            <span><i class="lg lgLm"></i>配送点</span>
+            <span><i class="lg lgCar"></i>无人车</span>
+            <span><i class="lg lgPath"></i>雷达路线</span>
+            <span><i class="lg lgRoad"></i>校园道路</span>
+          </div>
+          <span class="mapTip" id="mapTip"></span>
         </div>
+        <!-- 第二行：控制工具栏（滑块 + 开关按钮，整块不换行、不压缩） -->
         <div class="map3dCtl" id="map3dCtl">
-          <label title="俯视角（近垂直俯视最容易看清路网与车辆）">俯仰<input type="range" id="m3Tilt" min="3" max="88" value="82"></label>
-          <label title="楼栋高度夸张倍数（压低可减少遮挡）">高度<input type="range" id="m3Height" min="20" max="200" value="58"></label>
+          <label class="ctlRange" title="俯视角（越小越能看出楼体高度，越大越接近垂直俯视）">俯仰<input type="range" id="m3Tilt" min="3" max="88" value="65"></label>
+          <label class="ctlRange" title="楼栋高度夸张倍数（压低可减少遮挡）">高度<input type="range" id="m3Height" min="20" max="200" value="58"></label>
+          <label class="ctlRange" title="立体 3D 车模的显示倍数（越小贴近真实比例，越大越醒目）">车模<input type="range" id="m3Car" min="20" max="150" value="90"></label>
+          <span class="ctlSep"></span>
           <button id="m3Spin" title="自动环绕旋转">环绕</button>
           <button id="m3Follow" title="镜头跟随第一台车">跟随</button>
           <button id="m3Fade" title="楼体半透明：俯视时看清被楼压住的道路（默认关闭，楼体实心可见）">楼体透明</button>
           <button id="m3Path" title="测绘出的可通行骨架线（青色荧光，默认关闭）">测绘线</button>
           <button id="m3Route" title="橙色规划/演示路线（默认关闭）">规划路线</button>
           <button id="m3Road" class="on" title="校园道路（OSM 参照，灰色）">校园道路</button>
+          <button id="m3Ground" title="雷达底图：机器人激光测绘的**可通行区（有真实路宽）**，默认关闭；调试对齐时打开可对照">雷达图</button>
           <button id="m3Label" class="on" title="楼栋名称">标注</button>
+          <button id="m3Align" title="3D图层重构：把灰色OSM路网/楼体逐栋逐路校补到雷达激光图真实位置（小车吸附到建模道路上）">重构</button>
+          <span class="ctlSep"></span>
+          <button id="simToggle" class="on" title="虚拟测试车（后端接口层模拟、不参与真实派车）：运行时开/关整批">虚拟车</button>
+          <button id="simStates" title="手动指定某台虚拟车状态（充电/等待/配送/上货/待取货/返回）">手动</button>
+          <button class="mapReset" id="mapReset" hidden>回到校园</button>
         </div>
-        <button class="mapReset" id="mapReset" hidden>回到校园</button>
-        <span class="mapTip" id="mapTip"></span>
       </div>
       <div class="mapStage">
         <div class="mapBox" id="mapBox"></div>
         <div class="mapMask" id="mapMask">地图数据加载中…</div>
+        <div id="alignPanel" hidden style="position:absolute;top:8px;right:8px;z-index:70;width:272px;background:rgba(10,25,41,.94);border:1px solid rgba(80,200,220,.5);color:#e6f7ff;border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.4;box-shadow:0 4px 18px rgba(0,0,0,.45)">
+          <div style="font-weight:700;margin-bottom:6px">3D 图层重构 · 灰色 OSM → 雷达图真实位置</div>
+          <div id="alignDelta" style="color:#7fe6ff;margin-bottom:6px">全域 → X 0.0m · Y 0.0m · 旋转 0.0°</div>
+          <div style="display:flex;gap:5px;margin-bottom:7px">
+            <button data-recon-mode="global" class="on" style="flex:1">全域</button>
+            <button data-recon-mode="bld" style="flex:1">楼栋</button>
+            <button data-recon-mode="road" style="flex:1">道路</button>
+          </div>
+          <div id="reconModeWrap" style="display:none;margin-bottom:7px">
+            <select id="reconSel" style="width:100%;background:#0e2233;color:#e6f7ff;border:1px solid rgba(80,200,220,.4);border-radius:6px;padding:3px 4px;font-size:12px"></select>
+            <div id="reconClickHint" style="margin-top:4px;color:#8fe6c0;font-size:11px">在地图上直接<b>点击</b>这条路 / 这栋楼即可选中（选中后金框高亮）</div>
+          </div>
+          <div id="reconEditBtns" style="display:none;gap:5px;margin-bottom:7px">
+            <button id="alRename" style="flex:1.2;background:#1d4e6b;border-color:#4fa8d9">改名</button>
+            <button id="alDel" style="flex:1;background:#7a2c1e;border-color:#e2664e">删除</button>
+            <button id="alAddObj" style="flex:1.3;background:#0e7f6f;border-color:#3fd7c2">新增</button>
+          </div>
+          <div id="reconAddHint" hidden style="margin-bottom:7px;color:#8fe6c0">新增模式：在地图上逐点画轮廓，完成后点「完成」或在图上双击（道路≥2点、楼栋≥3点）。</div>
+          <div id="reconDrawBtns" hidden style="display:flex;gap:5px;margin-bottom:7px">
+            <button id="alCancelDraw" style="flex:1">取消</button>
+            <button id="alFinishDraw" style="flex:1.4;background:#0e7f6f;border-color:#3fd7c2">完成(双击)</button>
+          </div>
+          <div id="reconDrawHint" hidden style="margin-bottom:7px;color:#8fe6c0">画线模式：左键逐点放点，完成后「完成」或在地图上双击收尾。</div>
+          <div style="display:flex;gap:5px;align-items:center;margin-bottom:8px">
+            <span>步长</span>
+            <button data-step="0.5" style="flex:1">0.5m</button>
+            <button data-step="1" class="on" style="flex:1">1m</button>
+            <button data-step="2" style="flex:1">2m</button>
+            <button data-step="5" style="flex:1">5m</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,44px);gap:4px;justify-content:center;margin-bottom:8px">
+            <span></span><button data-dx="0" data-dy="-1">▲</button><span></span>
+            <button data-dx="-1" data-dy="0">◀</button><span></span><button data-dx="1" data-dy="0">▶</button>
+            <span></span><button data-dx="0" data-dy="1">▼</button><span></span>
+          </div>
+          <div style="display:flex;gap:5px;margin-bottom:8px">
+            <button data-rot="0.5" style="flex:1">↺0.5°</button>
+            <button data-rot="-0.5" style="flex:1">↻0.5°</button>
+            <button data-sc-inc="0.01" style="flex:1">↗缩放+</button>
+            <button data-sc-inc="-0.01" style="flex:1">↘缩放-</button>
+          </div>
+          <div id="alHeightRow" style="display:none;gap:5px;align-items:center;margin-bottom:8px">
+            <span>楼高</span>
+            <button data-h-inc="-0.5" style="flex:1">−0.5m</button>
+            <b id="alHeightVal" style="flex:1.2;text-align:center;color:#ffd53d">—</b>
+            <button data-h-inc="0.5" style="flex:1">+0.5m</button>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button id="alReset" style="flex:1">重置</button>
+            <button id="alRead" style="flex:1">读取</button>
+            <button id="alSave" style="flex:1.4;background:#0e7f6f;border-color:#3fd7c2">保存</button>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:6px">
+            <button id="alUndo" style="flex:1">↶ 撤回</button>
+            <button id="alRedo" style="flex:1">↷ 还原</button>
+          </div>
+          <div id="alignNote" style="margin-top:7px;color:#9fbfcc">① 选「全域/楼栋/道路」→ ② 点地图选中（金色高亮）→ ③ 微调/改名/删除/新增 → 保存。灰色楼/路会移到雷达图正确位置；小车会吸附到该建模道路上。新增请切到「楼栋/道路」再点「新增」。微调/改名/删除/新增都可用「撤回/还原」回退重做；「重置」仅清空选中对象当前的偏移。</div>
+        </div>
+
+        <!-- 虚拟测试车 · 手动状态面板（隐藏，点击工具栏「手动」展开） -->
+        <div id="simPanel" hidden style="position:absolute;top:8px;left:8px;z-index:70;width:252px;background:rgba(10,25,41,.94);border:1px solid rgba(255,196,99,.5);color:#e6f7ff;border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.5;box-shadow:0 4px 18px rgba(0,0,0,.45)">
+          <div style="font-weight:700;margin-bottom:6px;color:#ffc463">虚拟测试车 · 手动状态</div>
+          <select id="simSn" style="width:100%;background:#0e2233;color:#e6f7ff;border:1px solid rgba(255,196,99,.4);border-radius:6px;padding:3px 4px;font-size:12px;margin-bottom:8px"></select>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px">
+            <button data-sim-state="charging">充电</button>
+            <button data-sim-state="standby">等待</button>
+            <button data-sim-state="delivering">配送</button>
+            <button data-sim-state="loading">上货</button>
+            <button data-sim-state="waitPickup">待取货</button>
+            <button data-sim-state="returning">返回</button>
+          </div>
+          <button data-sim-auto style="margin-top:8px;width:100%">↻ 恢复自动循环</button>
+          <div style="margin-top:6px;color:#9fbfcc;font-size:11px">点某态把「选中车」钉在该状态；关闭工具栏「虚拟车」开关后面板仍可改，但车不会出现在地图。</div>
+        </div>
       </div>
     </section>
 
@@ -153,13 +239,26 @@
 </div>
 
 <script src="vendor/leaflet.js"></script>
-<script src="assets/map-calibration.js?v=3d24"></script>
-<script src="js/scene3d.js?v=3d24"></script>
-<script src="js/map3d-core.js?v=3d24"></script>
-<script src="js/map3d.js?v=3d24"></script>
-<script>window.MAP_ASSET_VER='3d24'</script>
-<script src="js/map3d-gl.js?v=3d24"></script>
-<script src="js/map3d-entry.js?v=3d24"></script>
-<script src="js/dashboard.js?v=3d24"></script>
+<script src="assets/map-calibration.js?v=3d42"></script>
+<!-- Scene3D 分件：先加载独立工具层（math → triangulate → camera），再加载场景主体 -->
+<script src="js/scene3d/math.js?v=3d42"></script>
+<script src="js/scene3d/triangulate.js?v=3d42"></script>
+<script src="js/scene3d/camera.js?v=3d42"></script>
+<script src="js/scene3d.js?v=3d42"></script>
+<script src="js/map3d-core.js?v=3d42"></script>
+<script src="js/map3d.js?v=3d42"></script>
+<script>window.MAP_ASSET_VER='3d39'</script>
+<!-- 重构面板控制器（真3D渲染器的分层子模块，必须在 map3d-gl.js 之前加载、在 bind() 时注入能力） -->
+<script src="js/gl3d/recon.js?v=3d50"></script>
+<!-- WebGL 着色器定义（纯 GLSL，不依赖 gl 实例，可在 map3d-gl.js 之前加载） -->
+<script src="js/render/gl3d/shaders.js?v=3d42"></script>
+<script src="js/map3d-gl.js?v=3d59"></script>
+<script src="js/map3d-entry.js?v=3d42"></script>
+<!-- 大屏骨架（分件）：共享上下文 → 数据源 → 界面渲染 → 地图 → 编排者/启动 -->
+<script src="js/dashboard/shared.js?v=3d60"></script>
+<script src="js/dashboard/api.js?v=3d60"></script>
+<script src="js/dashboard/views-ui.js?v=3d42"></script>
+<script src="js/dashboard/map.js?v=3d42"></script>
+<script src="js/dashboard/main.js?v=3d60"></script>
 </body>
 </html>

@@ -121,7 +121,19 @@
 
   /* ---------------- 平台坐标 -> 雷达像素 ---------------- */
   // 平台 bbox 是其底图的自身约定（与 dashboard 原逻辑一致）；y 翻转
-  function makePlatformToRadar(bbox, radarW, radarH) {
+  /* ---------------- 平台坐标 -> 雷达像素 ----------------
+   * 与 scene3d.js 保持同一套约定：优先权威 ROS metadata 映射，bbox 拉伸仅作兜底。 */
+  function makePlatformToRadar(bbox, radarW, radarH, meta) {
+    var res = meta && num(meta.resolution)
+    if (res > 0 && meta.origin && meta.origin.length >= 2) {
+      var ox = num(meta.origin[0]), oy = num(meta.origin[1])
+      var mw = num(meta.width) || radarW, mh = num(meta.height) || radarH
+      var kw = mw / (radarW || mw)
+      var kh = mh / (radarH || mh)
+      return function (x, y) {
+        return [(num(x) - ox) / res / kw, (mh - (num(y) - oy) / res) / kh]
+      }
+    }
     if (!bbox) return null
     var minX = num(bbox.minX), maxX = num(bbox.maxX), minY = num(bbox.minY), maxY = num(bbox.maxY)
     if (maxX - minX < 1e-9 || maxY - minY < 1e-9) return null
@@ -243,7 +255,7 @@
     }
 
     // --- 实时数据（平台坐标 -> 雷达像素）---
-    var p2r = makePlatformToRadar(live && live.bbox, radarW, radarH)
+    var p2r = makePlatformToRadar(live && live.bbox, radarW, radarH, live && live.meta)
     if (p2r) {
       // 配送路线：逐段出线（按世界深度排序，能被楼栋正确遮挡）
       var routes = (live && live.routes) || []
@@ -327,9 +339,11 @@
   }
 
   // 车辆在屏幕空间的绘制点（浏览器与 Node 预览共用几何）
-  function carGeometry(v, x, y, theta, screen) {
+  // scale：显示放大倍数（真车在校园尺度下只有几个像素，见 scene3d.buildCar 注释）
+  function carGeometry(v, x, y, theta, screen, scale) {
     // 车体：底部长 1.15m、宽 0.72m 的长方体（世界像素）
-    var L = 1.15 * v.pxPerM, Wd = 0.72 * v.pxPerM, Hh = 0.62 * v.pxPerM * v.zScale
+    var SC = num(scale) > 0 ? num(scale) : 1
+    var L = 1.15 * v.pxPerM * SC, Wd = 0.72 * v.pxPerM * SC, Hh = 0.62 * v.pxPerM * SC * v.zScale
     var c = Math.cos(num(theta)), sn = Math.sin(num(theta))
     var out = { base: [], top: [] }
     var corners = [[-L / 2, -Wd / 2], [L / 2, -Wd / 2], [L / 2, Wd / 2], [-L / 2, Wd / 2]]

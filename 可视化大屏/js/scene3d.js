@@ -11,7 +11,8 @@
  * 风格：数字孪生全息风（深蓝底 + 发光网格 + 玻璃楼体 + 青色描边）。
  * 网格分两组：opaque（屋顶/路线/钉标，不透明）、glass（墙面，半透明，按楼排序绘制）。
  *
- * 依赖：无（自带 mat4 / 耳切三角化 / 线带生成）
+ * 依赖：数学/三角化/相机已抽到 scene3d/{math,triangulate,camera}.js 分件
+ *        （浏览器先加载三个分件再加载本文件；Node 自动 require）。
  * ============================================================ */
 (function (root, factory) {
   var api = factory()
@@ -20,167 +21,17 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict'
 
-  var D2R = Math.PI / 180
-  function num(v) { return typeof v === 'number' && isFinite(v) ? v : 0 }
-
-  /* ---------------- mat4 ----------------
-   * 存储约定：与 OpenGL 一致，列主序 —— 元素 (row r, col c) 位于 arr[c*4 + r]。
-   * xform4 按此约定把点变换为 M·p（列向量）。 */
-  var mat4 = {
-    identity: function () { return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] },
-    // out = a·b（列主序：(a·b)(r,c) = Σ a(r,k)b(k,c) → arr[c*4+r] = Σ a[k*4+r]*b[c*4+k]）
-    mul: function (a, b) {
-      var o = new Array(16)
-      for (var c = 0; c < 4; c++) {
-        for (var r = 0; r < 4; r++) {
-          o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3]
-        }
-      }
-      return o
-    },
-    perspective: function (fovyRad, aspect, near, far) {
-      var f = 1 / Math.tan(fovyRad / 2), nf = 1 / (near - far)
-      return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]
-    },
-    lookAt: function (eye, center, up) {
-      var z = norm(sub(eye, center))
-      var x = norm(cross(up, z))
-      var y = cross(z, x)
-      return [
-        x[0], y[0], z[0], 0,
-        x[1], y[1], z[1], 0,
-        x[2], y[2], z[2], 0,
-        -dot(x, eye), -dot(y, eye), -dot(z, eye), 1
-      ]
-    },
-    xform4: function (m, p) {
-      return [
-        m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
-        m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
-        m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
-        m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15]
-      ]
-    },
-    translation: function (x, y, z) { return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1] },
-    rotY: function (a) { var c = Math.cos(a), s = Math.sin(a); return [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1] },
-    rotZ: function (a) { var c = Math.cos(a), s = Math.sin(a); return [c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] },
-    scale: function (x, y, z) { return [x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1] }
-  }
-  function sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]] }
-  function dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] }
-  function cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]] }
-  function norm(v) { var L = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / L, v[1] / L, v[2] / L] }
-
-  /* ---------------- 主题（数字孪生全息风） ---------------- */
-  var THEME = {
-    bg: [0.039, 0.098, 0.161],            // #0A1929 深蓝背景
-    baseBoard: [0.031, 0.078, 0.133],     // 底板
-    gridMinor: [0.18, 0.55, 0.78],        // 网格线（着色器里再加亮）
-    groundTex: 'assets/radar-ground-dark.png',
-    // 玻璃楼体：墙面半透明、屋顶偏暗，靠青色描边勾出体积
-    wall: [0.42, 0.68, 0.82, 0.26],
-    roof: [0.13, 0.29, 0.41, 0.92],
-    dWall: [0.36, 0.78, 0.90, 0.30],
-    dRoof: [0.16, 0.42, 0.55, 0.94],
-    edge: [0.35, 0.88, 1.0],              // 建筑描边（青色）
-    edgeDeliver: [0.45, 0.98, 1.0],       // 配送点楼栋描边更亮
-    // 校园道路：必须是「亮灰」而不是「暗蓝」。
-    // 原因：道路正好压在雷达底图的浅色走廊上，暗蓝半透明与走廊几乎同色 → 路看起来是断续的；
-    // 改成亮灰后，无论压在哪一段底图上都读作一条完整连续的灰色路面（对齐高德参考图）。
-    roadMain: [0.74, 0.81, 0.88, 0.92],
-    roadRoad: [0.62, 0.69, 0.77, 0.86],
-    roadWalk: [0.44, 0.50, 0.58, 0.66],
-    pathHalo: [0.06, 0.45, 0.48, 0.45],   // 雷达路线：外发光
-    pathCore: [0.38, 0.95, 0.86, 0.95],   //   芯线（浅青绿，同参考图路网）
-    pin: [1.0, 0.55, 0.16, 1.0],          // 配送点柱（橙）
-    carBody: [0.94, 0.97, 1.0, 1.0],
-    carTop: [0.07, 0.15, 0.24, 1.0],
-    ring: [0.35, 0.92, 1.0, 0.80],        // 车底定位光环
-    beam: [0.32, 0.86, 1.0, 0.26],        // 车顶垂直光柱
-    route: [1.0, 0.55, 0.13, 1.0]         // 规划/实时路线（橙）
-  }
-
-  /* ---------------- 三角化（耳切，支持凹多边形） ---------------- */
-  function ringArea(ring) {
-    var a = 0
-    for (var i = 0; i < ring.length; i++) {
-      var p = ring[i], q = ring[(i + 1) % ring.length]
-      a += p[0] * q[1] - q[0] * p[1]
-    }
-    return a / 2
-  }
-  function pointInTri(p, a, b, c) {
-    var d1 = (p[0] - b[0]) * (a[1] - b[1]) - (a[0] - b[0]) * (p[1] - b[1])
-    var d2 = (p[0] - c[0]) * (b[1] - c[1]) - (b[0] - c[0]) * (p[1] - c[1])
-    var d3 = (p[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (p[1] - a[1])
-    var hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0)
-    var hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0)
-    return !(hasNeg && hasPos)
-  }
-  function triangulate(ring) {
-    var n = ring.length
-    var idx = []
-    if (n < 3) return idx
-    var list = []
-    for (var i = 0; i < n; i++) list.push(i)
-    if (ringArea(ring) < 0) list.reverse()
-    var guard = 0
-    while (list.length > 3 && guard++ < 5000) {
-      var earFound = false
-      for (var k = 0; k < list.length; k++) {
-        var i0 = list[(k - 1 + list.length) % list.length]
-        var i1 = list[k]
-        var i2 = list[(k + 1) % list.length]
-        var a = ring[i0], b = ring[i1], c = ring[i2]
-        var crossZ = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-        if (crossZ <= 1e-9) continue
-        var any = false
-        for (var m = 0; m < list.length; m++) {
-          var im = list[m]
-          if (im === i0 || im === i1 || im === i2) continue
-          if (pointInTri(ring[im], a, b, c)) { any = true; break }
-        }
-        if (any) continue
-        idx.push(i0, i1, i2)
-        list.splice(k, 1)
-        earFound = true
-        break
-      }
-      if (!earFound) break
-    }
-    if (list.length === 3) idx.push(list[0], list[1], list[2])
-    else if (idx.length === 0) { for (var f = 1; f + 1 < n; f++) idx.push(0, f, f + 1) }
-    return idx
-  }
-
-  /* ---------------- 网格累加器（顶点色带 alpha，可选弧长属性 aux） ---------------- */
-  function newMesh() { return { pos: [], nrm: [], col: [], aux: [] } }
-  function pushTri(m, a, b, c, col, forcedN, aux3) {
-    var n = forcedN
-    if (!n) {
-      n = norm(cross(sub(b, a), sub(c, a)))
-      if (!isFinite(n[0])) n = [0, 1, 0]
-    }
-    var al = col.length > 3 ? col[3] : 1
-    m.pos.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2])
-    for (var i = 0; i < 3; i++) {
-      m.nrm.push(n[0], n[1], n[2])
-      m.col.push(col[0], col[1], col[2], al)
-      if (m.aux) m.aux.push(aux3 ? num(aux3[i]) : 0)
-    }
-  }
-  function pushQuad(m, a, b, c, d, col, n, aux4) {
-    pushTri(m, a, b, c, col, n, aux4 ? [aux4[0], aux4[1], aux4[2]] : null)
-    pushTri(m, a, c, d, col, n, aux4 ? [aux4[0], aux4[2], aux4[3]] : null)
-  }
-  function finalize(m) {
-    return {
-      pos: new Float32Array(m.pos), nrm: new Float32Array(m.nrm), col: new Float32Array(m.col),
-      aux: m.aux && m.aux.length ? new Float32Array(m.aux) : null,
-      count: m.pos.length / 3
-    }
-  }
-  function linePts(list, a, b) { list.push(a[0], a[1], a[2], b[0], b[1], b[2]) }
+  // ---- 从 scene3d/ 分件注入（math / triangulate / camera）----
+  var P = (typeof window !== 'undefined' && window.Scene3DParts) ||
+    (typeof module !== 'undefined' && module.exports
+      ? { math: require('./scene3d/math'), triangulate: require('./scene3d/triangulate'), camera: require('./scene3d/camera') }
+      : {})
+  if (!P || !P.math) throw new Error('scene3d: 未先加载 scene3d/math.js 等分件')
+  var D2R = P.math.D2R, num = P.math.num, mat4 = P.math.mat4, THEME = P.math.THEME, LIGHT = P.math.LIGHT, AMBIENT = P.math.AMBIENT, DIFFUSE = P.math.DIFFUSE
+  var sub = P.math.sub, dot = P.math.dot, cross = P.math.cross, norm = P.math.norm, shade = P.math.shade, carMatrix = P.math.carMatrix
+  var ringArea = P.triangulate.ringArea, pointInTri = P.triangulate.pointInTri, triangulate = P.triangulate.triangulate
+  var newMesh = P.triangulate.newMesh, pushTri = P.triangulate.pushTri, pushQuad = P.triangulate.pushQuad, finalize = P.triangulate.finalize, linePts = P.triangulate.linePts
+  var principalAzimuth = P.camera.principalAzimuth, makePlatformToRadar = P.camera.makePlatformToRadar, fitCamera = P.camera.fitCamera, projectPoint = P.camera.projectPoint, makeCamera = P.camera.makeCamera, fitDistance = P.camera.fitDistance, boundsCorners = P.camera.boundsCorners
 
   /* ---------------- 3D 图元 ---------------- */
   function squareCap(m, p, w, y, col, aux) {
@@ -441,15 +292,7 @@
       [bounds.minX - pad, -22, bounds.minZ - pad], [bounds.maxX + pad, -22, bounds.minZ - pad],
       [bounds.maxX + pad, -22, bounds.maxZ + pad], [bounds.minX - pad, -22, bounds.maxZ + pad],
       THEME.baseBoard, [0, 1, 0])
-    // 底板网格（淡青），增强"全息台面"感
-    var gp = Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ)
-    var gstep = gp / 16
-    for (var gx = bounds.minX - pad; gx <= bounds.maxX + pad; gx += gstep) {
-      edgeRibbon(opaque, [gx, bounds.minZ - pad], [gx, bounds.maxZ + pad], 0.9, [0.10, 0.26, 0.38, 1], -21.4)
-    }
-    for (var gz = bounds.minZ - pad; gz <= bounds.maxZ + pad; gz += gstep) {
-      edgeRibbon(opaque, [bounds.minX - pad, gz], [bounds.maxX + pad, gz], 0.9, [0.10, 0.26, 0.38, 1], -21.4)
-    }
+    // 注：底板网格（淡青网格线）已按负责人要求移除 —— 地面不再有蓝色网格。
 
     var solid = finalize(opaque)
     var roofsF = finalize(roofs)
@@ -470,39 +313,92 @@
     }
   }
 
-  /* ---------------- 车辆网格（朝 +X，白色小车） ---------------- */
-  function buildCar(pxPerM) {
-    var L = 1.25 * pxPerM, W = 0.76 * pxPerM, H = 0.62 * pxPerM
+  /* ---------------- 车辆网格（朝 +X，立体送餐机器人） ----------------
+   * 造型对齐真机（assets/robot.png）：深蓝方舱 + 顶部斜切舱盖 + 青色灯带 + 深色前屏 + 六轮。
+   * scale：**显示放大倍数**。真车长仅 1.3m，在校园尺度（整图约 4px/m）下只有几个像素、
+   * 会退化成一个小点；与楼高夸张（heightScale）同理，这里默认放大，让"这是台车"一眼可辨。 */
+  function buildCar(pxPerM, scale) {
+    var S = num(scale) > 0 ? num(scale) : 1
+    var M = pxPerM * S
+    var hL = 0.65 * M, hW = 0.41 * M              // 半长 / 半宽（车 1.3m × 0.82m）
+    var yAxle = 0.115 * M                         // 轮心高（=轮半径）
+    var yCh0 = 0.045 * M, yCh1 = 0.20 * M         // 底盘
+    var yBody1 = 0.72 * M                         // 主舱顶
+    var yLid1 = 0.90 * M                          // 舱盖顶
+    var inset = 0.16                              // 舱盖四周内收比例
+    // 亮色车身（近白金属银）+ 青色灯带：深色底板/楼体上对比极强，一眼可辨
+    var BODY = [0.88, 0.92, 0.96, 1], LID = [0.72, 0.83, 0.90, 1]
+    var CH = [0.42, 0.48, 0.55, 1], TIRE = [0.08, 0.10, 0.13, 1]
+    var HUB = [0.62, 0.68, 0.74, 1]
+    var GLOW = [0.45, 1.0, 1.0, 1], SCREEN = [0.02, 0.05, 0.11, 1]
     var m = newMesh()
-    var body = [[-L / 2, 0, -W / 2], [L / 2, 0, -W / 2], [L / 2, 0, W / 2], [-L / 2, 0, W / 2]]
-    var top = [[-L / 2, H, -W / 2], [L / 2, H, -W / 2], [L / 2, H, W / 2], [-L / 2, H, W / 2]]
-    pushQuad(m, body[0], body[3], body[2], body[1], [0.55, 0.62, 0.70, 1], [0, -1, 0])
-    for (var i = 0; i < 4; i++) {
-      pushQuad(m, body[i], body[(i + 1) % 4], top[(i + 1) % 4], top[i], THEME.carBody, null)
+
+    // 长方体（显式法线，保证受光方向正确）
+    function box(x0, x1, y0, y1, z0, z1, col, topCol) {
+      pushQuad(m, [x0, y0, z0], [x0, y0, z1], [x1, y0, z1], [x1, y0, z0], col, [0, -1, 0])
+      pushQuad(m, [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], col, [0, 0, 1])
+      pushQuad(m, [x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], col, [0, 0, -1])
+      pushQuad(m, [x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], col, [1, 0, 0])
+      pushQuad(m, [x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], col, [-1, 0, 0])
+      pushQuad(m, [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], topCol || col, [0, 1, 0])
     }
-    // 顶盖（深色）
-    var s = 0.72
-    var cap = top.map(function (p) {
-      var mx = 0, mz = 0
-      for (var k = 0; k < 4; k++) { mx += top[k][0] / 4; mz += top[k][2] / 4 }
-      return [mx + (p[0] - mx) * s, H + 0.06 * pxPerM, mz + (p[2] - mz) * s]
-    })
-    pushQuad(m, cap[0], cap[1], cap[2], cap[3], THEME.carTop, [0, 1, 0])
-    // 车头灯（青色小块）
-    var nose = [top[1][0] * 0.98, H * 0.55, 0]
-    pushQuad(m,
-      [L * 0.49, H * 0.5, -W * 0.24], [L * 0.49, H * 0.5, W * 0.24],
-      [L * 0.49, H * 0.72, W * 0.24], [L * 0.49, H * 0.72, -W * 0.24],
-      [0.25, 0.92, 1.0, 1], [1, 0, 0])
+    // 轮子：轴向 Z 的圆柱（侧壁 + 两端盖），共 6 个（左右各 3）
+    function wheel(cx, cz, r, hw) {
+      var seg = 12
+      for (var i = 0; i < seg; i++) {
+        var a0 = i / seg * Math.PI * 2, a1 = (i + 1) / seg * Math.PI * 2
+        var x0 = cx + Math.cos(a0) * r, y0 = yAxle + Math.sin(a0) * r
+        var x1 = cx + Math.cos(a1) * r, y1 = yAxle + Math.sin(a1) * r
+        var am = (a0 + a1) / 2
+        pushQuad(m, [x0, y0, cz - hw], [x1, y1, cz - hw], [x1, y1, cz + hw], [x0, y0, cz + hw], TIRE, [Math.cos(am), Math.sin(am), 0])
+        pushTri(m, [cx, yAxle, cz + hw], [x0, y0, cz + hw], [x1, y1, cz + hw], HUB, [0, 0, 1])
+        pushTri(m, [cx, yAxle, cz - hw], [x1, y1, cz - hw], [x0, y0, cz - hw], HUB, [0, 0, -1])
+      }
+    }
+
+    // 底盘 + 主舱 + 舱盖
+    box(-hL * 0.90, hL * 0.90, yCh0, yCh1, -hW * 0.88, hW * 0.88, CH, CH)
+    box(-hL, hL, yCh1, yBody1, -hW, hW, BODY, BODY)
+    box(-hL * (1 - inset), hL * (1 - inset), yBody1, yLid1, -hW * (1 - inset), hW * (1 - inset), LID, LID)
+    // 顶部旋钮/天线
+    var kr = 0.045 * M, kx = -hL * 0.42
+    box(kx - kr, kx + kr, yLid1, yLid1 + 0.07 * M, -kr, kr, [0.12, 0.16, 0.22, 1], [0.20, 0.28, 0.36, 1])
+
+    // 青色灯带：主舱顶部一圈（细带，法线朝外 → 不被光照明暗吃掉，始终发亮）
+    var e = 0.008 * M
+    var by0 = yBody1 - 0.055 * M, by1 = yBody1 - 0.012 * M
+    pushQuad(m, [-hL - e, by0, -hW - e], [hL + e, by0, -hW - e], [hL + e, by1, -hW - e], [-hL - e, by1, -hW - e], GLOW, [0, 0, -1])
+    pushQuad(m, [-hL - e, by0, hW + e], [hL + e, by0, hW + e], [hL + e, by1, hW + e], [-hL - e, by1, hW + e], GLOW, [0, 0, 1])
+    pushQuad(m, [hL + e, by0, -hW - e], [hL + e, by0, hW + e], [hL + e, by1, hW + e], [hL + e, by1, -hW - e], GLOW, [1, 0, 0])
+    pushQuad(m, [-hL - e, by0, -hW - e], [-hL - e, by0, hW + e], [-hL - e, by1, hW + e], [-hL - e, by1, -hW - e], GLOW, [-1, 0, 0])
+
+    // 前脸：深色屏幕 + 上方灯条 + 侧面小灯；车尾一盏红色尾灯
+    var fx = hL + 0.012 * M
+    pushQuad(m, [fx, 0.40 * M, -hW * 0.62], [fx, 0.40 * M, hW * 0.62], [fx, 0.64 * M, hW * 0.62], [fx, 0.64 * M, -hW * 0.62], SCREEN, [1, 0, 0])
+    pushQuad(m, [fx, 0.65 * M, -hW * 0.62], [fx, 0.65 * M, hW * 0.62], [fx, 0.69 * M, hW * 0.62], [fx, 0.69 * M, -hW * 0.62], GLOW, [1, 0, 0])
+    pushQuad(m, [fx, 0.30 * M, -hW * 0.34], [fx, 0.30 * M, -hW * 0.16], [fx, 0.34 * M, -hW * 0.16], [fx, 0.34 * M, -hW * 0.34], GLOW, [1, 0, 0])
+    pushQuad(m, [fx, 0.30 * M, hW * 0.16], [fx, 0.30 * M, hW * 0.34], [fx, 0.34 * M, hW * 0.34], [fx, 0.34 * M, hW * 0.16], GLOW, [1, 0, 0])
+    pushQuad(m, [-fx, 0.52 * M, -hW * 0.55], [-fx, 0.52 * M, hW * 0.55], [-fx, 0.58 * M, hW * 0.55], [-fx, 0.58 * M, -hW * 0.55], [1.0, 0.36, 0.18, 1], [-1, 0, 0])
+
+    // 六轮：左右各 3（前后 + 中）
+    var hw = 0.055 * M
+    for (var s2 = -1; s2 <= 1; s2 += 2) {
+      var wz = s2 * (hW - 0.005 * M)
+      wheel(-hL * 0.62, wz, yAxle, hw)
+      wheel(0, wz, yAxle, hw)
+      wheel(hL * 0.62, wz, yAxle, hw)
+    }
+
     var f = finalize(m)
-    f.height = H
+    f.height = yLid1
     return f
   }
 
   /* ---------------- 车底定位光环 / 车顶光柱（跟随车辆模型矩阵绘制） ---------------- */
-  function buildRing(pxPerM) {
+  function buildRing(pxPerM, radiusM) {
     var m = newMesh()
-    var rOut = 2.7 * pxPerM, rIn = 2.3 * pxPerM, seg = 56, y = 0.7
+    var R = num(radiusM) > 0 ? radiusM : 2.7
+    var rOut = R * pxPerM, rIn = R * 0.86 * pxPerM, seg = 56, y = 0.7
     for (var i = 0; i < seg; i++) {
       var a0 = i / seg * 2 * Math.PI, a1 = (i + 1) / seg * 2 * Math.PI
       pushQuad(m,
@@ -514,7 +410,7 @@
     var seg2 = 40
     for (var k = 0; k < seg2; k++) {
       var b0 = k / seg2 * 2 * Math.PI, b1 = (k + 1) / seg2 * 2 * Math.PI
-      var ri = 1.15 * pxPerM, ro = 1.32 * pxPerM
+      var ri = R * 0.45 * pxPerM, ro = R * 0.51 * pxPerM
       pushQuad(m,
         [Math.cos(b0) * ri, y, Math.sin(b0) * ri], [Math.cos(b0) * ro, y, Math.sin(b0) * ro],
         [Math.cos(b1) * ro, y, Math.sin(b1) * ro], [Math.cos(b1) * ri, y, Math.sin(b1) * ri],
@@ -522,9 +418,11 @@
     }
     return finalize(m)
   }
-  function buildBeam(pxPerM) {
+  function buildBeam(pxPerM, heightM, widthM) {
     var m = newMesh()
-    var H = 7.5 * pxPerM, w = 0.24 * pxPerM, y0 = 0.62 * pxPerM
+    var H = (num(heightM) > 0 ? heightM : 7.5) * pxPerM
+    var w = (num(widthM) > 0 ? widthM : 0.24) * pxPerM
+    var y0 = 0.62 * pxPerM
     pushQuad(m, [-w, y0, 0], [w, y0, 0], [w, y0 + H, 0], [-w, y0 + H, 0], THEME.beam, null)
     pushQuad(m, [0, y0, -w], [0, y0, w], [0, y0 + H, w], [0, y0 + H, -w], THEME.beam, null)
     return finalize(m)
@@ -748,102 +646,6 @@
     return res
   }
 
-  /* ---------------- 相机 ---------------- */
-  function makeCamera(w, h, bounds, state) {
-    var fov = (state.fov || 34) * D2R
-    var aspect = (w || 1) / (h || 1)
-    var near = Math.max(1, bounds.radius * 0.004)
-    var far = bounds.radius * 14 + 6000
-    var az = (state.az || 0) * D2R
-    var el = Math.max(2, Math.min(89, state.el == null ? 34 : state.el)) * D2R
-    var dist = state.dist || fitDistance(bounds, fov)
-    var t = state.target || bounds.center
-    var eye = [
-      t[0] + Math.sin(az) * Math.cos(el) * dist,
-      t[1] + Math.sin(el) * dist,
-      t[2] + Math.cos(az) * Math.cos(el) * dist
-    ]
-    var view = mat4.lookAt(eye, t, [0, 1, 0])
-    var proj = mat4.perspective(fov, aspect, near, far)
-    return {
-      eye: eye, target: t, view: view, proj: proj, viewProj: mat4.mul(proj, view),
-      near: near, far: far, dist: dist, az: az, el: el, fov: fov
-    }
-  }
-  function fitDistance(bounds, fovRad) {
-    var r = Math.max(1, bounds.radius)
-    return r / Math.tan(fovRad / 2) * 1.12
-  }
-  function boundsCorners(b) {
-    var out = []
-    for (var xi = 0; xi < 2; xi++) for (var zi = 0; zi < 2; zi++) for (var yi = 0; yi < 2; yi++) {
-      out.push([xi ? b.maxX : b.minX, yi ? Math.max(0, b.maxY) : 0, zi ? b.maxZ : b.minZ])
-    }
-    return out
-  }
-  function fitCamera(w, h, bounds, state) {
-    state = state || {}
-    var fov = state.fov || 34
-    var target = state.target || bounds.center
-    var margin = state.margin != null ? state.margin : 0.90
-    var d = state.dist || (bounds.radius * 2.2)
-    var corners = boundsCorners(bounds)
-    var cam = null
-    for (var iter = 0; iter < 10; iter++) {
-      cam = makeCamera(w, h, bounds, { az: state.az, el: state.el, dist: d, fov: fov, target: target })
-      var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, behind = 0
-      for (var i = 0; i < corners.length; i++) {
-        var sp = projectPoint(cam, w, h, corners[i])
-        if (!sp) { behind++; continue }
-        if (sp[0] < minX) minX = sp[0]; if (sp[0] > maxX) maxX = sp[0]
-        if (sp[1] < minY) minY = sp[1]; if (sp[1] > maxY) maxY = sp[1]
-      }
-      if (behind > 0 || !(maxX > minX) || !(maxY > minY)) { d *= 1.25; continue }
-      var k = Math.min(w * margin / (maxX - minX), h * margin / (maxY - minY))
-      if (!isFinite(k) || k <= 0) break
-      var nd = d / k
-      if (Math.abs(nd - d) / d < 0.004) { d = nd; break }
-      d = nd
-    }
-    cam = makeCamera(w, h, bounds, { az: state.az, el: state.el, dist: d, fov: fov, target: target })
-    cam.fitDist = d
-    return cam
-  }
-  function projectPoint(cam, w, h, p) {
-    var c = mat4.xform4(cam.viewProj, p)
-    if (c[3] <= 1e-6) return null
-    return [(c[0] / c[3] * 0.5 + 0.5) * w, (0.5 - c[1] / c[3] * 0.5) * h, c[3]]
-  }
-
-  /* ---------------- 平台坐标 -> 雷达像素 ---------------- */
-  function makePlatformToRadar(bbox, radarW, radarH) {
-    if (!bbox) return null
-    var minX = num(bbox.minX), maxX = num(bbox.maxX), minY = num(bbox.minY), maxY = num(bbox.maxY)
-    if (maxX - minX < 1e-9 || maxY - minY < 1e-9) return null
-    return function (x, y) {
-      return [(num(x) - minX) / (maxX - minX) * radarW, (maxY - num(y)) / (maxY - minY) * radarH]
-    }
-  }
-
-  /* ---------------- 初始方位：楼群长轴横过来（宽屏最饱满） ---------------- */
-  function principalAzimuth(buildings) {
-    var pts = []
-    for (var i = 0; i < (buildings || []).length; i++) {
-      var c = buildings[i].center
-      if (c && isFinite(c[0]) && isFinite(c[1])) pts.push([c[0], c[1]])
-    }
-    if (pts.length < 3) return 0
-    var mx = 0, mz = 0
-    for (var k = 0; k < pts.length; k++) { mx += pts[k][0]; mz += pts[k][1] }
-    mx /= pts.length; mz /= pts.length
-    var sxx = 0, sxz = 0, szz = 0
-    for (var j = 0; j < pts.length; j++) {
-      var dx = pts[j][0] - mx, dz = pts[j][1] - mz
-      sxx += dx * dx; sxz += dx * dz; szz += dz * dz
-    }
-    var theta = 0.5 * Math.atan2(2 * sxz, sxx - szz)
-    return -theta * 180 / Math.PI
-  }
 
   /* ---------------- 光照 ---------------- */
   var LIGHT = norm([-0.42, 0.80, -0.43])
