@@ -6,6 +6,8 @@ const express = require('express')
 const { createShared } = require('../_shared')
 const q = require('./queries')
 const s = require('./service')
+// 大屏「3D 图层重构」数据服务器端持久化（backend/data/map-recon.json）
+const mapRecon = require('../../services/mapRecon')
 // 管理员账号服务（方案A）：scrypt 密码 + 随机 session token
 const adminAuth = require('../../services/adminAuth')
 // 商家账号（user 域 users 表：账号密码登录 + 店主/店员分级，2026-09-24 起替代邀请码体系）
@@ -100,6 +102,88 @@ module.exports = (store, deps) => {
   // 前端底图用配置（天地图浏览器端 tk，存于 .env，随页面注入，不进仓库）
   router.get('/config/tianditu', dashGuard, (req, res) => {
     ok(res, { tk: process.env.TIANDITU_TK || '', ts: new Date().toISOString() })
+  })
+
+  // ---------- 大屏无人车高频位置（轻量接口，供 3D 地图 1s 轮询） ----------
+  // 与 overview 的 map.robots 同一坐标空间（管理页坐标系 ax/ay），但不带地图/统计等重载荷，
+  // 只返回在线车的实时坐标 + 朝向，让大屏地图上的车"实时走"。
+  // 内部有 1s 缓存（DASHBOARD_ROBOTS_CACHE_MS 可调）：大屏 1s 轮询一次时不会每请求都打平台
+  // （getDevicePositionBySn 内部还有 3s 缓存兜底）。
+  let robotPosCache = { ts: 0, data: null }
+  const ROBOTS_CACHE_MS = Number(process.env.DASHBOARD_ROBOTS_CACHE_MS || 1000)
+
+  router.get('/dashboard/robot-positions', dashGuard, async (req, res) => {
+    if (robotPosCache.data && Date.now() - robotPosCache.ts < ROBOTS_CACHE_MS) {
+      return ok(res, robotPosCache.data)
+    }
+    const robots = []
+    let msg = ''
+    try {
+      const devList = await deps.platform.getDeviceList()
+      if (devList && devList.ok && Array.isArray(devList.robots)) {
+        for (const dev of devList.robots) {
+          if (!dev.online || !dev.device_sn) continue
+          const pos = await deps.platform.getDevicePositionBySn(store, dev.device_sn, dev.machine_text || '')
+          if (!pos) continue
+          // px/py = eviz robotpose 原始值，**即平台地图像素坐标**（x 右、y 下），前端直接投到地图，无需标定
+          const raw = Array.isArray(pos.raw) && pos.raw.length >= 2 && isFinite(Number(pos.raw[0])) && isFinite(Number(pos.raw[1]))
+            ? [Number(pos.raw[0]), Number(pos.raw[1])] : null
+          const ax = !isNaN(pos.ax) ? Number(pos.ax) : (pos.x != null && !isNaN(pos.x) ? Number(pos.x) : NaN)
+          const ay = !isNaN(pos.ay) ? Number(pos.ay) : (pos.y != null && !isNaN(pos.y) ? Number(pos.y) : NaN)
+          if (!raw && (isNaN(ax) || isNaN(ay))) continue
+          robots.push({
+            device_sn: dev.device_sn,
+            px: raw ? raw[0] : null, py: raw ? raw[1] : null,
+            x: isNaN(ax) ? null : ax, y: isNaN(ay) ? null : ay,
+            theta: Number(pos.theta || 0), text: pos.text || ''
+          })
+        }
+        msg = robots.length ? '在网 ' + robots.length + ' 台车有定位' : '在线车暂无有效定位'
+      } else {
+        msg = (devList && devList.msg) || '获取车辆列表失败'
+      }
+    } catch (e) {
+      msg = '获取车辆位置失败：' + e.message
+    }
+    robotPosCache = { ts: Date.now(), data: { robots, msg } }
+    ok(res, robotPosCache.data)
+  })
+
+  // ---------- 虚拟测试车（运行时控制：整体开关 + 手动指定状态） ----------
+  // 虚拟车在平台接口层模拟（services/virtualRobot.js），仅用于联调/演示，不参与真实派车。
+  // 这些接口让大屏可**运行时**开/关整批虚拟车、把某台钉在指定状态或恢复自动循环，无需重启后端。
+  // GET  → 读开关态 + 各车摘要（按钮回显）
+  router.get('/dashboard/virtual-robot', dashGuard, (req, res) => {
+    ok(res, deps.platform.virtualRobotSummary())
+  })
+
+  // POST → body { enable:bool } 整体开关
+  router.post('/dashboard/virtual-robot', dashGuard, (req, res) => {
+    const enable = !!((req.body || {}).enable)
+    ok(res, deps.platform.virtualRobotSetEnabled(enable))
+  })
+
+  // POST → body { sn, state, auto } ：state 为六态之一；auto=true 恢复自动循环
+  router.post('/dashboard/virtual-robot/state', dashGuard, (req, res) => {
+    const { sn, state, auto } = req.body || {}
+    ok(res, deps.platform.virtualRobotSetState(sn, state, !!auto))
+  })
+
+  // ---------- 大屏「3D 图层重构」数据（服务器端持久化，全局共享） ----------
+  // 重构成果原先只存浏览器 localStorage（dash3d_recon），换设备就丢；这里落服务器
+  // backend/data/map-recon.json。GET 返回服务器上的一份；POST 整体保存（大屏「保存」调用）。
+  // 前端加载顺序：服务器数据 > 浏览器本地手工存档(兼容) > 内置默认新地图。
+  router.get('/dashboard/recon', dashGuard, (req, res) => {
+    ok(res, { recon: mapRecon.get() })
+  })
+
+  // POST body → { recon: {...} }：整体保存；body 里的 recon 会先校验为 JSON 对象
+  router.post('/dashboard/recon', dashGuard, (req, res) => {
+    const recon = (req.body || {}).recon
+    const r = mapRecon.replace(recon || null)
+    if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg })
+    audit(req, 'dashboard-recon-save', 'map-recon', '大屏重构数据保存')
+    ok(res, { msg: r.msg })
   })
 
   // ---------- 管理员登录（方案A：用户名+密码 → 随机 session token） ----------

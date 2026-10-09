@@ -51,6 +51,7 @@ const deliveryService = require('./domains/delivery/service')
 const deliveryTimers = require('./domains/delivery/timers')
 const adminRoutes = require('./domains/admin/routes')
 const adminLive = require('./domains/admin/live')
+const virtualRobot = require('./services/virtualRobot')
 // 实时推送（WebSocket，供商家端收到「新订单」事件自动局部刷新红点/列表）
 const push = require('./services/push')
 // 有单自动去上货点调度器（事件驱动）
@@ -201,6 +202,38 @@ const server = app.listen(PORT, BIND_HOST, () => {
     }
   } else {
     console.log('[lingdong-backend]   管理员账号已就绪：' + adminEnabled + ' 个启用（账号密码登录 + session token）')
+  }
+
+  // 虚拟机器人（联调/演示）：在平台接口层注入，前端/大屏零改动；不参与真实派车
+  if (virtualRobot.enabled()) {
+    const sm = virtualRobot.summary()
+    const names = sm.robots.map((r) => r.name + '(' + r.sn + ')').join('、')
+    console.log('[lingdong-backend]   ⚠ 虚拟机器人已启用（接口层模拟）共 ' + sm.count + ' 台：' + names +
+      ' · 速度 ' + virtualRobot.SPEED_MPS + ' m/s')
+    console.log('[lingdong-backend]     各台沿平台「固定路径」图自动循环（充电→等待→配送→上货→待取货→返回）；不参与真实派车/召唤。上线请把 VIRTUAL_ROBOT 设为 0。')
+  }
+
+  // 点位以**平台为准**、不留代码副本：启动即从平台同步一次本地缓存表，之后每分钟刷新。
+  // 大屏本来就读平台实时点位（getPlatformLandmarks），这里保证用户端/召唤点/批次这些
+  // 读本地表的模块也跟着平台一起变——平台上改了地图点位，全站都会同步。
+  const platformConfigured = process.env.PLATFORM_MOCK !== 'true' &&
+    !!process.env.PLATFORM_APPID && !!process.env.PLATFORM_SECRET && !!process.env.PLATFORM_PRINCIPALID
+  if (platformConfigured) {
+    const refreshLandmarks = async (why) => {
+      try {
+        const r = await platform.syncLandmarks(store)
+        if (r && r.ok) {
+          console.log('[lingdong-backend]   点位已从平台同步（' + why + '）：平台 ' + r.count + ' 条 · 新增 ' + r.inserted + ' / 更新 ' + r.updated +
+            ' / 同位置重复跳过 ' + r.skipped + ' / 清理旧演示 ' + r.removed + ' / 去重删除 ' + (r.deduped || 0))
+        } else {
+          console.warn('[lingdong-backend]   点位同步失败（' + why + '）：' + ((r && r.msg) || '未知'))
+        }
+      } catch (e) { console.warn('[lingdong-backend]   点位同步异常：' + e.message) }
+    }
+    refreshLandmarks('启动')
+    setInterval(function () { refreshLandmarks('定时刷新') }, 60000)
+  } else {
+    console.log('[lingdong-backend]   点位：未配置平台凭据 → 使用本地演示点位（不自动同步）')
   }
 })
 

@@ -525,23 +525,32 @@ function seed(db) {
   const count = db.prepare('SELECT COUNT(*) AS c FROM landmarks').get().c
   if (count > 0) return
 
-  // 真实点位（四川师范大学成龙校区 · 正式环境，2026-08 与平台核对）：
-  // 名称以平台 landmarkName 为准；platform_* 字段直接写入，保证新环境无需再手动同步。
-  const BID = '1257237128126592_zcsdb3dd6396c824'
-  const MID = '1257237128126592_zcsdb3dd6396c824_1d-1'
-  const insLandmark = db.prepare('INSERT INTO landmarks (name, building, floor, type, sort, platform_building_id, platform_map_id, platform_landmark_id) VALUES (?,?,?,?,?,?,?,?)')
-  ;[
-    ['商铺上货', '四川师范大学成龙校区', '1', 'loadingPoint', 1, BID, MID, '71bb894d0f6548e98fa8580429307a10'],
-    ['东苑1栋', '四川师范大学成龙校区', '1', 'deliverPoint', 2, BID, MID, '05f66b224f1148c78a5a1cb63b284702'],
-    ['东苑2栋', '四川师范大学成龙校区', '1', 'deliverPoint', 3, BID, MID, '87987c7a7d7145b8ba43738b046f6668'],
-    ['东苑3栋', '四川师范大学成龙校区', '1', 'deliverPoint', 4, BID, MID, 'eb064f9c5a8b4e3c906ca0008bf66395'],
-    ['东苑4栋', '四川师范大学成龙校区', '1', 'deliverPoint', 5, BID, MID, 'b0de449f2ccd4f20a6ccb0e9397e73cb'],
-    ['东苑5栋', '四川师范大学成龙校区', '1', 'deliverPoint', 6, BID, MID, '2da7414ef2ee405d9b613a620d08d5e0'],
-    ['东苑7栋', '四川师范大学成龙校区', '1', 'deliverPoint', 7, BID, MID, 'fe0ad571bb124217ba16243cc38030a2'],
-    ['东苑11栋', '四川师范大学成龙校区', '1', 'deliverPoint', 8, BID, MID, '183cd72d16a14903aba7601dda4b9224'],
-    ['东苑12栋', '四川师范大学成龙校区', '1', 'deliverPoint', 9, BID, MID, '1dbf6004fab6426c8485a552169a2325'],
-    ['东苑13栋', '四川师范大学成龙校区', '1', 'deliverPoint', 10, BID, MID, 'e82ce545658e415d92bfe45d96588e2e']
-  ].forEach(r => insLandmark.run(...r))
+  // 点位**不在代码里保留真实副本**：
+  //   · 配了平台凭据（真实/pilot）→ 表留空，由 platform.syncLandmarks **启动即同步 + 定时刷新**；
+  //     平台上改了地图点位，大屏（直连平台接口）与用户端/召唤点（读本地表）都会跟着变。
+  //   · 没配平台凭据（离线演示/demo）→ 才写入下面这组演示点位，保证演示流程可用。
+  const platformConfigured = process.env.PLATFORM_MOCK !== 'true' &&
+    !!process.env.PLATFORM_APPID && !!process.env.PLATFORM_SECRET && !!process.env.PLATFORM_PRINCIPALID
+  if (platformConfigured) {
+    console.log('[lingdong-backend]   点位表为空：将由平台实时同步（代码中不保留点位副本）')
+  } else {
+    // 离线演示点位（仅无平台凭据时使用）：名称与平台 landmarkName 对齐，platform_* 便于切到平台后对账。
+    const BID = '1257237128126592_zcsdb3dd6396c824'
+    const MID = '1257237128126592_zcsdb3dd6396c824_1d-1'
+    const insLandmark = db.prepare('INSERT INTO landmarks (name, building, floor, type, sort, platform_building_id, platform_map_id, platform_landmark_id) VALUES (?,?,?,?,?,?,?,?)')
+    ;[
+      ['商铺上货', '四川师范大学成龙校区', '1', 'loadingPoint', 1, BID, MID, '71bb894d0f6548e98fa8580429307a10'],
+      ['东苑1栋', '四川师范大学成龙校区', '1', 'deliverPoint', 2, BID, MID, '05f66b224f1148c78a5a1cb63b284702'],
+      ['东苑2栋', '四川师范大学成龙校区', '1', 'deliverPoint', 3, BID, MID, '87987c7a7d7145b8ba43738b046f6668'],
+      ['东苑3栋', '四川师范大学成龙校区', '1', 'deliverPoint', 4, BID, MID, 'eb064f9c5a8b4e3c906ca0008bf66395'],
+      ['东苑4栋', '四川师范大学成龙校区', '1', 'deliverPoint', 5, BID, MID, 'b0de449f2ccd4f20a6ccb0e9397e73cb'],
+      ['东苑5栋', '四川师范大学成龙校区', '1', 'deliverPoint', 6, BID, MID, '2da7414ef2ee405d9b613a620d08d5e0'],
+      ['东苑7栋', '四川师范大学成龙校区', '1', 'deliverPoint', 7, BID, MID, 'fe0ad571bb124217ba16243cc38030a2'],
+      ['东苑11栋', '四川师范大学成龙校区', '1', 'deliverPoint', 8, BID, MID, '183cd72d16a14903aba7601dda4b9224'],
+      ['东苑12栋', '四川师范大学成龙校区', '1', 'deliverPoint', 9, BID, MID, '1dbf6004fab6426c8485a552169a2325'],
+      ['东苑13栋', '四川师范大学成龙校区', '1', 'deliverPoint', 10, BID, MID, 'e82ce545658e415d92bfe45d96588e2e']
+    ].forEach(r => insLandmark.run(...r))
+  }
 
   const insGoods = db.prepare('INSERT INTO goods (name, price, original_price, image, category, stock, description, sales) VALUES (?,?,?,?,?,?,?,?)')
   ;[

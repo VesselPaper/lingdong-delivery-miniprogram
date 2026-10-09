@@ -27,6 +27,12 @@ const CALLBACK_PATHS = {
 // 平台回调防伪令牌：与 runtime.js 导出的 callbackToken 一致（显式配置优先，否则由 PLATFORM_SECRET 派生）。
 // 依赖方向：runtime 只依赖 wxpay（叶子模块），本文件 require runtime 单向安全（server.js 也先加载 runtime）。
 const runtime = require('./runtime')
+// 虚拟机器人（联调/演示）：把模拟数据注入**本文件的设备清单与位置出口**，
+// 于是所有下游（大屏/管理页/商家监控/推送泵）走的都是真实链路，前端无感。VIRTUAL_ROBOT=1 开启。
+const virtualRobot = require('./virtualRobot')
+// 大屏「3D 图层重构」服务器端数据：虚拟车路线必须用与前端一致的「重构后道路」几何，
+// 否则车会跑在"原始道路"而在画面上看到的是"重构位移后的道路"，车看起来就脱离道路。
+const mapRecon = require('./mapRecon')
 
 // 生成注册到平台的回调 URL，防伪令牌以 ?token= 查询参数携带。
 // 为什么用 query 而不是路径段：平台侧示例回调 URL 自带 "&version+3d24d260000" 后缀
@@ -139,8 +145,17 @@ async function syncLandmarks(store) {
 
     let inserted = 0
     let updated = 0
+    let skipped = 0
     let sort = 1
     const isLoading = (p) => /上货|商铺|店铺|铺子/.test(p.landmarkName || '')
+    // 平台上同一个物理点位存在**多条记录**（不同 landmarkId、同名同坐标，实测 9 栋宿舍各有 2 条）。
+    // 若照单全收，用户端取货点列表会出现「东苑1栋」两项、召唤点也重复。这里按 (名称+坐标)
+    // 视为同一点：只保留先出现的那条（landmarkId 仍以平台为准），后续同位置记录跳过不入库。
+    const posKey = (n, x, y) => n + '|' + Number(x).toFixed(3) + '|' + Number(y).toFixed(3)
+    const seenPos = new Set(
+      store.prepare("SELECT name, pos_x, pos_y FROM landmarks WHERE platform_landmark_id != '' OR platform_landmark_id IS NOT NULL").all()
+        .map((r) => posKey(r.name, r.pos_x, r.pos_y))
+    )
     for (const p of points) {
       if (!p || !p.landmarkName) continue
       const lmId = p.landmarkId || ''
@@ -149,13 +164,18 @@ async function syncLandmarks(store) {
       const posX = pose.length > 0 ? Number(pose[0]) : 0
       const posY = pose.length > 1 ? Number(pose[1]) : 0
       const exist = lmId ? store.prepare('SELECT id FROM landmarks WHERE platform_landmark_id=?').get(lmId) : null
+      const key = posKey(p.landmarkName, posX, posY)
       if (exist) {
         const r = store.prepare('UPDATE landmarks SET name=?, building=?, floor=?, type=?, sort=?, platform_building_id=?, platform_map_id=?, pos_x=?, pos_y=? WHERE id=?')
           .run(p.landmarkName, building.buildingName || '', p.floor || '', type, sort, buildingId, p.mapId || '', posX, posY, exist.id)
         if (r.changes) updated++
+        seenPos.add(key)
+      } else if (seenPos.has(key)) {
+        skipped++                                   // 同位置重复记录：不重复入库
       } else {
         store.prepare('INSERT INTO landmarks (name, building, floor, type, sort, platform_building_id, platform_map_id, platform_landmark_id, pos_x, pos_y) VALUES (?,?,?,?,?,?,?,?,?,?)')
           .run(p.landmarkName, building.buildingName || '', p.floor || '', type, sort, buildingId, p.mapId || '', lmId, posX, posY)
+        seenPos.add(key)
         inserted++
       }
       sort++
@@ -165,7 +185,16 @@ async function syncLandmarks(store) {
     if (points.length > 0) {
       removed = store.prepare("DELETE FROM landmarks WHERE platform_landmark_id='' OR platform_landmark_id IS NULL").run().changes
     }
-    return { ok: true, buildingId, buildingName: building.buildingName, count: points.length, inserted, updated, removed }
+    // 清掉历史上已经写进去的"同位置重复行"（保留 id 最小的一条；被订单引用过的不动，避免订单找不到点位）
+    let deduped = 0
+    try {
+      const dups = store.prepare(`SELECT l.id FROM landmarks l
+        JOIN landmarks k ON k.name=l.name AND k.pos_x=l.pos_x AND k.pos_y=l.pos_y AND k.id < l.id
+        WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.landmark_id = l.id)`).all()
+      const del = store.prepare('DELETE FROM landmarks WHERE id=?')
+      for (const d of dups) { del.run(d.id); deduped++ }
+    } catch (e) { /* 表结构差异时跳过清理，不影响同步本身 */ }
+    return { ok: true, buildingId, buildingName: building.buildingName, count: points.length, inserted, updated, skipped, removed, deduped }
   } catch (e) {
     return { ok: false, msg: e.message }
   }
@@ -174,16 +203,36 @@ async function syncLandmarks(store) {
 // ---------------- 机器人自身点位（landmarkInfo，实时刷新） ----------------
 // 数据来源：/open-api/v1/building/landmarkInfo（type=deliverPoint / patrolPoint）
 // 返回机器人自己配置的场地点位（取货点/巡逻点/上货点），坐标空间与 mapInfo bbox / eviz robotpose 一致。
-// 30s 缓存：随 /admin/map 4s 轮询自动刷新，避免每轮都对平台发起全量请求。
+// 缓存 8s：大屏每 5s 轮询，平台上改了地图点位后很快就能同步过来；缓存只是防止重复请求打爆平台。
 let landmarkCache = { ts: 0, data: null }
+// 场地 buildingId：**实时**从平台 buildingList 取（代码与数据库里都不再保留点位副本）。
+// 平台不可用时才降级用本地 landmarks 表里记录过的 buildingId —— 那只是降级兜底，不是数据来源。
+let liveBuildingCache = { ts: 0, id: '' }
+async function resolveBuildingId(store) {
+  if (liveBuildingCache.id && Date.now() - liveBuildingCache.ts < 300000) return liveBuildingCache.id
+  try {
+    const b = await requestPlatform('GET', '/open-api/v1/building/buildingList?principalId=' + encodeURIComponent(PRINCIPAL_ID))
+    const list = b && b.data && b.data.buildingList
+    if (b && b.code === 'COMM_200' && Array.isArray(list) && list.length && list[0].buildingId) {
+      liveBuildingCache = { ts: Date.now(), id: list[0].buildingId }
+      return liveBuildingCache.id
+    }
+  } catch (e) { /* 降级到本地记录 */ }
+  const lm0 = store.prepare("SELECT platform_building_id FROM landmarks WHERE platform_building_id != '' LIMIT 1").get()
+  return (lm0 && lm0.platform_building_id) || ''
+}
 async function getPlatformLandmarks(store) {
-  if (landmarkCache.data && Date.now() - landmarkCache.ts < 30000) return landmarkCache.data
+  if (landmarkCache.data && Date.now() - landmarkCache.ts < 8000) return landmarkCache.data
   const out = []
   try {
     if (!platformReady()) return landmarkCache.data || out
-    const lm0 = store.prepare("SELECT platform_building_id FROM landmarks WHERE platform_building_id != '' LIMIT 1").get()
-    const buildingId = lm0 && lm0.platform_building_id
+    const buildingId = await resolveBuildingId(store)
     if (!buildingId) return landmarkCache.data || out
+    // 平台对 deliverPoint / patrolPoint 两次请求会返回同一批点（同一物理点还可能带不同 landmarkId），
+    // 不去重就会每个点入列两次 —— 实测 23 条记录但只有 13 个唯一坐标，大屏上表现为
+    // 「充电点A」「商铺上货」等同名文字竖排重复。去重键：landmarkId 优先，再按 name|x|y 兜底。
+    const seenId = new Set()
+    const seenPos = new Set()
     for (const type of ['deliverPoint', 'patrolPoint']) {
       const r = await requestPlatform('GET', '/open-api/v1/building/landmarkInfo?buildingId=' + encodeURIComponent(buildingId) + '&type=' + type)
       const pts = (r && r.data) || []
@@ -192,12 +241,19 @@ async function getPlatformLandmarks(store) {
         if (!p || !p.landmarkName) continue
         const pose = Array.isArray(p.pose) ? p.pose : []
         if (pose.length < 2) continue
+        const x = Number(pose[0]), y = Number(pose[1])
+        const lmId = p.landmarkId || ''
+        const keyPos = p.landmarkName + '|' + x + '|' + y
+        if (seenPos.has(keyPos)) continue          // 同名同坐标 = 同一点，只保留一条
+        if (lmId && seenId.has(lmId)) continue     // 同一 landmarkId 重复出现
+        seenPos.add(keyPos)
+        if (lmId) seenId.add(lmId)
         out.push({
-          id: p.landmarkId || '',
+          id: lmId,
           name: p.landmarkName,
           type: /上货|商铺|店铺|铺子/.test(p.landmarkName) ? 'loadingPoint' : type,
-          x: Number(pose[0]),
-          y: Number(pose[1])
+          x: x,
+          y: y
         })
       }
     }
@@ -296,6 +352,17 @@ async function getMapOverview(store) {
     chargeSeen.add(uniq)
     landmarks.push({ id: p.id || k, name, type: 'chargePoint', x: cx, y: cy })
   }
+  // 最终去重：不管点位来自 landmarkInfo 还是地图内嵌 landmarks，**同一物理点（同名同坐标）只保留一条**。
+  // 实测「充电点A」会同时出现在两个来源里、平台上部分楼栋也有两条记录；不去重大屏就会画两个图标、
+  // 用户端列表也会出现重复项。这里统一按 名称+坐标 收敛（与前端去重同一套身份）。
+  const uniqSeen = new Set()
+  landmarks = landmarks.filter((L) => {
+    if (!L || !isFinite(Number(L.x)) || !isFinite(Number(L.y))) return false
+    const key = String(L.name || '').replace(/\s+/g, '') + '|' + Number(L.x).toFixed(3) + '|' + Number(L.y).toFixed(3)
+    if (uniqSeen.has(key)) return false
+    uniqSeen.add(key)
+    return true
+  })
   // 路网（固定路径 graph）
   const graph = { nodes: [], edges: [] }
   const line = pts['固定路径'] || Object.values(pts).find((p) => p && p.graph)
@@ -333,6 +400,9 @@ async function getMapOverview(store) {
       if (stops.length) routes.push({ batch_id: rb.id, batch_no: detailB.batch_no, daily_seq: detailB.daily_seq, stops })
     }
     // 机器人实时位置（按设备列表直取，兼容召唤多单配送：无配送任务也能显示车的位置）
+    // 坐标说明（2026-10-05 结论，见 doc/07 与接口文档）：
+    //   eviz robotpose 就是**平台地图的像素/栅格坐标**（x 右、y 下，与 metadata.width/height 同空间），
+    //   与 laserscan 同帧；因此额外下发 px/py 供前端直接投到地图上，不再走 POS_CAL 相似变换。
     const robots = []
     try {
       const devList = await getDeviceList()
@@ -343,7 +413,13 @@ async function getMapOverview(store) {
           const ax = pos && !isNaN(pos.ax) ? Number(pos.ax) : (pos && !isNaN(pos.x) ? Number(pos.x) : NaN)
           const ay = pos && !isNaN(pos.ay) ? Number(pos.ay) : (pos && !isNaN(pos.y) ? Number(pos.y) : NaN)
           if (!isNaN(ax) && !isNaN(ay)) {
-            robots.push({ device_sn: dev.device_sn, x: ax, y: ay, theta: Number(pos.theta || 0), text: pos.text || '', raw: pos.raw })
+            const raw = Array.isArray(pos.raw) && pos.raw.length >= 2 && isFinite(Number(pos.raw[0])) && isFinite(Number(pos.raw[1]))
+              ? [Number(pos.raw[0]), Number(pos.raw[1])] : null
+            robots.push({
+              device_sn: dev.device_sn, x: ax, y: ay,
+              px: raw ? raw[0] : null, py: raw ? raw[1] : null,   // 地图像素坐标（权威）
+              theta: Number(pos.theta || 0), text: pos.text || '', raw: pos.raw
+            })
           }
         }
       }
@@ -584,6 +660,11 @@ async function getDevicePosition(store, taskId) {
 const posCacheBySn = new Map() // deviceSn -> { ts, pos }
 async function getDevicePositionBySn(store, deviceSn, hintText) {
   if (!deviceSn) return null
+  // 虚拟机器人（联调）：与真实机器人**同一出口**，下游完全无感（raw 同样是地图像素坐标）
+  if (virtualRobot.isVirtual(deviceSn)) {
+    await ensureVirtualRoute(store)
+    return virtualRobot.positionFor(deviceSn)
+  }
   if (MOCK) return null
   const hit = posCacheBySn.get(deviceSn)
   if (hit && Date.now() - hit.ts < 3000) return hit.pos
@@ -614,6 +695,328 @@ async function getDevicePositionBySn(store, deviceSn, hintText) {
   } catch (e) { /* 位置获取失败，回退缓存 */ }
   return hit ? hit.pos : null
 }
+
+// ---------------- 虚拟机器人路线（校园建模道路连通图 → 地图像素折线） ----------------
+// 平台「固定路径」图只覆盖局部（实测仅约 87m），导致所有虚拟车挤在同一段路上。
+// 改为读取前端可视化大屏的**校园建模道路**（assets/map-calibration.js 的 roads，即 3D 地图的
+// 灰色 OSM 中心线，覆盖全校园 16 条路）。做法：把道路按交点打断成连通路网图（与前端
+// scene3d.buildRoadGraph 一致），再做一次「欧拉巡游」——从任一节点出发沿边走，走遍每条道路，
+// 全程都在真实道路上、只在交叉口转弯、绝不穿空地。前端会把车吸附回这些建模道路上（snapToNet），
+// 完全等价真实车"贴在真实路网上走"。位置出口与真实机器人完全一致（raw 为地图像素）。
+let vRouteState = { ts: 0, ok: false, msg: '未初始化' }
+// 校园建模道路文件（可视化大屏根 与 backend 同级）。坐标即地图像素（与虚拟车 px,py 同空间）。
+const CAMPUS_CALIB_FILE = path.join(__dirname, '..', '..', '可视化大屏', 'assets', 'map-calibration.js')
+
+// ---- 连通路网图（与前端 scene3d.js buildRoadGraph 算法一致）----
+// 返回 { nodes:[[x,y],...], adj:[{to,w,ri}...] }；若图不连通，取最大连通分量。
+function buildRoadGraph(roads) {
+  const segs = []
+  for (let ri = 0; ri < roads.length; ri++) {
+    const pts = roads[ri].pts || []
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i], b = pts[i + 1]
+      if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-6) continue
+      segs.push({ ri, a: [a[0], a[1]], b: [b[0], b[1]], cuts: [0, 1] })
+    }
+  }
+  const TOLT = 0.02
+  function cutParams(p, q) {
+    const rx = p.b[0] - p.a[0], ry = p.b[1] - p.a[1]
+    const sx = q.b[0] - q.a[0], sy = q.b[1] - q.a[1]
+    const den = rx * sy - ry * sx
+    if (Math.abs(den) < 1e-9) return null
+    const t = ((q.a[0] - p.a[0]) * sy - (q.a[1] - p.a[1]) * sx) / den
+    const u = ((q.a[0] - p.a[0]) * ry - (q.a[1] - p.a[1]) * rx) / den
+    if (t < -TOLT || t > 1 + TOLT || u < -TOLT || u > 1 + TOLT) return null
+    const tc = Math.max(0, Math.min(1, t)), uc = Math.max(0, Math.min(1, u))
+    const pu = [p.a[0] + rx * tc, p.a[1] + ry * tc]
+    const qu = [q.a[0] + sx * uc, q.a[1] + sy * uc]
+    if (Math.hypot(pu[0] - qu[0], pu[1] - qu[1]) > 3) return null
+    return [tc, uc]
+  }
+  for (let s1 = 0; s1 < segs.length; s1++) for (let s2 = s1 + 1; s2 < segs.length; s2++) {
+    const cc = cutParams(segs[s1], segs[s2]); if (!cc) continue
+    segs[s1].cuts.push(cc[0]); segs[s2].cuts.push(cc[1])
+  }
+  const nodeOf = {}, nodes = []
+  function nodeId(p) {
+    const gx = Math.floor(p[0] / 4), gy = Math.floor(p[1] / 4)
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      const bucket = nodeOf[(gx + dx) + ',' + (gy + dy)]; if (!bucket) continue
+      for (let i = 0; i < bucket.length; i++) { const nn = nodes[bucket[i]]; if (Math.hypot(nn[0] - p[0], nn[1] - p[1]) <= 2) return bucket[i] }
+    }
+    const id = nodes.length; nodes.push([+p[0].toFixed(2), +p[1].toFixed(2)])
+    const k = gx + ',' + gy; if (!nodeOf[k]) nodeOf[k] = []; nodeOf[k].push(id); return id
+  }
+  const adj = []
+  for (let s = 0; s < segs.length; s++) {
+    const g = segs[s], cs = g.cuts.slice().sort((x, y) => x - y)
+    for (let k2 = 0; k2 + 1 < cs.length; k2++) {
+      if (cs[k2 + 1] - cs[k2] < 1e-6) continue
+      const p0 = [g.a[0] + (g.b[0] - g.a[0]) * cs[k2], g.a[1] + (g.b[1] - g.a[1]) * cs[k2]]
+      const p1 = [g.a[0] + (g.b[0] - g.a[0]) * cs[k2 + 1], g.a[1] + (g.b[1] - g.a[1]) * cs[k2 + 1]]
+      const n0 = nodeId(p0), n1 = nodeId(p1); if (n0 === n1) continue
+      const w = Math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+      while (adj.length <= Math.max(n0, n1)) adj.push([])
+      adj[n0].push({ to: n1, w: w, ri: g.ri }); adj[n1].push({ to: n0, w: w, ri: g.ri })
+    }
+  }
+  // 取最大连通分量
+  const N = nodes.length, seen = new Array(N).fill(0), comps = []
+  for (let i = 0; i < N; i++) {
+    if (seen[i]) continue
+    const q2 = [i]; seen[i] = 1; const comp = []
+    while (q2.length) { const u = q2.shift(); comp.push(u); for (const e of (adj[u] || [])) if (!seen[e.to]) { seen[e.to] = 1; q2.push(e.to) } }
+    comps.push(comp)
+  }
+  comps.sort((a, b) => b.length - a.length)
+  const keep = new Set(comps[0] || [])
+  const adj2 = adj.map((es, i) => keep.has(i) ? es.filter((e) => keep.has(e.to)) : [])
+  return { nodes, adj: adj2 }
+}
+
+// 在连通图上做全程贴路的巡游：从节点0出发沿边走遍所有边；连续无法走完时，对"孤立剩余边"的
+// 端点之间直接用 Dijkstra 贴路最短路径连接——保证整条路线**每一步都在真实道路上，绝不穿空地**。
+function eulerTour(graph) {
+  const nodes = graph.nodes, n = nodes.length
+  // 待走边（无向）
+  const used = new Set()
+  function edgeKey(u, v) { return u < v ? u + '|' + v : v + '|' + u }
+  function markUsed(u, v) { used.add(edgeKey(u, v)) }
+  function isUsed(u, v) { return used.has(edgeKey(u, v)) }
+  const g2 = graph.adj.map((es) => es.map((e) => e.to))
+  // 邻接(去重)
+  const adjU = g2.map((es) => Array.from(new Set(es)))
+  // 每节点未走边索引列表
+  const rem = adjU.map((es) => es.map((to, i) => ({ to })))
+  const usableCount = rem.reduce((s, arr) => s + arr.length, 0)
+  if (usableCount === 0) return [0]
+
+  // Dijkstra 贴路路径（只在真实连通的相邻节点间走），返回节点序列（含起止）
+  function dijkstraNodes(from, to) {
+    const dist = new Array(n).fill(Infinity), prev = new Array(n).fill(-1), done = new Array(n).fill(0)
+    dist[from] = 0
+    for (let it = 0; it < n; it++) {
+      let u = -1, bd = Infinity
+      for (let i = 0; i < n; i++) if (!done[i] && dist[i] < bd) { bd = dist[i]; u = i }
+      if (u < 0) break
+      done[u] = 1
+      for (const v of adjU[u]) {
+        const nd = dist[u] + Math.hypot(nodes[v][0] - nodes[u][0], nodes[v][1] - nodes[u][1])
+        if (nd < dist[v]) { dist[v] = nd; prev[v] = u }
+      }
+    }
+    if (!isFinite(dist[to])) return null
+    const out = []; let cur = to
+    while (cur >= 0) { out.push(cur); cur = prev[cur] }
+    return out.reverse()
+  }
+
+  const order = [0]
+  let cur = 0
+  const guard = 0
+  for (let step = 0; step < 100000; step++) {
+    // 当前节点找一条未走边
+    let ni = -1
+    const arr = rem[cur]
+    for (let i = 0; i < arr.length; i++) { if (!isUsed(cur, arr[i].to)) { ni = i; break } }
+    if (ni >= 0) {
+      const to = arr[ni].to
+      rem[cur].splice(ni, 1)
+      markUsed(cur, to)
+      cur = to
+      order.push(cur)
+      continue
+    }
+    // 当前节点无可走边：尝试找仍有用边的节点，从当前节点**贴路**(Dijkstra)走过去
+    // 若就近有能用边的节点，直接 Dijkstra 连接（不跳穿空地）。
+    let best = -1
+    for (let v = 0; v < n; v++) {
+      if (v === cur) continue
+      let has = false
+      for (const ed of rem[v]) if (!isUsed(v, ed.to)) { has = true; break }
+      if (has) { best = v; break }
+    }
+    if (best < 0) break   // 所有边都走完 → 结束
+    const chain = dijkstraNodes(cur, best)
+    if (chain && chain.length >= 2) {
+      // 沿贴路路径走（跳过起点，因为已在 order 中）
+      for (let i = 1; i < chain.length; i++) {
+        const v = chain[i]
+        // 沿途标记每条走过的边为已用（避免之后重复）
+        if (i > 0) markUsed(chain[i - 1], chain[i])
+        order.push(v)
+      }
+      cur = best
+      // 清理 rem 中这些边
+    } else {
+      // 兜底：无法贴路到达（理论上不会发生，因图连通）→ 直接停
+      break
+    }
+  }
+  return order
+}
+
+// 对灰色层一个点应用「全域重构变换」（与前端 map3d-gl.greyGlobalPx 逐位同式的算法）：
+// 以雷达底图中心为旋转/缩放轴心，先旋 sc 再平移 (tx,ty)。
+function greyGlobalPxBackend(x, y, g, radarCenter) {
+  if (!g) return [x, y]
+  const tx = numRecon(g.tx), ty = numRecon(g.ty), rot = numRecon(g.rot), sc = (numRecon(g.sc) > 0 ? numRecon(g.sc) : 1)
+  if (tx === 0 && ty === 0 && rot === 0 && sc === 1) return [x, y]
+  const r = rot * Math.PI / 180
+  const c = Math.cos(r) * sc, sn = Math.sin(r) * sc
+  const px = radarCenter[0], py = radarCenter[1]
+  const dx = x - px, dy = y - py
+  return [c * dx - sn * dy + px + tx, sn * dx + c * dy + py + ty]
+}
+// 对一组点套「逐元素」旋/缩/平移（绕自身质心）。与前端 perObjPts 同式。
+function perObjPtsBackend(pts, rec) {
+  const dx = numRecon(rec && rec.dx), dy = numRecon(rec && rec.dy)
+  const rot = numRecon(rec && rec.rot), sc = (rec && rec.sc > 0 ? rec.sc : 1)
+  if (rot === 0 && sc === 1 && dx === 0 && dy === 0) return pts.map((p) => [p[0], p[1]])
+  let cx = 0, cy = 0
+  for (const p of pts) { cx += p[0]; cy += p[1] }
+  cx /= pts.length; cy /= pts.length
+  const a = rot * Math.PI / 180, co = Math.cos(a) * sc, si = Math.sin(a) * sc
+  return pts.map((p) => {
+    const x = p[0] - cx, y = p[1] - cy
+    return [cx + co * x - si * y + dx, cy + si * x + co * y + dy]
+  })
+}
+function numRecon(v) { return typeof v === 'number' && isFinite(v) ? v : 0 }
+
+// 读取建模道路并套用服务器端重构变换（与前端 effectiveCalib().roads 完全一致）：
+//   · 删除 delRoads 标记的原始道路（按 key '#i' 或原名）
+//   · 每条保留的原始道路先做全域变换，再做逐路 dx/dy/rot/sc 偏移
+//   · 追加用户新增的 addRoads
+// 然后构建连通路网图并做欧拉巡游 → 返回覆盖全校园且全程贴路的像素折线。
+function campusRouteFromCalib() {
+  const fs2 = fs
+  if (!fs2.existsSync(CAMPUS_CALIB_FILE)) return null
+  let text
+  try { text = fs2.readFileSync(CAMPUS_CALIB_FILE, 'utf8') } catch (e) { return null }
+  let cal
+  try { cal = new Function('window', text + '; return window.MAP_CALIBRATION')({}) } catch (e) { return null }
+  const roads = (cal && Array.isArray(cal.roads)) ? cal.roads : []
+  if (!roads.length) return null
+  const radarC = (cal && Array.isArray(cal.radar_full_size) && cal.radar_full_size.length >= 2)
+    ? [cal.radar_full_size[0] / 2, cal.radar_full_size[1] / 2] : [2893, 2703]
+  const recon = mapRecon.get() || {}
+  const g = recon.global || {}
+  const roadOff = (recon.road && typeof recon.road === 'object') ? recon.road : {}
+  const delRoads = (recon.delRoads && typeof recon.delRoads === 'object') ? recon.delRoads : {}
+  const addRoads = Array.isArray(recon.addRoads) ? recon.addRoads : []
+  // 组装"重构后"的道路集（radar 像素折线）
+  const effRoads = []
+  roads.forEach((r, idx) => {
+    const key = '#' + idx
+    if (delRoads[key] || delRoads[r.name]) return
+    const off = roadOff[key] || roadOff[r.name] || (roadOff['#' + idx]) || null
+    const raw = (r.pts || []).filter((p) => p && p.length >= 2 && isFinite(p[0]) && isFinite(p[1]))
+      .map((p) => greyGlobalPxBackend(Number(p[0]), Number(p[1]), g, radarC))
+    if (!raw.length) return
+    effRoads.push({ name: r.name || '', cls: r.cls || 'road', pts: perObjPtsBackend(raw, off) })
+  })
+  // 追加新增道路（新增对象坐标已是最终 scene 像素，只保留自身逐对象偏移）
+  addRoads.forEach((a, i) => {
+    if (!a || !Array.isArray(a.pts) || a.pts.length < 2) return
+    effRoads.push({ name: a.name || ('新路' + (i + 1)), cls: a.cls || 'road', pts: perObjPtsBackend(a.pts.map((p) => [numRecon(p && p[0]), numRecon(p && p[1])]), a) })
+  })
+  if (!effRoads.length) return null
+  const gg = buildRoadGraph(effRoads)
+  if (!gg.nodes.length) return null
+  const order = eulerTour(gg)
+  if (order.length < 2) return null
+  const pts = []
+  for (const ni of order) {
+    const p = gg.nodes[ni]
+    const last = pts[pts.length - 1]
+    if (!last || Math.hypot(last[0] - p[0], last[1] - p[1]) > 1e-6) pts.push([p[0], p[1]])
+  }
+  return pts.length >= 2 ? pts : null
+}
+
+async function buildVirtualRoute(store) {
+  const data = await getMapRaw(store)
+  const detail = (data && data.mapDetailInfo) || {}
+  const md = detail.metadata || {}
+  if (!(Number(md.resolution) > 0) || !Array.isArray(md.origin)) return { ok: false, msg: '平台未下发 ROS metadata' }
+  const res = Number(md.resolution)
+  virtualRobot.setWorld(md)
+
+  // 用校园建模道路生成覆盖全校园的路线；失败则回退平台固定路径（保证不黑屏）
+  const campus = campusRouteFromCalib()
+  let path = null
+  if (campus) {
+    path = campus
+  } else {
+    // 兜底：平台固定路径图（老逻辑，已不用但留作回退）
+    const graphLm = Object.values(detail.landmarks || {}).find((p) => p && p.graph && p.graph.nodes)
+    if (graphLm) {
+      const ox = Number(md.origin[0]), oy = Number(md.origin[1]), H = Number(md.height)
+      const toPx = (x, y) => [(x - ox) / res, (H - (y - oy) / res)]
+      const nodes = {}
+      for (const k of Object.keys(graphLm.graph.nodes)) {
+        const pos = graphLm.graph.nodes[k].pos || []
+        if (pos.length >= 2) nodes[k] = toPx(Number(pos[0]), Number(pos[1]))
+      }
+      const ids = Object.keys(nodes)
+      const dist2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1])
+      const adj = {}
+      for (const e of (graphLm.graph.edges || [])) {
+        const a = e && e.edge && e.edge[0], b = e && e.edge && e.edge[1]
+        if (a == null || b == null || !nodes[a] || !nodes[b]) continue
+        ;(adj[a] = adj[a] || []).push(b); (adj[b] = adj[b] || []).push(a)
+      }
+      const seen = {}, out = []
+      for (const n of ids) {
+        if (seen[n]) continue
+        const visited = new Set(), qq = [n]; seen[n] = 1; visited.add(n)
+        while (qq.length) { const u = qq.shift(); for (const v of (adj[u] || [])) if (!visited.has(v)) { visited.add(v); seen[v] = 1; qq.push(v) } }
+        for (const v of visited) out.push(nodes[v])
+      }
+      if (out.length >= 2) path = out
+    }
+  }
+  if (!path || path.length < 2) return { ok: false, msg: '路线点不足' }
+  const okSet = virtualRobot.setRoute(path, res)
+  if (!okSet) return { ok: false, msg: '路线无效' }
+  const dist2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1])
+  const totalM = path.reduce((s, p, i) => (i ? s + dist2(p, path[i - 1]) : 0), 0) * res
+  console.log('[sim] 虚拟车路线：校园建模道路 ' + path.length + ' 点 · 全长 ' + totalM.toFixed(0) + ' 米（覆盖全校园）')
+  return {
+    ok: true,
+    msg: '校园建模道路 ' + path.length + ' 点 · 全长 ' + totalM.toFixed(0) + ' m'
+  }
+}
+// 幂等 + 5 分钟缓存（平台地图变更后会自然刷新）
+async function ensureVirtualRoute(store) {
+  if (!virtualRobot.enabled()) return
+  if (vRouteState.ok && Date.now() - vRouteState.ts < 5 * 60 * 1000) return
+  try {
+    const r = await buildVirtualRoute(store)
+    vRouteState = { ts: Date.now(), ok: !!r.ok, msg: r.msg || '' }
+    if (!r.ok && vRouteState.msg !== '平台未下发 ROS metadata') console.warn('[sim] 虚拟机器人路线未就绪：' + r.msg)
+  } catch (e) {
+    vRouteState = { ts: Date.now(), ok: false, msg: e.message }
+    console.warn('[sim] 虚拟机器人路线构建异常：' + e.message)
+  }
+}
+// 诊断用（大屏/管理页可显示虚拟机器人状态，含多台 + 开关态）
+function virtualRobotStatus() {
+  const s = virtualRobot.summary()
+  return Object.assign(s, {
+    device_sn: s.robots[0] ? s.robots[0].sn : virtualRobot.SN0,
+    name: s.robots[0] ? s.robots[0].name : '',
+    machine_status: s.robots[0] ? s.robots[0].status : virtualRobot.MACHINE_STATUS,
+    route: { ok: vRouteState.ok, msg: vRouteState.msg },
+    route_detail: virtualRobot.routeInfo()
+  })
+}
+// 运行时开关/手动切态/汇总（经 platform.js 透传到大屏控制 API）
+function virtualRobotSetEnabled(on) { return virtualRobot.setEnabled(on) }
+function virtualRobotSetState(sn, state, auto) { return virtualRobot.setState(sn, state, auto) }
+function virtualRobotSummary() { return virtualRobot.summary() }
 
 // ---------------- 机器人实时雷达数据（eviz 激光点云 + 代价地图） ----------------
 // 同一 EvizServer 代理接口除 robotpose 外还返回 laserscan（激光点云）与 costmap（代价地图 base64）。
@@ -663,18 +1066,31 @@ const MACHINE_TEXT = {
 
 // ---------------- 机器人设备列表 ----------------
 // 调平台 runtimeStatusList，返回真实设备状态；未配置凭据/调用失败时返回 { ok:false, msg }
+// 虚拟机器人（VIRTUAL_ROBOT=1）会并入清单：即便真实平台不可用也返回它，便于纯离线联调演示。
+function withVirtualRobot(res) {
+  if (!virtualRobot.enabled()) return res
+  const vs = virtualRobot.devices()
+  if (res && res.ok && Array.isArray(res.robots)) {
+    for (const v of vs) {
+      if (!res.robots.some((x) => x.device_sn === v.device_sn)) res.robots.push(v)
+    }
+    return res
+  }
+  return { ok: true, robots: vs, msg: ((res && res.msg) ? res.msg + '；' : '') + '仅虚拟机器人（模拟）' }
+}
+
 async function getDeviceList() {
-  if (MOCK) return { ok: false, msg: '本地演示模式，未接入真实开放物流平台' }
-  if (!platformReady()) return { ok: false, msg: '未配置开放物流平台凭据（PLATFORM_APPID/PLATFORM_SECRET/PLATFORM_PRINCIPALID）' }
+  if (MOCK) return withVirtualRobot({ ok: false, msg: '本地演示模式，未接入真实开放物流平台' })
+  if (!platformReady()) return withVirtualRobot({ ok: false, msg: '未配置开放物流平台凭据（PLATFORM_APPID/PLATFORM_SECRET/PLATFORM_PRINCIPALID）' })
   try {
     const r = await requestPlatform('GET', '/open-api/v1/deviceRuntime/runtimeStatusList?principalId=' + encodeURIComponent(PRINCIPAL_ID) + '&curPage=1&size=50')
     if (r.code !== 'COMM_200' || !r.data) {
-      return { ok: false, msg: (r && r.msg) || '获取设备列表失败' }
+      return withVirtualRobot({ ok: false, msg: (r && r.msg) || '获取设备列表失败' })
     }
     const data = r.data
     const list = Array.isArray(data) ? data : (data.data || [])
     const onlineText = { 1: '在线', 2: '离线', 3: '故障' }
-    return {
+    return withVirtualRobot({
       ok: true,
       robots: list.map((d) => ({
         device_sn: d.deviceSn || '',
@@ -692,9 +1108,9 @@ async function getDeviceList() {
         curr_map_id: d.currMapId || '',
         status_update_time: d.statusUpdateTime || ''
       }))
-    }
+    })
   } catch (e) {
-    return { ok: false, msg: '获取机器人失败：' + e.message }
+    return withVirtualRobot({ ok: false, msg: '获取机器人失败：' + e.message })
   }
 }
 
@@ -1041,6 +1457,7 @@ module.exports = {
   getMapOverview, fetchMapRawFresh, getMapImageBytes,
   robotposeToMeters, robotposeToMetersForAdmin, recordCalibPosePair, adminCalibStatus,
   getDevicePosition, getDevicePositionBySn, getRobotRadar, getDeviceList, getTaskStatus,
+  virtualRobotStatus, virtualRobotSetEnabled, virtualRobotSetState, virtualRobotSummary, ensureVirtualRoute,
   grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm,
   unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask,
   queryLightTask, stopRobot, queryDeviceTasks,
