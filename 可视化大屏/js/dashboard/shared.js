@@ -70,7 +70,16 @@ window.Dash = (function () {
     lastData: null,
     lastOkTs: 0,
     reloadDay: '',
-    demoCarsOn: false  // 演示车已在 3D 地图开启（setOpts 触发重建，只调一次）
+    demoCarsOn: false, // 演示车已在 3D 地图开启（setOpts 触发重建，只调一次）
+    // ---- 交互状态（选中 / 看板收缩 / 地图全屏）----
+    fleet: [],         // 最近一次车队快照（overview.robots）：选中变化时用它重渲染卡面
+    fleetError: '',
+    selectedSn: null,  // 当前选中的车：左侧卡面高亮 + 地图展开数据牌（两处共用同一份状态）
+    leftHidden: false, // 左栏（车辆）收起
+    rightHidden: false,// 右栏（订单与任务）收起
+    mapFull: false,    // 地图全屏（左右栏都让位给地图）
+    mapHooksBound: false,
+    mapObserver: null  // ResizeObserver：容器尺寸一变就重算 3D 画布（避免抽屉动画期间画布被拉伸）
   }
 
   return { C: C, ctx: { pad2: pad2, hhmmss: hhmmss, txt: txt, setClass: setClass, num: num, $: $ }, state: state, api: {}, views: {}, map: {}, calib: {}, main: {} }

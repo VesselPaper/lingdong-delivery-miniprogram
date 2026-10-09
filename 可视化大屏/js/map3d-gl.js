@@ -41,11 +41,22 @@ window.Map3DGL = (function () {
     // 雷达底图（激光可通行区）：默认**关闭** —— 大屏只保留校园道路与小车图标；
     // 调试对齐时可用工具栏「雷达图」按钮临时打开（能看到"有宽度的可通行区"对照）。
     ground: false,
-    spin: false, follow: false, roofFade: false
+    // 配送点标记（平台 landmarks：取货点/上货点/充电点）—— 默认开，工具栏「配送点」按钮可关
+    sites: true,
+    spin: false, follow: false, roofFade: false,
+    carNames: true,        // 车辆简洁名称（默认一行文字；选中车才展开完整数据牌）
+    // 大屏左侧车辆卡面 ↔ 地图车辆 双向同步的回调（大屏在 setOpts 里注入）：
+    //   onCarSelect(sn)     地图上点中某台车 → 大屏高亮左侧对应卡面（**不自动开启跟随**）
+    //   onFollowChange(on)  跟随被开启/关闭 → 回写按钮态（拖动地图会强制关闭跟随）
+    onCarSelect: null, onFollowChange: null
   }
   var cam = null, fitDist = 0
   var view = { az: 0, el: 65, zoom: 1, target: null, panX: 0, panY: 0 }
-  // 跟随目标车：点地图上的车辆选中跟随；null=未选（此时退回到跟首台）
+  // 当前选中的车：**只有它**展开完整数据牌（名称/状态/电量）+ 金色高亮圈；
+  // 其余车只显示一行简洁名称。用户反馈"每台车都挂一个卡面很乱"，故选中的交互入口
+  // 有两个：地图上点车、左侧车辆卡面（大屏 setSelected）。
+  var selectedSn = null
+  // 跟随目标车：跟随开启时跟它（跟"选中车"，没选中则退回跟首台）
   var followSn = null
   // 最近一帧车辆场景坐标（供点击选中跟随目标；含被下划线标记的坐标）
   var lastCars = []
@@ -762,6 +773,39 @@ window.Map3DGL = (function () {
     syncTiltSlider()
   }
 
+  /* ---------------- 选中 / 跟随（大屏左侧卡面与地图车辆共用同一份状态） ---------------- */
+
+  // 选中某台车（sn=null 取消选中）。
+  // silent=true 表示"大屏点卡面同步过来的"，不再回调大屏，避免 地图→大屏→地图 的回环。
+  function setSelected(sn, silent) {
+    var v = (sn === undefined || sn === null || sn === '') ? null : String(sn)
+    if (v === selectedSn) return selectedSn
+    selectedSn = v
+    if (v) followSn = v                      // 选中即成为跟随目标（是否真的跟随由 opts.follow 决定）
+    if (!silent && typeof opts.onCarSelect === 'function') {
+      try { opts.onCarSelect(selectedSn) } catch (e) { /* 回调异常不影响渲染 */ }
+    }
+    return selectedSn
+  }
+  function getSelected() { return selectedSn }
+
+  // 跟随开关：开启时跟"选中车"，没选中则退回跟首台（见帧循环）。
+  // 拖动画面会自动走这里关掉（用户要求：拖了画面就不要再跟着）。
+  function setFollow(on, silent) {
+    var v = !!on
+    if (v !== opts.follow) {
+      opts.follow = v
+      followSn = v ? selectedSn : null
+      if (!silent && typeof opts.onFollowChange === 'function') {
+        try { opts.onFollowChange(v) } catch (e) { /* 回调异常不影响渲染 */ }
+      }
+    }
+    var b = document.getElementById('m3Follow')
+    if (b) b.classList.toggle('on', !!opts.follow)
+    return !!opts.follow
+  }
+  function isFollowing() { return !!opts.follow }
+
   /* ---------------- 交互 ---------------- */
   function bindInput() {
     glc.style.cursor = 'grab'
@@ -798,7 +842,8 @@ window.Map3DGL = (function () {
         reconApi.pickAt(xy)
         return
       }
-      // 点击选中车辆作为跟随目标：命中任意一台车即选中并开启跟随
+      // 点击车辆 = **只选中**（金色高亮 + 展开数据牌 + 回调大屏高亮左侧卡面）。
+      // 不再"顺带开启跟随"：跟随必须由工具栏「跟随」按钮显式打开（用户明确要求）。
       if (cam && lastCars.length) {
         var hitSn = null, hitD = 28 * 28   // 命中半径约 28px
         for (var ci = 0; ci < lastCars.length; ci++) {
@@ -810,8 +855,7 @@ window.Map3DGL = (function () {
           if (dd < hitD) { hitD = dd; hitSn = cc.sn }
         }
         if (hitSn) {
-          followSn = hitSn
-          if (!opts.follow) { opts.follow = true; var fob = document.getElementById('m3Follow'); if (fob) fob.classList.add('on') }
+          setSelected(hitSn)
           e.preventDefault()
           return
         }
@@ -824,6 +868,12 @@ window.Map3DGL = (function () {
     })
     window.addEventListener('mousemove', function (e) {
       if (!drag) return
+      // 用户开始拖动画面（左键旋转 / 右键·Shift 平移）→ 自动关闭跟随。
+      // 以"离按下点的位移 > 4px"判定，避免把一次点击误判成拖动。
+      if (!drag.dragOff && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4) {
+        drag.dragOff = true
+        if (opts.follow) setFollow(false)
+      }
       if (drag.pan) {
         // 增量跟手：在更新 pan 前先用「当前未变相机」对上一光标与当前光标各解一次地面点，
         // 二者之差即屏幕位移对应的地面世界位移，累加进 panX/panY。
@@ -924,14 +974,13 @@ window.Map3DGL = (function () {
     if (rd) rd.addEventListener('click', function () { opts.roads = !opts.roads; rd.classList.toggle('on', opts.roads); rebuild() })
     var gr = document.getElementById('m3Ground')
     if (gr) gr.addEventListener('click', function () { opts.ground = !opts.ground; gr.classList.toggle('on', opts.ground) })
+    // 配送点在叠加层（overlay）每帧重画，开关只需翻 opts 标志，不必 rebuild 静态网格
+    var st = document.getElementById('m3Site')
+    if (st) st.addEventListener('click', function () { opts.sites = !opts.sites; st.classList.toggle('on', opts.sites) })
     var sp = document.getElementById('m3Spin')
     if (sp) sp.addEventListener('click', function () { opts.spin = !opts.spin; sp.classList.toggle('on', opts.spin) })
     var fo = document.getElementById('m3Follow')
-    if (fo) fo.addEventListener('click', function () {
-      opts.follow = !opts.follow
-      if (!opts.follow) followSn = null
-      fo.classList.toggle('on', opts.follow)
-    })
+    if (fo) fo.addEventListener('click', function () { setFollow(!opts.follow) })
     var fd = document.getElementById('m3Fade')
     if (fd) fd.addEventListener('click', function () { opts.roofFade = !opts.roofFade; fd.classList.toggle('on', opts.roofFade) })
     var rst = document.getElementById('mapReset')
@@ -1475,6 +1524,14 @@ window.Map3DGL = (function () {
   }
 
   /* ---------------- 2D 叠加层：全息标签 / 橙色路线 / 车辆数据 ---------------- */
+  // 文字宽度测量（带缓存）：标签避让要用；同一串字 + 同一字号只量一次
+  var _twCache = {}
+  function textWidth(g, txt, font) {
+    var k = font + '|' + txt
+    var v = _twCache[k]
+    if (v === undefined) { g.font = font; v = g.measureText(txt).width; _twCache[k] = v }
+    return v
+  }
   function drawOverlay(t, cars) {
     if (!ov) return
     var g = ov
@@ -1486,6 +1543,16 @@ window.Map3DGL = (function () {
     // 叠加层只负责：车辆定位标记、数据牌、楼栋标签、被偏移楼栋的真实位置提示。
 
     // ---- 车辆：轨迹拖尾 + 定位光环 + 光柱 + 数据牌（叠加层，保证"永远看得见车在哪"）----
+    // 选中车的数据牌必须"压在整帧最上层"（楼栋名/站点名/站点针都不该盖住它）。
+    // 叠加层顺序是 车 → 站点针 → 楼栋·站点文字，所以这里先把牌子记下来，
+    // 整帧画完再统一补画（见本函数末尾，以及 opts.labels 为假时的提前返回处）。
+    var plates = []
+    function flushPlates() {
+      for (var p = 0; p < plates.length; p++) {
+        g.globalAlpha = 1
+        drawPlate(g, plates[p].x, plates[p].y, plates[p].lines, plates[p].color)
+      }
+    }
     g.textBaseline = 'middle'
     for (var ci = 0; ci < cars.length; ci++) {
       var c = cars[ci]
@@ -1497,13 +1564,20 @@ window.Map3DGL = (function () {
       var top = S.projectPoint(cam, W, H, [c.x, carMesh.height + 1.6 * scene.pxPerM, c.z])
       if (!top) { g.globalAlpha = 1; continue }
       var info = live.fleet[c.sn]
-      var lines = []
-      if (c.demo) lines.push('演示车 · 配送中')
-      else if (info) {
-        lines.push((info.machine_text || info.machine_status || '在线') + (c.snapped ? ' · 已贴路' : ''))
-        if (info.battery != null) lines.push('电量 ' + info.battery + '%')
-      } else lines.push('无人车' + (c.snapped ? ' · 已贴路' : ''))
-      drawPlate(g, top[0], top[1] - 26, lines, '#7ff0ff')
+      var isSel = !!(selectedSn && c.sn === selectedSn)
+      if (isSel) {
+        // 选中车：完整数据牌（名称 / 状态 / 电量）+ 金色高亮圈（高亮圈在 drawCarMarker 里画）
+        var lines = [carLabel(c, info)]
+        var stx = carStatusText(c, info)
+        if (stx) lines.push(stx)
+        if (info && info.battery != null) lines.push('电量 ' + info.battery + '%')
+        // 抬升量随牌子大小一起变（牌子变高后不能压住车顶）；
+        // 只入队不立即画 —— 整帧结束前最后补画，保证不被楼名/站点名遮挡。
+        plates.push({ x: top[0], y: top[1] - (16 + 14 * plateScale()), lines: lines, color: '#7ff0ff' })
+      } else if (opts.carNames) {
+        // 未选中车：只画一行简洁名称，不画底板/引线 —— 多台车同屏也不糊成一片卡片
+        drawCarName(g, top[0], top[1] - 12, carLabel(c, info), !!c.demo)
+      }
       g.globalAlpha = 1
     }
 
@@ -1592,7 +1666,11 @@ window.Map3DGL = (function () {
     // 图标是"定位针"；文字统一收集到 siteLabels，最后和楼名一起做避让排布。
     var siteLabels = []
     var seenLm = {}                   // 兜底去重：同名 + 同雷达坐标只画一个 pin / 收集一次文字
-    if (live.bbox && live.meta && live.landmarks && live.landmarks.length) {
+    // 注意：**不要**要求 live.meta —— 后端 overview 的 map 只下发 bbox（不下发 ROS meta），
+    // 而 makePlatformToRadar 在没有 meta 时会退回 bbox 归一化（与后端算 px/py 用的是同一套映射，
+    // 2.5D 回退版 map3d-core.js 也是这么画的）。之前这里多写了 `&& live.meta`，
+    // 导致 3D 模式下 13 个配送点一个都不画（用户反馈"配送点消失了"）。
+    if (opts.sites && live.bbox && live.landmarks && live.landmarks.length) {
       var lmP2r = S.makePlatformToRadar(live.bbox, scene.radarW, scene.radarH, live.meta)
       if (lmP2r) {
         for (var L0 = 0; L0 < live.landmarks.length; L0++) {
@@ -1652,7 +1730,7 @@ window.Map3DGL = (function () {
       }
     }
 
-    if (!opts.labels) return
+    if (!opts.labels) { flushPlates(); return }   // 关掉标注也要把数据牌画在最上层
     // ---- 第一层：楼栋名（宿舍楼 / 食堂 / 餐厅 / 铺子 **同层级、同样式**）----
     // 缩放区间：(0.50, 1.25) —— 缩到最小(≥1.25)才消失；放大到 T3(取货点名)出现时隐藏。
     var showT1 = (view.zoom > TIER_T3_ZOOM && view.zoom < TIER_T1_HIDE_OUT)
@@ -1672,7 +1750,7 @@ window.Map3DGL = (function () {
     // 站点文字并入同一批（第二/三层已在收集时按各自缩放区间过滤过）
     for (var sl = 0; sl < siteLabels.length; sl++) items.push(siteLabels[sl])
 
-    // ---- 统一绘制：**不挪位、不隐藏**（重叠只靠"变淡"，文字不消失）----
+    // ---- 统一绘制 ----
     //   · 远的先画、近的后画 → 近处的名字自然压住远处的名字；
     //   · 初始完全不透明(alpha=1)，越远越透明（被遮在后面的越淡），最近 1.00 → 最远 0.45；
     //   · 同深度时按层级：楼栋(1)最后画、压在上层，然后第二层、第三层。
@@ -1684,21 +1762,68 @@ window.Map3DGL = (function () {
     items.forEach(function (it) { if (it.d < dMin) dMin = it.d; if (it.d > dMax) dMax = it.d })
     var dSpan = Math.max(1e-6, dMax - dMin)
     var kzText = 1 / Math.max(0.01, view.zoom)
+    // 逐项先定字号/透明度（避让排布要拿字号量宽度）
+    for (var k0 = 0; k0 < items.length; k0++) {
+      var it0 = items[k0]
+      it0.bold = (it0.kind === 'bld')
+      it0.base = it0.bold ? LABEL_BASE_PX[1] : (it0.pr === 2 ? LABEL_BASE_PX[2] : LABEL_BASE_PX[3])
+      it0.font = (it0.bold ? 'bold ' : '') + (it0.base * kzText).toFixed(1) + 'px "Microsoft YaHei",sans-serif'
+      it0.alpha = 1.00 - 0.55 * ((it0.d - dMin) / dSpan)
+      it0.tx = it0.x; it0.ty = it0.y      // 最终落笔位置（下面避让只改站点项的）
+    }
+    // ---- 站点文字避让：楼栋名原地不动，站点文字上下挪一行半行 ----
+    // 为什么需要：上货点/充电点/取货点常挤在铺子门口（本图 3 个点相距不到 5m），三层分级后字号又小，
+    // 几个名字叠在一起就糊成一团 —— 而铺子门口恰好是最该看清的位置。
+    // 设计约定不破：**文字永不消失**（候选位置全被占就画回原位）；楼栋名优先级最高、一律不挪。
+    // 站点之间"由近到远"抢位：越靠近镜头（画得越靠上层）的越先保住原位，远的让位。
+    var rowH = Math.max(9, LABEL_BASE_PX[3] * kzText * 1.55)
+    var taken = []
+    function hitBox(x, y, w, h) {
+      for (var i = 0; i < taken.length; i++) {
+        var b = taken[i]
+        if (x < b[2] && x + w > b[0] && y < b[3] && y + h > b[1]) return true
+      }
+      return false
+    }
+    function reserve(it, x, y, w, h) { taken.push([x - 2, y - h, x + w + 3, y + h * 0.45]) }
+    var kb2, its2
+    for (kb2 = 0; kb2 < items.length; kb2++) {
+      var ib = items[kb2]
+      if (!ib.bold) continue
+      var wb = textWidth(g, ib.text, ib.font), hb = ib.base * kzText * 1.2
+      reserve(ib, ib.x, ib.y, wb, hb)
+    }
+    for (var ks2 = items.length - 1; ks2 >= 0; ks2--) {     // 反向遍历＝由近到远
+      its2 = items[ks2]
+      if (its2.bold) continue
+      var ws = textWidth(g, its2.text, its2.font), hs = its2.base * kzText * 1.2
+      // 先试上下挪行（0 / ±1 / ±2 / ±3 行），都不行再试左右让半个字宽
+      var cand = [0, -rowH, rowH, -2 * rowH, 2 * rowH, -3 * rowH, 3 * rowH]
+      var placed = false
+      for (var cc = 0; cc < cand.length; cc++) {
+        var yy = its2.y + cand[cc]
+        if (!hitBox(its2.x - 2, yy - hs, ws + 5, hs * 1.45)) { its2.ty = yy; placed = true; break }
+      }
+      for (var hc = 0; hc < 2 && !placed; hc++) {
+        var xx = its2.x + (hc ? -(ws + 9) : (ws * 0.62 + 7))   // 挪到针的左侧 / 右侧
+        if (!hitBox(xx - 2, its2.y - hs, ws + 5, hs * 1.45)) { its2.tx = xx; placed = true }
+      }
+      // placed 仍为 false：5 个候选位都压字 → 保持原位画出去（"文字永不消失"）
+      reserve(its2, its2.tx, its2.ty, ws, hs)
+    }
     for (var k2 = 0; k2 < items.length; k2++) {
       var it = items[k2]
-      var tFar = (it.d - dMin) / dSpan                 // 0=最近 1=最远
-      var alpha = 1.00 - 0.55 * tFar                   // 1.00（完全不透明）→ 0.45
-      var bold = (it.kind === 'bld')
-      var base = bold ? LABEL_BASE_PX[1] : (it.pr === 2 ? LABEL_BASE_PX[2] : LABEL_BASE_PX[3])
-      g.globalAlpha = alpha
-      g.font = (bold ? 'bold ' : '') + (base * kzText).toFixed(1) + 'px "Microsoft YaHei",sans-serif'
+      g.globalAlpha = it.alpha
+      g.font = it.font
       g.lineWidth = Math.max(2, 3 * kzText)
       g.strokeStyle = 'rgba(6,18,32,0.85)'
-      g.strokeText(it.text, it.x, it.y)
+      g.strokeText(it.text, it.tx, it.ty)
       g.fillStyle = it.color || '#9ef2ff'
-      g.fillText(it.text, it.x, it.y)
+      g.fillText(it.text, it.tx, it.ty)
       g.globalAlpha = 1
     }
+    // ---- 最后补画选中车数据牌：此时楼名/站点名都已画完，牌子必在最上层 ----
+    flushPlates()
   }
   function strokePath(g, pts) {
     g.beginPath()
@@ -1780,8 +1905,8 @@ window.Map3DGL = (function () {
   function drawCarMarker(g, c) {
     var ap = (c.appear == null ? 1 : c.appear)
     var r = CAR_LEN_M * 0.92 * scene.pxPerM * ap
-    // 当前跟随目标车：额外画一个金色虚线外圈，提示"正在跟这辆车"
-    if (followSn && c.sn === followSn) {
+    // 当前选中的车：额外画一个金色虚线外圈，提示"这台车已被选中"（跟随目标=选中车）
+    if (selectedSn && c.sn === selectedSn) {
       var rr = CAR_LEN_M * 1.35 * scene.pxPerM
       var rng = []
       for (var kk = 0; kk <= 40; kk++) {
@@ -1836,27 +1961,84 @@ window.Map3DGL = (function () {
       g.restore()
     }
   }
+  // 车辆显示名：优先平台车队里的中文名（如"虚拟测试车1"），没有就用设备号后 6 位。
+  function carLabel(c, info) {
+    if (c && c.demo) return '演示车'
+    var nm = info && info.name ? String(info.name) : ''
+    if (nm) return nm
+    return String((c && c.sn) || '无人车').slice(-6)
+  }
+  // 车辆状态文案（选中车的数据牌第二行）
+  function carStatusText(c, info) {
+    if (c && c.demo) return '配送中'
+    if (!info) return (c && c.snapped) ? '已贴路' : '在线'
+    return String(info.machine_text || info.machine_status || '在线') + (c.snapped ? ' · 已贴路' : '')
+  }
+  // 未选中车的简洁名称：发光小字 + 深色描边，不画底板/引线（"贴"在车边，不抢画面）
+  // 字号比数据牌小一档（主次分明），但同样跟随地图缩放置适应
+  function drawCarName(g, x, y, text, strong) {
+    if (!text) return
+    var kz = 1 / Math.max(0.01, view.zoom)
+    g.save()
+    g.textAlign = 'center'
+    g.textBaseline = 'middle'
+    g.font = (strong ? 'bold ' : '') + (12.5 * kz).toFixed(1) + 'px "Microsoft YaHei",sans-serif'
+    g.lineWidth = Math.max(2, 3 * kz)
+    g.strokeStyle = 'rgba(6,18,32,0.9)'
+    g.strokeText(text, x, y)
+    g.fillStyle = 'rgba(196,246,255,0.96)'
+    g.shadowColor = 'rgba(80,220,255,0.75)'
+    g.shadowBlur = 6 * kz
+    g.fillText(text, x, y)
+    g.restore()
+    g.textAlign = 'start'
+  }
+  // 数据牌尺寸自适应（用户反馈"文字框太小，看不清；要能适应页面变化"）：
+  //   · 基准比原来大一圈：车名 15px 粗体、状态/电量 13px（原来一律 11px）；
+  //   · 跟随地图缩放 kz = 1/view.zoom —— 与未选中车的车名同源，放大看细节时牌子一起变大；
+  //   · 地图变宽（收起侧栏 / 地图全屏）再乘一点系数（按宽度的平方根，最多 +25%），大屏上更清楚；
+  //   · 结果夹在 1.0~1.90：最小不比基准小，最大不会糊住半张地图。
+  // 参考宽度取默认三栏布局下的地图画布 1112px。
+  function plateScale() {
+    var kz = 1 / Math.max(0.01, view.zoom)
+    var kw = Math.min(1.25, Math.sqrt(Math.max(1, (W || 1112) / 1112)))
+    return Math.max(1.0, Math.min(1.90, kz * kw))
+  }
+
   // 全息数据牌：深色底 + 青色描边 + 发光文字
   function drawPlate(g, x, y, lines, color) {
     if (!lines.length) return
-    g.font = '11px "Microsoft YaHei",sans-serif'
+    var k = plateScale()
+    var fsName = 15 * k            // 第一行：车名（粗体、更亮）
+    var fsLine = 13 * k            // 其余行：状态 / 电量
+    var pad = 9 * k
+    var pitch = 20 * k
     var wmax = 0
-    for (var i = 0; i < lines.length; i++) wmax = Math.max(wmax, g.measureText(lines[i]).width)
-    var w = wmax + 16, h = lines.length * 14 + 8
+    for (var i = 0; i < lines.length; i++) {
+      g.font = (i === 0 ? 'bold ' : '') + (i === 0 ? fsName : fsLine).toFixed(1) + 'px "Microsoft YaHei",sans-serif'
+      wmax = Math.max(wmax, g.measureText(lines[i]).width)
+    }
+    var w = wmax + pad * 2, h = pitch * lines.length + pad * 1.2
+    // 贴边钳位：车开到画面边缘时牌子也不至于被画到画布外（"适应页面变化"）
     var x0 = x - w / 2, y0 = y - h
+    if (W > w + 4) x0 = Math.max(2, Math.min(W - w - 2, x0))
+    if (H > h + 4) y0 = Math.max(2, Math.min(H - h - 2, y0))
     g.save()
-    g.fillStyle = 'rgba(6,20,34,0.72)'
-    g.strokeStyle = 'rgba(80,220,255,0.75)'
-    g.lineWidth = 1
-    roundRect(g, x0, y0, w, h, 4)
+    g.fillStyle = 'rgba(6,20,34,0.78)'
+    g.strokeStyle = 'rgba(80,220,255,0.8)'
+    g.lineWidth = Math.max(1, 1.2 * k)
+    roundRect(g, x0, y0, w, h, 5 * k)
     g.fill(); g.stroke()
-    // 引线
-    g.beginPath(); g.moveTo(x, y); g.lineTo(x, y0 + h); g.stroke()
-    g.shadowColor = color; g.shadowBlur = 8
-    g.fillStyle = color
+    // 引线：从牌子下沿指向车（牌子被钳位后会略微偏，所以引线接的是"牌子中心"而不是车正上方）
+    g.beginPath(); g.moveTo(x, y); g.lineTo(Math.max(x0 + 6 * k, Math.min(x0 + w - 6 * k, x)), y0 + h); g.stroke()
+    g.shadowColor = color; g.shadowBlur = 8 * k
     g.textAlign = 'center'
     g.textBaseline = 'middle'
-    for (var k = 0; k < lines.length; k++) g.fillText(lines[k], x, y0 + 11 + k * 14)
+    for (var k2 = 0; k2 < lines.length; k2++) {
+      g.fillStyle = k2 === 0 ? '#ffffff' : color
+      g.font = (k2 === 0 ? 'bold ' : '') + (k2 === 0 ? fsName : fsLine).toFixed(1) + 'px "Microsoft YaHei",sans-serif'
+      g.fillText(lines[k2], x0 + w / 2, y0 + pad * 0.6 + pitch * (k2 + 0.5))
+    }
     g.restore()
     g.textAlign = 'start'
   }
@@ -1907,6 +2089,12 @@ window.Map3DGL = (function () {
     setOpts: setOpts, getOpts: getOpts, probe: probe,
     setCarScale: setCarScale,
     setRobots: setRobots,
+    // 选中/跟随（大屏左侧车辆卡面用）：setSelected 由大屏调用（silent 同步，不回环）
+    setSelected: setSelected, getSelected: getSelected,
+    setFollow: setFollow, isFollowing: isFollowing,
+    // 容器尺寸变化（左右看板收缩 / 地图全屏）后必须重算画布尺寸：
+    // resize() 读的是 mapBox 的 clientWidth/Height，不主动调用则画布会拉伸出错。
+    resize: resize,
     isReady: function () { return ready }, hasFailed: function () { return failed }
   }
 })()

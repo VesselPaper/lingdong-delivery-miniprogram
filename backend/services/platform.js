@@ -645,6 +645,11 @@ module.exports = {
   queryDeviceTasks: httpApi.queryDeviceTasks, adminCalibStatus: httpApi.adminCalibStatus,
   syncTaskStatus: callbacks.syncTaskStatus, applyStatus: callbacks.applyStatus,
   cancelMockTask: mock.cancelMockTask,
+  // 虚拟测试车（大屏「虚拟车」按钮的运行时开关/手动状态）：定义在 platform-http → services/virtualRobot，
+  // 这里必须一并转发，否则 domains/admin/routes.js 的 /dashboard/virtual-robot* 会 500。
+  virtualRobotSummary: httpApi.virtualRobotSummary,
+  virtualRobotSetEnabled: httpApi.virtualRobotSetEnabled,
+  virtualRobotSetState: httpApi.virtualRobotSetState,
   platformReady: httpApi.platformReady,
   syncLandmarks: httpApi.syncLandmarks,
   getMapOverview: httpApi.getMapOverview, getMapBbox: httpApi.getMapBbox,

@@ -6,7 +6,7 @@
 <title>零栋铺子 · 无人送餐调度大屏</title>
 <meta name="description" content="校园无人送餐机器人实时调度大屏：实时雷达地图、车辆动向、订单与批次状态">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2307142b'/%3E%3Crect x='7' y='12' width='18' height='4' rx='2' fill='%2337e0ff'/%3E%3Crect x='7' y='19' width='11' height='3.5' rx='1.75' fill='%236fe9ff' opacity='.7'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/dashboard.css?v=3d1">
+<link rel="stylesheet" href="css/dashboard.css?v=3d2">
 <link rel="stylesheet" href="vendor/leaflet.css">
 </head>
 <body>
@@ -45,17 +45,12 @@
       </div>
 
       <div class="panel grow">
-        <div class="panel-title">车辆状态 <span class="en">VEHICLE</span><span class="badge" id="robotCount">0 台</span></div>
-        <div class="sub">车辆清单</div>
-        <ul class="fleet" id="robotList"></ul>
-        <div class="empty" id="robotEmpty">暂无车辆数据</div>
-        <div class="sub">任务状态</div>
-        <div class="tasks">
-          <span class="tasktag">空闲待命</span>
-          <span class="tasktag cur">配送执行中</span>
-          <span class="tasktag">返回门店</span>
-          <span class="tasktag">充电中</span>
+        <div class="panel-title">车辆状态 <span class="en">VEHICLE</span>
+          <span class="tRight"><span class="badge" id="robotCount">0 台</span><button class="colToggle" id="colLeftToggle" title="收起左栏（车辆），空间让给地图">‹</button></span>
         </div>
+        <div class="sub">点击卡面选中 · 地图同步高亮（不自动跟随）</div>
+        <ul class="fleetCards" id="robotList"></ul>
+        <div class="empty" id="robotEmpty">暂无车辆数据</div>
       </div>
 
       <div class="panel">
@@ -103,6 +98,7 @@
           <button id="m3Fade" title="楼体半透明：俯视时看清被楼压住的道路（默认关闭，楼体实心可见）">楼体透明</button>
           <button id="m3Ground" title="雷达底图：机器人激光测绘的**可通行区（有真实路宽）**，默认关闭；调试对齐时打开可对照">雷达图</button>
           <button id="m3Label" class="on" title="楼栋名称">标注</button>
+          <button id="m3Site" class="on" title="配送点标记（平台点位：取货点/上货点/充电点；放大后显示点位名称）">配送点</button>
           <button id="m3Align" title="3D图层重构：把灰色OSM路网/楼体逐栋逐路校补到雷达激光图真实位置（小车吸附到建模道路上）">重构</button>
           <span class="ctlSep"></span>
           <button id="simToggle" class="on" title="虚拟测试车（后端接口层模拟、不参与真实派车）：运行时开/关整批">虚拟车</button>
@@ -113,6 +109,12 @@
       <div class="mapStage">
         <div class="mapBox" id="mapBox"></div>
         <div class="mapMask" id="mapMask">地图数据加载中…</div>
+
+        <!-- 左/右看板收起后，在贴边处留一个"展开把手"（点击恢复该栏；再点面板里的 ‹ › 收起） -->
+        <button class="edgeTab left" id="edgeTabLeft" hidden title="展开左栏（车辆）">›</button>
+        <button class="edgeTab right" id="edgeTabRight" hidden title="展开右栏（订单与任务）">‹</button>
+        <!-- 地图全屏：左右看板一起让位，只留地图；Esc 或再点一次退出 -->
+        <button class="mapFullBtn" id="mapFullBtn" title="地图全屏（只留地图，Esc 退出）">⛶ 全屏</button>
         <div id="alignPanel" hidden style="position:absolute;top:8px;right:8px;z-index:70;width:272px;background:rgba(10,25,41,.94);border:1px solid rgba(80,200,220,.5);color:#e6f7ff;border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.4;box-shadow:0 4px 18px rgba(0,0,0,.45)">
           <div style="font-weight:700;margin-bottom:6px">3D 图层重构 · 灰色 OSM → 雷达图真实位置</div>
           <div id="alignDelta" style="color:#7fe6ff;margin-bottom:6px">全域 → X 0.0m · Y 0.0m · 旋转 0.0°</div>
@@ -185,23 +187,36 @@
       </div>
     </section>
 
-    <!-- ==================== 右栏：订单配送看板 ==================== -->
+    <!-- ==================== 右栏：订单与任务（任务状态 + 订单 + 告警 + 动态） ==================== -->
     <section class="colRight">
 
+      <!-- 任务状态：配送任务流水线（原先挂在左栏车辆状态下面，按"左侧车辆 / 右侧订单与任务"重新归位） -->
       <div class="panel">
-        <div class="panel-title">订单配送看板 <span class="en">ORDERS</span></div>
-        <div class="stat-cards">
-          <div class="stat"><div class="n" id="mToday">0</div><div class="t">今日订单</div></div>
-          <div class="stat"><div class="n" id="mDelivering">0</div><div class="t">配送中</div></div>
-          <div class="stat"><div class="n" id="mPickup">0</div><div class="t">待取货</div></div>
-          <div class="stat"><div class="n" id="mPending">0</div><div class="t">待接单</div></div>
+        <div class="panel-title">任务状态 <span class="en">TASK FLOW</span>
+          <span class="tRight"><button class="colToggle" id="colRightToggle" title="收起右栏（订单与任务），空间让给地图">›</button></span>
+        </div>
+        <div class="flow" id="taskFlow">
+          <div class="flowStep" id="fsPending"><b id="mPending">0</b><span>待接单</span></div>
+          <i class="flowArrow"></i>
+          <div class="flowStep" id="fsLoad"><b id="mLoad">0</b><span>待上货</span></div>
+          <i class="flowArrow"></i>
+          <div class="flowStep" id="fsDelivering"><b id="mDelivering">0</b><span>配送中</span></div>
+          <i class="flowArrow"></i>
+          <div class="flowStep" id="fsPickup"><b id="mPickup">0</b><span>待取货</span></div>
         </div>
         <div class="statSub">
-          <span>营业额 <b id="mAmount">¥0</b></span>
-          <span>待上货 <b id="mLoad">0</b></span>
           <span>异常 <b id="mException">0</b></span>
           <span>售后 <b id="mAftersale">0</b></span>
           <span>取消申请 <b id="mCancelReq">0</b></span>
+        </div>
+      </div>
+
+      <div class="panel grow">
+        <div class="panel-title">订单配送看板 <span class="en">ORDERS</span></div>
+        <div class="stat-cards">
+          <div class="stat"><div class="n" id="mToday">0</div><div class="t">今日订单</div></div>
+          <div class="stat"><div class="n" id="mAmount">¥0</div><div class="t">营业额</div></div>
+          <div class="stat"><div class="n" id="mFinished">0</div><div class="t">今日完成</div></div>
         </div>
         <div class="sub">进行中批次 <span class="badge" id="batchCount">0 批</span></div>
         <ul class="batchList" id="batchList"></ul>
@@ -246,13 +261,13 @@
 <script src="assets/map-recon-default.js?v=3d60"></script>
 <!-- WebGL 着色器定义（纯 GLSL，不依赖 gl 实例，可在 map3d-gl.js 之前加载） -->
 <script src="js/render/gl3d/shaders.js?v=3d42"></script>
-<script src="js/map3d-gl.js?v=3d78"></script>
-<script src="js/map3d-entry.js?v=3d42"></script>
+<script src="js/map3d-gl.js?v=3d83"></script>
+<script src="js/map3d-entry.js?v=3d43"></script>
 <!-- 大屏骨架（分件）：共享上下文 → 数据源 → 界面渲染 → 地图 → 编排者/启动 -->
-<script src="js/dashboard/shared.js?v=3d61"></script>
+<script src="js/dashboard/shared.js?v=3d62"></script>
 <script src="js/dashboard/api.js?v=3d61"></script>
-<script src="js/dashboard/views-ui.js?v=3d42"></script>
+<script src="js/dashboard/views-ui.js?v=3d43"></script>
 <script src="js/dashboard/map.js?v=3d42"></script>
-<script src="js/dashboard/main.js?v=3d60"></script>
+<script src="js/dashboard/main.js?v=3d61"></script>
 </body>
 </html>

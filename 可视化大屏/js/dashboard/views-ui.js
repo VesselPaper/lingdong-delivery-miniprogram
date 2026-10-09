@@ -45,31 +45,35 @@ window.Dash.views = (function (Dash) {
     txt($('subTitle'), (shop.name || '零栋铺子') + ' · 四川师范大学成龙校区')
   }
 
-  /* ---------------- 渲染：指标 ---------------- */
+  /* ---------------- 渲染：指标 + 任务状态流水线 ---------------- */
 
-  // 带强调色的指标在 0 时退为弱色：0 不应该抢注意力（"待接单 0"标成橙色是噪音）
-  function paintMetric(el, value) {
+  // 任务状态某一格：写数字 + 按 0/非 0 调色（0 不抢注意力；"在途"环节有量时点亮暖色）
+  function flowStep(id, value, hot) {
+    var el = $(id)
+    if (!el) return
     var v = num(value)
-    txt(el, v)
-    if (el) {
-      if (v === 0) el.classList.add('is-zero'); else el.classList.remove('is-zero')
-    }
+    var b = el.querySelector('b')
+    if (b) { txt(b, v); if (v === 0) b.classList.add('is-zero'); else b.classList.remove('is-zero') }
+    el.classList.toggle('is-zero', v === 0)
+    el.classList.toggle('hot', !!hot && v > 0)
   }
 
   function renderStats(stats) {
     stats = stats || {}
     txt($('mToday'), num(stats.today_orders))
     txt($('mAmount'), '¥' + num(stats.today_amount).toFixed(0))
-    paintMetric($('mPending'), stats.pending)
-    txt($('mLoad'), num(stats.ready_load))
-    paintMetric($('mDelivering'), stats.delivering)
-    paintMetric($('mPickup'), stats.pickup)
+    txt($('mFinished'), num(stats.finished))
+    // 任务状态：配送任务流水线（待接单 → 待上货 → 配送中 → 待取货）
+    flowStep('fsPending', stats.pending, false)
+    flowStep('fsLoad', stats.ready_load, false)
+    flowStep('fsDelivering', stats.delivering, true)
+    flowStep('fsPickup', stats.pickup, true)
     txt($('mException'), num(stats.exception))
     txt($('mAftersale'), num(stats.aftersale))
     txt($('mCancelReq'), num(stats.cancel_requests))
   }
 
-  /* ---------------- 渲染：无人车列表 ---------------- */
+  /* ---------------- 渲染：车辆卡面（名称 / 状态 / 电量，点击选中） ---------------- */
 
   function statusClass(machine) {
     var m = String(machine || '')
@@ -79,13 +83,22 @@ window.Dash.views = (function (Dash) {
     return 's-idle'
   }
 
+  // 每台车一张卡面（不再是表格行）：鼠标点卡面 = 选中该车（地图同步高亮、展开数据牌），
+  // 再点一次取消选中。选中态由 state.selectedSn 统一驱动，地图点车也会回到这里重渲染。
   function renderRobots(robots, error) {
     var list = $('robotList')
     robots = robots || []
+    // 车队快照留在 state：选中变化时无需等下一轮轮询即可立即重渲染卡面
+    state.fleet = robots
+    state.fleetError = error || ''
     txt($('robotCount'), robots.length + ' 台')
 
     if (error && !robots.length) {
-      renderSimpleList(list, [error], 'robotItem')
+      list.innerHTML = ''
+      var e0 = document.createElement('li')
+      e0.className = 'empty'
+      e0.textContent = error
+      list.appendChild(e0)
       $('robotEmpty').hidden = true
       return
     }
@@ -94,42 +107,41 @@ window.Dash.views = (function (Dash) {
     // 固定行数复用：先补齐节点，再改文本（不做 clear + append）
     while (list.children.length < show.length) {
       var li = document.createElement('li')
-      li.className = 'robotItem'
-      li.innerHTML = '<span class="robotName"></span>'
-        + '<span class="battery"><span class="batteryBar"><i></i></span><span class="batteryNum"></span></span>'
-        + '<span class="robotStatus"></span>'
+      li.className = 'vcard'
+      li.innerHTML = '<div class="vcTop"><span class="vcName"></span><span class="vcSn"></span></div>'
+        + '<div class="vcBot"><span class="robotStatus"></span>'
+        + '<span class="battery"><span class="batteryBar"><i></i></span><span class="batteryNum"></span></span></div>'
       list.appendChild(li)
     }
     while (list.children.length > show.length) list.removeChild(list.lastChild)
 
     show.forEach(function (r, i) {
       var li = list.children[i]
+      var sn = String(r.device_sn || '')
       var online = !!r.online
-      setClass(li, 'robotItem' + (online ? '' : ' offline'))
-      txt(li.querySelector('.robotName'), r.name || r.device_sn || '机器人')
+      var on = !!state.selectedSn && sn === state.selectedSn
+      setClass(li, 'vcard' + (on ? ' on' : '') + (online ? '' : ' offline'))
+      li.setAttribute('data-sn', sn)
+      li.title = on ? '已选中（再点取消；地图上同步高亮）' : '点击选中这台车（地图同步高亮）'
+      li.onclick = function () {
+        if (Dash.main && Dash.main.selectCar) Dash.main.selectCar(on ? null : sn)
+      }
+
+      txt(li.querySelector('.vcName'), r.name || sn || '机器人')
+      txt(li.querySelector('.vcSn'), sn)
+
+      var st = li.querySelector('.robotStatus')
+      setClass(st, 'robotStatus ' + (online ? statusClass(r.machine_status) : 's-bad'))
+      txt(st, online ? (r.machine_text || '在线') : '离线')
 
       var bat = r.battery === null || r.battery === undefined ? null : num(r.battery)
       var bar = li.querySelector('.batteryBar')
       setClass(bar, 'batteryBar' + (bat === null ? '' : bat < 20 ? ' low' : bat < 50 ? ' mid' : ''))
       bar.firstChild.style.width = (bat === null ? 0 : Math.max(0, Math.min(100, bat))) + '%'
       txt(li.querySelector('.batteryNum'), bat === null ? '—' : bat + '%')
-
-      var st = li.querySelector('.robotStatus')
-      setClass(st, 'robotStatus ' + (online ? statusClass(r.machine_status) : 's-bad'))
-      txt(st, online ? (r.machine_text || '在线') : '离线')
     })
 
     $('robotEmpty').hidden = show.length > 0
-  }
-
-  function renderSimpleList(list, messages, cls) {
-    while (list.children.length < messages.length) {
-      var li = document.createElement('li')
-      li.className = cls
-      list.appendChild(li)
-    }
-    while (list.children.length > messages.length) list.removeChild(list.lastChild)
-    messages.forEach(function (m, i) { txt(list.children[i], m) })
   }
 
   /* ---------------- 渲染：进行中批次 ---------------- */

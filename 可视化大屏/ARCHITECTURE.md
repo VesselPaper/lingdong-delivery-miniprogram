@@ -94,7 +94,11 @@ window.DASH_TENANT_CONFIG = {
 - `window.Scene3D` = scene3d.js 主体（3D 几何）；分件在 `window.Scene3DParts.{math,triangulate,camera}`。
 - `window.Map3DCore` = map3d-core.js（2.5D 几何核心）。
 - `window.Map3DGL` / `window.Map3DFlat` = 真 3D / 2.5D 渲染器。
-- `window.Map3D` = entry 选出的当前渲染器（dashboard 只调它）。
+- `window.Map3D` = entry 选出的当前渲染器（dashboard 只调它）。交互接口（两套渲染器可能只实现子集，调用方先判空）：
+  `ensure / update / setRobots / setOpts / getOpts / resize` +
+  `setSelected(sn, silent?)`、`getSelected()`、`setFollow(on, silent?)`、`isFollowing()`（选中/跟随由 `map3d-gl` 实现）。
+  渲染器 → 大屏的回调挂在 `getOpts()` 返回的 opts 引用上（`onCarSelect(sn)` / `onFollowChange(on)`），
+  直接改引用不触发 `setOpts` 的整场重建。
 - `window.GL3DShaders` = WebGL 着色器定义。
 - `window.Map3DGLRecon` = 重构面板控制器（bind 到一个 host 桥）。
 - `window.Dash` = 大屏骨架：`{C, ctx, state, api, views, map, main}`。
@@ -103,7 +107,10 @@ window.DASH_TENANT_CONFIG = {
 ## 7. 测试与验证
 
 - **离线工具**：`node tool_carcheck.js` —— 跑在 Node 上 require scene3d.js，质检车模/光环/光柱无 NaN、落地、尺寸正确。**改 scene3d 的任何几何后必须跑它**。
-- **浏览器探针**：headless Edge + CDP 验证页面零报错、`Map3D.ensure()` 起得来、重构下拉项数、`Dash` 各分件装载。
+- **浏览器探针**：headless Chrome/Edge + CDP 验证页面零报错、`Map3D.ensure()` 起得来、重构下拉项数、`Dash` 各分件装载。
+  交互回归可脚本化：`Dash.main.selectCar(sn)` / `Map3D.setSelected(sn)` 双向同步、合成 `mousedown+mousemove` 验证
+  "拖动自动关跟随"、`Dash.main.setLeftHidden(true)` / `toggleMapFull()` 后断言 `#mapBox canvas.width === #mapBox.clientWidth`
+  （DPR=1 时应完全相等，否则画布被拉伸）；截图核对车辆标注分级。
 - 改动后建议：`node --check <file>` 先过语法 → 起后端(backend/server.js) → CDP 探针 → 真机强刷。
 
 ## 8. 约定（保持你好维护）

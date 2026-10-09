@@ -43,6 +43,13 @@ window.Map3D = (function () {
     getOpts: function () { var i = impl(); return i && i.getOpts ? i.getOpts() : null },
     // 高频轮询入口：只更新无人车位置（大屏每 ~1s 调一次，车就能实时移动）
     setRobots: function (list) { var i = impl(); return (i && i.setRobots) ? i.setRobots(list) : 0 },
+    // 选中/跟随：大屏左侧车辆卡面 ↔ 地图车辆 双向同步（由当前渲染器实现，2.5D 回退实现可缺省）
+    setSelected: function (sn, silent) { var i = impl(); return (i && i.setSelected) ? i.setSelected(sn, silent) : null },
+    getSelected: function () { var i = impl(); return (i && i.getSelected) ? i.getSelected() : null },
+    setFollow: function (on, silent) { var i = impl(); return (i && i.setFollow) ? i.setFollow(on, silent) : null },
+    isFollowing: function () { var i = impl(); return !!(i && i.isFollowing && i.isFollowing()) },
+    // 容器尺寸变化（左右看板收缩、地图全屏）后重算画布，避免画面拉伸/模糊
+    resize: function () { var i = impl(); if (i && i.resize) i.resize() },
     mode: function () { return pick() }
   }
 })()

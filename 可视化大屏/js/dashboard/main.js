@@ -69,8 +69,110 @@ window.Dash.main = (function (Dash) {
     Dash.views.renderBatches(d.batches)
     Dash.views.renderAlerts(d.pickup_alerts)
     Dash.map.renderMap(d)
+    bindMapHooks()          // 首轮 renderMap 之后渲染器已就绪：把地图事件接回大屏（只接一次）
     Dash.views.diffEvents(d)
     txt($('footMid'), '后端 ' + (d.server_time || '') + ' · 运行档位 ' + (d.run_mode || '—'))
+  }
+
+  /* ---------------- 选中车辆（左侧车辆卡面 ↔ 地图车辆 双向同步） ----------------
+   * 两个入口共用同一份选中态 state.selectedSn：
+   *   ① 点左侧卡面 → selectCar(sn)：推给地图（silent，避免地图再回调回来）+ 刷新卡面高亮
+   *   ② 点地图上的车 → 渲染器回调 onCarSelect(sn) → 只刷新左侧卡面高亮（地图自己已知）
+   * **选中不会自动开启跟随**：跟随只由工具栏「跟随」按钮控制（用户明确要求）。
+   * ------------------------------------------------------------------------- */
+  function applySelection(sn, pushToMap) {
+    var v = sn ? String(sn) : null
+    state.selectedSn = v
+    if (pushToMap && window.Map3D && Map3D.setSelected) Map3D.setSelected(v, true)
+    Dash.views.renderRobots(state.fleet || [], state.fleetError)
+    var tip = $('mapTip')
+    if (tip && v) txt(tip, '已选中 ' + v + ' · 跟随需另点「跟随」')
+  }
+
+  function selectCar(sn) { applySelection(sn, true) }
+
+  // 用 getOpts() 拿渲染器内部 opts 引用直接挂回调：不触发 setOpts 的整场重建。
+  function bindMapHooks() {
+    if (state.mapHooksBound || !window.Map3D || !Map3D.getOpts) return
+    var o = Map3D.getOpts()
+    if (!o) return
+    o.onCarSelect = function (sn) { applySelection(sn, false) }
+    o.onFollowChange = function (on) {
+      var tip = $('mapTip')
+      if (tip && !on) txt(tip, '已关闭跟随（拖动画面会自动取消跟随）')
+    }
+    state.mapHooksBound = true
+  }
+
+  /* ---------------- 布局：左右看板伸缩 + 地图全屏 ----------------
+   * 布局一变，地图容器的尺寸就变了，必须让渲染器重算画布尺寸（否则画布按旧尺寸拉伸、发虚）。
+   * 首选 ResizeObserver 盯住地图容器：抽屉动画的每一帧都会触发，尺寸始终跟得上；
+   * 没有 ResizeObserver 的老浏览器退化成"立即 + 动画结束后各重算一次"。
+   * ------------------------------------------------------------- */
+  function mapResizeNow() {
+    if (window.Map3D && Map3D.resize) Map3D.resize()
+    if (Dash.map && Dash.map.mapResized) Dash.map.mapResized()
+  }
+
+  function mapResizeSoon() {
+    mapResizeNow()
+    if (typeof ResizeObserver === 'undefined') setTimeout(mapResizeNow, 340)
+  }
+
+  function observeMapSize() {
+    var box = $('mapBox')
+    if (!box || state.mapObserver || typeof ResizeObserver === 'undefined') return
+    state.mapObserver = new ResizeObserver(function () { mapResizeNow() })
+    state.mapObserver.observe(box)
+  }
+
+  function syncLayout() {
+    var grid = document.querySelector('main.grid')
+    var screenEl = $('screen')
+    if (grid) {
+      grid.classList.toggle('hideLeft', !state.mapFull && state.leftHidden)
+      grid.classList.toggle('hideRight', !state.mapFull && state.rightHidden)
+    }
+    if (screenEl) screenEl.classList.toggle('mapFull', state.mapFull)
+    // 贴边把手：只有"该栏已收起且不在全屏态"时才出现
+    var el = $('edgeTabLeft'), er = $('edgeTabRight')
+    if (el) el.hidden = !(state.leftHidden && !state.mapFull)
+    if (er) er.hidden = !(state.rightHidden && !state.mapFull)
+    var fb = $('mapFullBtn')
+    if (fb) {
+      txt(fb, state.mapFull ? '⤡ 退出全屏' : '⛶ 全屏')
+      fb.title = state.mapFull ? '退出地图全屏（Esc）' : '地图全屏（只留地图，Esc 退出）'
+    }
+    mapResizeSoon()
+  }
+
+  function setLeftHidden(v) {
+    state.leftHidden = !!v
+    if (!state.leftHidden && state.mapFull) state.mapFull = false   // 展开某侧即退出全屏
+    syncLayout()
+  }
+  function setRightHidden(v) {
+    state.rightHidden = !!v
+    if (!state.rightHidden && state.mapFull) state.mapFull = false
+    syncLayout()
+  }
+  function toggleMapFull() { state.mapFull = !state.mapFull; syncLayout() }
+
+  function bindLayoutControls() {
+    var bl = $('colLeftToggle'); if (bl) bl.onclick = function () { setLeftHidden(true) }
+    var br = $('colRightToggle'); if (br) br.onclick = function () { setRightHidden(true) }
+    var el = $('edgeTabLeft'); if (el) el.onclick = function () { setLeftHidden(false) }
+    var er = $('edgeTabRight'); if (er) er.onclick = function () { setRightHidden(false) }
+    var fb = $('mapFullBtn'); if (fb) fb.onclick = toggleMapFull
+    // Esc：先退全屏，再退选中（输入框里按 Esc 不干扰）
+    window.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return
+      var t = e.target
+      if (t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName || '')) return
+      if (state.mapFull) { state.mapFull = false; syncLayout(); return }
+      if (state.selectedSn) selectCar(null)
+    })
+    syncLayout()
   }
 
   function loop() {
@@ -189,6 +291,8 @@ window.Dash.main = (function (Dash) {
 
     fitScreen()
     bindVirtualControls()
+    bindLayoutControls()
+    observeMapSize()
     window.resetMap = function () { if (Dash.map && Dash.map.resetView) Dash.map.resetView() }
     window.addEventListener('resize', function () { fitScreen(); Dash.map.mapResized() })
 
@@ -202,7 +306,10 @@ window.Dash.main = (function (Dash) {
 
   return {
     boot: boot, apply: apply, loop: loop, pollRobots: pollRobots, demoPatch: demoPatch,
-    usableLandmarks: usableLandmarks
+    usableLandmarks: usableLandmarks,
+    // 交互（左侧卡面点选 / 布局伸缩）：供 views-ui 与调试调用
+    selectCar: selectCar, applySelection: applySelection,
+    setLeftHidden: setLeftHidden, setRightHidden: setRightHidden, toggleMapFull: toggleMapFull
   }
 })(window.Dash)
 
