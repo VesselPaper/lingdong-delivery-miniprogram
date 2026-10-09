@@ -811,23 +811,72 @@ window.Map3DGL = (function () {
     glc.style.cursor = 'grab'
     glc.style.touchAction = 'none'
     var drag = null
+    // 位移超过这个像素数才算"拖动视图"，之后抬起不再当成"点击"。
+    // 左键改成平移后拖动是最高频操作，没有这道阈值会频繁误选中车 / 楼栋 / 道路。
+    var DRAG_PX = 4
+    var moved = false        // 本次按下以来是否真的拖动过（用于区分"点击"与"拖动"）
     // 让浏览器坐标换算成地图画布的逻辑像素（考虑 .screen 缩放），供 groundAt 使用
-    function localXY(e) {
+    function localXYFrom(cx, cy) {
       var r = glc.getBoundingClientRect()
-      return [(e.clientX - r.left) * (W / Math.max(1, r.width)), (e.clientY - r.top) * (H / Math.max(1, r.height))]
+      return [(cx - r.left) * (W / Math.max(1, r.width)), (cy - r.top) * (H / Math.max(1, r.height))]
+    }
+    function localXY(e) { return localXYFrom(e.clientX, e.clientY) }
+    // 拖动手势一旦真的发生就关掉跟随：否则跟随逻辑每帧把镜头拉回车上，手动拖动会被"抢回去"。
+    // 必须走 setFollow(false)：它会一并回调大屏（onFollowChange），保证左侧卡面/按钮的
+    // 跟随态不失同步；直接改 opts.follow 会让大屏那边的按钮还亮着。
+    function cancelFollow() { if (opts.follow) setFollow(false) }
+    // 平移：用"同一相机下前后两个光标各自的地面点之差"当作世界位移，增量累加。
+    // （同一相机内取差 → 相机随 pan 平移的项互相抵消，无反馈回路，拖动手感不生抖）
+    // 打不到地面时（如顶部地平线）只更新锚点、不位移，保持上一有效位置不出跳变。
+    function panStep(holder, toXY) {
+      var gPrev = holder.lastXY ? groundAt(holder.lastXY[0], holder.lastXY[1], 0) : null
+      var gCur = groundAt(toXY[0], toXY[1], 0)
+      if (!gCur) return
+      if (gPrev) { view.panX += gPrev[0] - gCur[0]; view.panY += gPrev[2] - gCur[2] }
+      holder.lastXY = toXY
+    }
+    function applyDrag(x, y, xy) {
+      if (!moved) {
+        // 还没越过阈值：先当点击处理、不动视角（否则每次单击都会带上几个像素的抖动）
+        if (Math.abs(x - drag.x) + Math.abs(y - drag.y) <= DRAG_PX) return
+        moved = true
+        cancelFollow()
+        // 越过阈值的那一帧重新起算，避免"刚过阈值就跳一下"
+        if (drag.pan) drag.lastXY = drag.xy0
+        else { drag.x = x; drag.y = y }
+      }
+      if (drag.pan) {
+        panStep(drag, xy)
+      } else {
+        view.az = drag.az - (x - drag.x) * 0.28
+        view.el = Math.max(3, Math.min(88, drag.el + (y - drag.y) * 0.22))
+        syncTiltSlider()
+      }
+      updateCamera(false)
     }
     glc.addEventListener('contextmenu', function (e) { e.preventDefault() })
     glc.addEventListener('mousedown', function (e) {
       e.preventDefault()
-      if (reconDrawActive && e.button === 0) return  // 画线模式：左键交给 click 放点，不做旋转
-      var pan = (e.button === 2 || e.shiftKey)
+      moved = false
+      // 键位对齐主流 3D 地图（高德 JS API 3D / Mapbox GL JS / Google Maps 3D 都是这一套）：
+      //   左键拖动        = 平移（把人拖地图的第一反应还给他）
+      //   右键拖动        = 旋转 + 俯仰
+      //   中键拖动        = 平移（等价入口，兼容触控板与三键鼠标）
+      //   Ctrl / Alt + 左键拖动 = 旋转（等价入口，仿 Mapbox 的「Ctrl+左键」）
+      // 画线模式下左键依然可以拖动平移：单击放点与拖动由上面的位移阈值区分。
+      var rotate = (e.button === 2) || (e.button === 0 && (e.ctrlKey || e.altKey))
+      var pan = !rotate
       var xy = localXY(e)
-      drag = { x: e.clientX, y: e.clientY, az: view.az, el: view.el, tx: view.panX, tz: view.panY, pan: pan, lastXY: pan ? xy : null }
-      glc.style.cursor = drag.pan ? 'move' : 'grabbing'
+      drag = {
+        x: e.clientX, y: e.clientY, az: view.az, el: view.el,
+        pan: pan, xy0: pan ? xy : null, lastXY: pan ? xy : null
+      }
+      glc.style.cursor = pan ? 'move' : 'grabbing'
     })
     // 画线模式：左键拾取地面点并实时预览；否则若重构面板打开且非「全域」，交给 recon 点选
     glc.addEventListener('click', function (e) {
       if (e.button !== 0) return
+      if (moved) return   // 刚才是在拖动视图，不算点击（否则拖完一抬手就会误选中车/楼栋/道路）
       var xy = localXY(e)
       if (reconDrawActive) {
         var g = groundAt(xy[0], xy[1], 0)
@@ -861,42 +910,23 @@ window.Map3DGL = (function () {
         }
       }
     })
-    // 画线模式：双击结束
+    // 画线模式：双击结束。
+    // （原先「双击地图任意处 = 重置视角」已移除：左键改成平移后连点两下很容易误触，
+    //   而且地图角落本来就有「回到校园」按钮，功能重复。）
     glc.addEventListener('dblclick', function (e) {
-      if (reconDrawActive) { e.preventDefault(); finishReconDraw(); return }
-      resetView()
+      if (!reconDrawActive) return
+      e.preventDefault()
+      // 双击收尾时浏览器会先补上两个 click，末尾会留下一两个重合点，这里清掉
+      while (reconDrawPts.length >= 2) {
+        var pa = reconDrawPts[reconDrawPts.length - 1], pb = reconDrawPts[reconDrawPts.length - 2]
+        if (Math.abs(pa[0] - pb[0]) < 1.5 && Math.abs(pa[1] - pb[1]) < 1.5) reconDrawPts.pop()
+        else break
+      }
+      finishReconDraw()
     })
     window.addEventListener('mousemove', function (e) {
       if (!drag) return
-      // 用户开始拖动画面（左键旋转 / 右键·Shift 平移）→ 自动关闭跟随。
-      // 以"离按下点的位移 > 4px"判定，避免把一次点击误判成拖动。
-      if (!drag.dragOff && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4) {
-        drag.dragOff = true
-        if (opts.follow) setFollow(false)
-      }
-      if (drag.pan) {
-        // 增量跟手：在更新 pan 前先用「当前未变相机」对上一光标与当前光标各解一次地面点，
-        // 二者之差即屏幕位移对应的地面世界位移，累加进 panX/panY。
-        // （同一相机内取差 → 相机随 pan 平移的项互相抵消，无反馈回路，拖动手感不生抖）
-        var xy = localXY(e)
-        var gPrev = drag.lastXY ? groundAt(drag.lastXY[0], drag.lastXY[1], 0) : null
-        var gCur = groundAt(xy[0], xy[1], 0)
-        if (gPrev && gCur) {
-          view.panX += gPrev[0] - gCur[0]
-          view.panY += gPrev[2] - gCur[2]
-          drag.lastXY = xy
-        } else if (gCur) {
-          // 首个可命中点：仅记录起点，本次不位移
-          drag.lastXY = xy
-        }
-        // 光标处于 groundAt 打不到地面的区域（如顶部地平线）：保持上一有效位置，不出跳变
-      } else {
-        var dx = e.clientX - drag.x, dy = e.clientY - drag.y
-        view.az = drag.az - dx * 0.28
-        view.el = Math.max(3, Math.min(88, drag.el + dy * 0.22))
-        syncTiltSlider()
-      }
-      updateCamera(false)
+      applyDrag(e.clientX, e.clientY, drag.pan ? localXY(e) : null)
     })
     window.addEventListener('mouseup', function () { if (drag) { drag = null; glc.style.cursor = 'grab' } })
     glc.addEventListener('wheel', function (e) {
@@ -918,36 +948,57 @@ window.Map3DGL = (function () {
       updateCamera(false)
     }, { passive: false })
     var touch = null
+    // 触屏手势：单指 = 平移（跟所有地图 App 一致；原来是旋转，不符合展示时的直觉），
+    // 双指 = 捏合缩放 + 扭动旋转 + 整体上下俯仰。
+    function touchPanStart(t) {
+      return { mode: 'pan', sx: t.clientX, sy: t.clientY, lastXY: localXYFrom(t.clientX, t.clientY) }
+    }
     glc.addEventListener('touchstart', function (e) {
+      moved = false
       if (e.touches.length === 1) {
-        touch = { mode: 'rot', x: e.touches[0].clientX, y: e.touches[0].clientY, az: view.az, el: view.el }
+        touch = touchPanStart(e.touches[0])
       } else if (e.touches.length === 2) {
         var a = e.touches[0], b = e.touches[1]
-        touch = { mode: 'pinch', d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), zoom: view.zoom }
+        touch = {
+          mode: 'two',
+          d0: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+          ang0: Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX) * 180 / Math.PI,
+          midY0: (a.clientY + b.clientY) / 2,
+          zoom0: view.zoom, az0: view.az, el0: view.el
+        }
       }
     }, { passive: true })
     glc.addEventListener('touchmove', function (e) {
       if (!touch) return
       e.preventDefault()
-      if (touch.mode === 'rot' && e.touches.length === 1) {
-        view.az = touch.az - (e.touches[0].clientX - touch.x) * 0.3
-        view.el = Math.max(3, Math.min(88, touch.el + (e.touches[0].clientY - touch.y) * 0.24))
-      } else if (touch.mode === 'pinch' && e.touches.length === 2) {
+      // 触摸拖动同样不算点击（避免拖动结束后浏览器合成的 click 误选中）
+      if (!moved) { moved = true; cancelFollow() }
+      if (touch.mode === 'pan' && e.touches.length === 1) {
+        panStep(touch, localXYFrom(e.touches[0].clientX, e.touches[0].clientY))
+      } else if (touch.mode === 'two' && e.touches.length === 2) {
         var a = e.touches[0], b = e.touches[1]
         var d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
-        var mxy = [(a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2]
-        var r = glc.getBoundingClientRect()
-        mxy = [(mxy[0] - r.left) * (W / Math.max(1, r.width)), (mxy[1] - r.top) * (H / Math.max(1, r.height))]
+        var ang = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX) * 180 / Math.PI
+        // 扭转手腕 → 旋转视角；双指整体上下 → 俯仰
+        view.az = touch.az0 - (ang - touch.ang0)
+        view.el = Math.max(3, Math.min(88, touch.el0 - ((a.clientY + b.clientY) / 2 - touch.midY0) * 0.25))
+        updateCamera(false)
+        // 以双指中点为锚点缩放（与滚轮同一套阻尼：指数 0.7）
+        var mxy = localXYFrom((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2)
         var pg0 = groundAt(mxy[0], mxy[1], 0)
-        // 双指捏合加阻尼（指数 0.7）：与滚轮的"每格 5%"手感一致，避免轻轻一动就跳很远
-        view.zoom = Math.min(ZOOM_MAX_OUT, Math.max(ZOOM_MIN_IN, touch.zoom * Math.pow(touch.d / Math.max(1, d), 0.7)))
+        view.zoom = Math.min(ZOOM_MAX_OUT, Math.max(ZOOM_MIN_IN, touch.zoom0 * Math.pow(touch.d0 / Math.max(1, d), 0.7)))
         updateCamera(false)
         var pg1 = groundAt(mxy[0], mxy[1], 0)
         if (pg0 && pg1) { view.panX += (pg0[0] - pg1[0]); view.panY += (pg0[2] - pg1[2]) }
       }
       updateCamera(false)
     }, { passive: false })
-    glc.addEventListener('touchend', function () { touch = null }, { passive: true })
+    glc.addEventListener('touchend', function (e) {
+      // 双指退到单指：以当前手指为新起点，避免画面跳一下
+      if (e.touches.length === 1) touch = touchPanStart(e.touches[0])
+      else if (e.touches.length === 0) touch = null
+    }, { passive: true })
+    glc.addEventListener('touchcancel', function () { touch = null }, { passive: true })
   }
 
   function syncTiltSlider() {
@@ -2087,6 +2138,10 @@ window.Map3DGL = (function () {
   return {
     ensure: ensure, update: update, resetView: resetView,
     setOpts: setOpts, getOpts: getOpts, probe: probe,
+    // 只读相机状态：给排查/回归验证用（键位改动的验证脚本依赖它，勿删）
+    viewState: function () {
+      return { az: view.az, el: view.el, panX: view.panX, panY: view.panY, zoom: view.zoom }
+    },
     setCarScale: setCarScale,
     setRobots: setRobots,
     // 选中/跟随（大屏左侧车辆卡面用）：setSelected 由大屏调用（silent 同步，不回环）
