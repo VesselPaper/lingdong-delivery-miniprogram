@@ -51,11 +51,19 @@ window.Dash.api = (function (Dash) {
     return request('POST', Dash.C.API_VIRTUAL + '/state', { sn: sn, state: state || '', auto: !!auto })
   }
 
+  // ---------- 大屏「3D 图层重构」数据（服务器端持久化） ----------
+  // getRecon(): 读服务器上保存的一份；saveRecon(data): 整体保存到服务器（全局共享）。
+  // 服务器上没有时返回 { recon: null }，前端回退本地/localStorage/内置默认。
+  function getRecon() { return request('GET', Dash.C.API_RECON) }
+  function saveRecon(data) { return request('POST', Dash.C.API_RECON, { recon: data || null }) }
+
   return {
     fetchOverview: fetchOverview,
     fetchRobotPositions: fetchRobotPositions,
     getVirtual: getVirtual,
     setVirtualEnable: setVirtualEnable,
-    setVirtualState: setVirtualState
+    setVirtualState: setVirtualState,
+    getRecon: getRecon,
+    saveRecon: saveRecon
   }
 })(window.Dash)

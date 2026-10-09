@@ -45,6 +45,14 @@ window.Map3DGL = (function () {
   }
   var cam = null, fitDist = 0
   var view = { az: 0, el: 65, zoom: 1, target: null, panX: 0, panY: 0 }
+  // 跟随目标车：点地图上的车辆选中跟随；null=未选（此时退回到跟首台）
+  var followSn = null
+  // 最近一帧车辆场景坐标（供点击选中跟随目标；含被下划线标记的坐标）
+  var lastCars = []
+  // 车辆拖尾的 3D 地面带网格（每帧重建，复用同一组 buffer）
+  var trailBuf = null
+  // 是否已经应用过"初始＝回到校园视角"（只做一次，之后由用户操作控制）
+  var initialViewApplied = false
   // 缩放范围：zoom>1=拉远(看得更多)，zoom<1=拉近。最小拉到距默认再留约 1/3（view.zoom≈1.3），
   // 放大上限收紧（约 3 倍），避免之前缩得太深。
   var ZOOM_MIN_IN = 0.32, ZOOM_MAX_OUT = 1.30
@@ -62,31 +70,35 @@ window.Map3DGL = (function () {
   // 键约定：原建筑/道路用数组下标字符串 '#i'；新增对象用其在数组中序遍历后的显示名（重名自动加序号）。
   // 这些字段在 loadRecon 里逐项兜底，缺失即用默认，保证老存档兼容。
   var RECON_STEP_M = 1  // 方向键/按钮单次平移的米数
+  // 把一份结构化重构数据并入 RECON（逐项兜底，缺失即用默认，保证老存档兼容）。
+  function applyReconObject(o) {
+    var g = (o && o.global) || {}
+    RECON.global = {
+      tx: isFinite(num(g.tx)) ? num(g.tx) : 0,
+      ty: isFinite(num(g.ty)) ? num(g.ty) : 0,
+      rot: isFinite(num(g.rot)) ? num(g.rot) : 0,
+      sc: isFinite(num(g.sc)) && num(g.sc) > 0 ? num(g.sc) : 1
+    }
+    RECON.bld = (o && o.bld && typeof o.bld === 'object') ? o.bld : {}
+    RECON.road = (o && o.road && typeof o.road === 'object') ? o.road : {}
+    RECON.delRoads = (o && o.delRoads && typeof o.delRoads === 'object') ? o.delRoads : {}
+    RECON.addRoads = Array.isArray(o && o.addRoads) ? o.addRoads : []
+    RECON.delBlds = (o && o.delBlds && typeof o.delBlds === 'object') ? o.delBlds : {}
+    RECON.addBlds = Array.isArray(o && o.addBlds) ? o.addBlds : []
+    RECON.bldNames = (o && o.bldNames && typeof o.bldNames === 'object') ? o.bldNames : {}
+    RECON.roadNames = (o && o.roadNames && typeof o.roadNames === 'object') ? o.roadNames : {}
+    RECON.roadCls = (o && o.roadCls && typeof o.roadCls === 'object') ? o.roadCls : {}
+    RECON.bldHeight = (o && o.bldHeight && typeof o.bldHeight === 'object') ? o.bldHeight : {}
+  }
   function loadRecon() {
+    // 优先级：本地手工存档(localStorage) > 内置默认新地图(MAP_DEFAULT_RECON)。
+    // 状态由"本机手工改过的存档"决定；没有手工存档时就显示内置的完善后新地图。
     try {
       var s = window.localStorage && window.localStorage.getItem('dash3d_recon')
-      if (s) {
-        var o = JSON.parse(s)
-        if (o && typeof o === 'object') {
-          var g = o.global || {}
-          RECON.global = {
-            tx: isFinite(num(g.tx)) ? num(g.tx) : 0,
-            ty: isFinite(num(g.ty)) ? num(g.ty) : 0,
-            rot: isFinite(num(g.rot)) ? num(g.rot) : 0,
-            sc: isFinite(num(g.sc)) && num(g.sc) > 0 ? num(g.sc) : 1
-          }
-          RECON.bld = (o.bld && typeof o.bld === 'object') ? o.bld : {}
-          RECON.road = (o.road && typeof o.road === 'object') ? o.road : {}
-          RECON.delRoads = (o.delRoads && typeof o.delRoads === 'object') ? o.delRoads : {}
-          RECON.addRoads = Array.isArray(o.addRoads) ? o.addRoads : []
-          RECON.delBlds = (o.delBlds && typeof o.delBlds === 'object') ? o.delBlds : {}
-          RECON.addBlds = Array.isArray(o.addBlds) ? o.addBlds : []
-          RECON.bldNames = (o.bldNames && typeof o.bldNames === 'object') ? o.bldNames : {}
-          RECON.roadNames = (o.roadNames && typeof o.roadNames === 'object') ? o.roadNames : {}
-          RECON.roadCls = (o.roadCls && typeof o.roadCls === 'object') ? o.roadCls : {}
-          RECON.bldHeight = (o.bldHeight && typeof o.bldHeight === 'object') ? o.bldHeight : {}
-        }
-      }
+      var src = null
+      if (s) { try { src = JSON.parse(s) } catch (e) { src = null } }
+      if (!(src && typeof src === 'object')) src = window.MAP_DEFAULT_RECON || null
+      if (src && typeof src === 'object') applyReconObject(src)
     } catch (e) {}
   }
   function saveRecon() {
@@ -389,6 +401,45 @@ window.Map3DGL = (function () {
   }
   loadRecon()
 
+  // 从服务器拉取「3D 图层重构」数据：服务器上存在时优先覆盖，保证全局一致。
+  // 后端无 recon 接口/鉴权关闭/超时则静默忽略，保持当前显示（本地 localStorage 或内置默认）。
+  // 需要等场景就绪（gl + calib）后再应用，否则 rebuild 会因 calib 为空而空跑，导致服务器数据没真正显示。
+  function loadReconRemote() {
+    var url = (window.Dash && window.Dash.C && window.Dash.C.API_RECON) || null
+    if (!url) return
+    function tryOnce() {
+      if (!ready || !calib) return false      // 场景还没就绪，稍后重试
+      var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null
+      var timer = setTimeout(function () { if (ctrl) ctrl.abort() }, 6000)
+      fetch(url, { signal: ctrl ? ctrl.signal : undefined, cache: 'no-store' })
+        .then(function (r) { return r.json() })
+        .then(function (j) {
+          clearTimeout(timer)
+          if (!j || j.code !== 0 || !j.data) return
+          var rc = j.data.recon
+          if (rc && typeof rc === 'object') {
+            applyReconObject(rc)
+            rebuild()                    // 完整重建（楼体/道路/车模），确保服务器数据真正上屏
+            markReconSource('server')
+          }
+        })
+        .catch(function () { clearTimeout(timer) })
+      return true
+    }
+    if (tryOnce()) return
+    // 场景未就绪：轮询等待 ready（applyCalib 完成后）
+    var tries = 0
+    var iv = setInterval(function () {
+      tries++
+      if (tryOnce() || tries > 80) clearInterval(iv)   // 约 8s 内最多轮询 80 次
+    }, 100)
+  }
+  // 记录本次重构数据的来源（server/local/default），供地图下角提示排查
+  function markReconSource(src) {
+    window.__dash3d_recon_src = src
+  }
+  loadReconRemote()
+
   var robotAnim = {}, demo = null, routeMeshData = null, routeKey = '', roadNet = null
   var errEl = null, tipEl = null, maskEl = null
   var isGL2 = false
@@ -409,8 +460,21 @@ window.Map3DGL = (function () {
     CAR_LEN_M = 1.3 * v
     rebuild()
   }
+  // 车模在场景中的高度（px），用于点击命中/跟随标记的投影
+  function carHeightPx() { return (CAR_LEN_M * 0.6 + 1.2) * (scene ? scene.pxPerM : 19.45) }
+  // 车尾外沿（后保险杠/尾灯面）到车中心的距离（场景像素）。
+  // 与 scene3d.buildCar 的几何一致：盒体半长 0.65·M + 尾灯面外扩 0.012·M = 0.662·M，M = pxPerM × CAR_SCALE。
+  function carTailPx() { return 0.662 * (scene ? scene.pxPerM : 19.45) * CAR_SCALE }
 
   function num(v) { return typeof v === 'number' && isFinite(v) ? v : 0 }
+  // 收集当前有效楼栋名称集合（含改名/新增）——备用工具
+  function buildingNameSet() {
+    var cef = effectiveCalib(), s = {}
+    ;(cef && cef.buildings ? cef.buildings : []).forEach(function (bd) {
+      if (bd && bd.name) s[String(bd.name).replace(/\s+/g, '')] = 1
+    })
+    return s
+  }
   // 失败时把已插入的画布摘掉，让回退渲染器（2.5D）能干净地接管地图区
   function fail(why) {
     failed = true
@@ -552,6 +616,24 @@ window.Map3DGL = (function () {
     return b
   }
   function dropMesh(b) { if (b) { gl.deleteBuffer(b.pos); gl.deleteBuffer(b.nrm); gl.deleteBuffer(b.col); if (b.aux) gl.deleteBuffer(b.aux) } }
+  // 动态网格（每帧都变，如车辆拖尾）：复用同一组 buffer 只重传数据，
+  // 避免每帧 createBuffer 造成 GPU buffer 泄漏。
+  function uploadMeshInto(b, mesh) {
+    if (!b) return uploadMesh(mesh)
+    gl.bindBuffer(gl.ARRAY_BUFFER, b.pos); gl.bufferData(gl.ARRAY_BUFFER, mesh.pos, gl.DYNAMIC_DRAW)
+    gl.bindBuffer(gl.ARRAY_BUFFER, b.nrm); gl.bufferData(gl.ARRAY_BUFFER, mesh.nrm, gl.DYNAMIC_DRAW)
+    gl.bindBuffer(gl.ARRAY_BUFFER, b.col); gl.bufferData(gl.ARRAY_BUFFER, mesh.col, gl.DYNAMIC_DRAW)
+    // aux 必须与顶点数严格一致：若残留旧长度的 aux buffer，顶点数变多时 drawArrays 会越界读
+    // → WebGL 直接报 INVALID_OPERATION 并**整条不画**。所以这里同步维护。
+    if (mesh.aux) {
+      if (!b.aux) b.aux = gl.createBuffer()
+      gl.bindBuffer(gl.ARRAY_BUFFER, b.aux); gl.bufferData(gl.ARRAY_BUFFER, mesh.aux, gl.DYNAMIC_DRAW)
+    } else if (b.aux) {
+      gl.deleteBuffer(b.aux); b.aux = null
+    }
+    b.count = mesh.count
+    return b
+  }
 
   // 只重建灰色静态层（楼体/道路/底板/车模）—— 不碰青色导航线、小车吸附、路线
   function rebuildStaticMesh() {
@@ -597,6 +679,8 @@ window.Map3DGL = (function () {
     }
     demo = null
     updateCamera(true)
+    // 首次构建完成后，自动切到「回到校园」视角（用户要求：一打开网页就是这个视角）
+    if (!initialViewApplied) { initialViewApplied = true; resetView() }
   }
 
   /* ---------------- 相机 ---------------- */
@@ -654,11 +738,12 @@ window.Map3DGL = (function () {
 
   function resetView() {
     view.az = S.principalAzimuth(calib ? calib.buildings : null)
-    view.el = opts.el
+    view.el = 45   //「回到校园」用 45° 俯仰（不压迫：既看得到楼顶高度，又不会太垂直）
     view.zoom = 1
     view.panX = 0; view.panY = 0
     if (scene) view.target = scene.bounds.center.slice()
     updateCamera(true)
+    syncTiltSlider()
   }
 
   /* ---------------- 交互 ---------------- */
@@ -695,6 +780,25 @@ window.Map3DGL = (function () {
       if (panel && !panel.hidden && reconApi && reconApi.mode && reconApi.mode() !== 'global' && reconApi.pickAt) {
         e.preventDefault()
         reconApi.pickAt(xy)
+        return
+      }
+      // 点击选中车辆作为跟随目标：命中任意一台车即选中并开启跟随
+      if (cam && lastCars.length) {
+        var hitSn = null, hitD = 28 * 28   // 命中半径约 28px
+        for (var ci = 0; ci < lastCars.length; ci++) {
+          var cc = lastCars[ci]
+          var pj = S.projectPoint(cam, W, H, [cc.x, carHeightPx(), cc.z])
+          if (!pj) continue
+          var dxp = pj[0] - xy[0], dyp = pj[1] - xy[1]
+          var dd = dxp * dxp + dyp * dyp
+          if (dd < hitD) { hitD = dd; hitSn = cc.sn }
+        }
+        if (hitSn) {
+          followSn = hitSn
+          if (!opts.follow) { opts.follow = true; var fob = document.getElementById('m3Follow'); if (fob) fob.classList.add('on') }
+          e.preventDefault()
+          return
+        }
       }
     })
     // 画线模式：双击结束
@@ -733,7 +837,12 @@ window.Map3DGL = (function () {
       e.preventDefault()
       var xy = localXY(e)
       var g0 = groundAt(xy[0], xy[1], 0)
-      var nz = Math.min(ZOOM_MAX_OUT, Math.max(ZOOM_MIN_IN, view.zoom * (e.deltaY < 0 ? 1 / 1.12 : 1.12)))
+      // 缩放灵敏度：按滚轮 delta 比例、**每格变 7%**（12% 太快，5% 又太钝，取中间）。
+      // 鼠标一格 deltaY≈100 → 一档；触控板小 delta → 每次更细小、连续滚动依然顺滑；
+      // 大 delta（快速滚动）最多按一档算，避免一下跳到边界。
+      var steps = Math.max(-1, Math.min(1, e.deltaY / 100))
+      var f = Math.pow(1.07, steps)
+      var nz = Math.min(ZOOM_MAX_OUT, Math.max(ZOOM_MIN_IN, view.zoom * f))
       if (nz === view.zoom) { updateCamera(false); return }
       view.zoom = nz
       updateCamera(false)
@@ -764,7 +873,8 @@ window.Map3DGL = (function () {
         var r = glc.getBoundingClientRect()
         mxy = [(mxy[0] - r.left) * (W / Math.max(1, r.width)), (mxy[1] - r.top) * (H / Math.max(1, r.height))]
         var pg0 = groundAt(mxy[0], mxy[1], 0)
-        view.zoom = Math.min(ZOOM_MAX_OUT, Math.max(ZOOM_MIN_IN, touch.zoom * (touch.d / Math.max(1, d))))
+        // 双指捏合加阻尼（指数 0.7）：与滚轮的"每格 5%"手感一致，避免轻轻一动就跳很远
+        view.zoom = Math.min(ZOOM_MAX_OUT, Math.max(ZOOM_MIN_IN, touch.zoom * Math.pow(touch.d / Math.max(1, d), 0.7)))
         updateCamera(false)
         var pg1 = groundAt(mxy[0], mxy[1], 0)
         if (pg0 && pg1) { view.panX += (pg0[0] - pg1[0]); view.panY += (pg0[2] - pg1[2]) }
@@ -801,7 +911,11 @@ window.Map3DGL = (function () {
     var sp = document.getElementById('m3Spin')
     if (sp) sp.addEventListener('click', function () { opts.spin = !opts.spin; sp.classList.toggle('on', opts.spin) })
     var fo = document.getElementById('m3Follow')
-    if (fo) fo.addEventListener('click', function () { opts.follow = !opts.follow; fo.classList.toggle('on', opts.follow) })
+    if (fo) fo.addEventListener('click', function () {
+      opts.follow = !opts.follow
+      if (!opts.follow) followSn = null
+      fo.classList.toggle('on', opts.follow)
+    })
     var fd = document.getElementById('m3Fade')
     if (fd) fd.addEventListener('click', function () { opts.roofFade = !opts.roofFade; fd.classList.toggle('on', opts.roofFade) })
     var rst = document.getElementById('mapReset')
@@ -938,6 +1052,26 @@ window.Map3DGL = (function () {
    * 好处：即便标定/定位有 1~3m 残余误差，车也永远落在它真正走的那条路上。
    * 吸附上限 SNAP_MAX_M：偏离路网太远（定位异常）时不硬拉，照原样显示，避免"车飞出路面又被拽回"。 */
   var SNAP_MAX_M = 12
+  // 「瞬移落位」阈值（米）：车辆目标点与当前位置差超过它，说明不是真实位移（如后台切回来、
+  // 机器人重启、定位跳变），直接落位而不是平滑追赶。正常行驶约 2.3m/秒（ROBOT_POLL_MS=1000），
+  // 取 12m 远高于真实位移，不会误判。
+  var TELEPORT_M = 12
+  // 吸附网内容指纹 + 版本号：版本只在"吸附源真的变了"（重构/标定变更）时递增，
+  // 车辆据此把"换映射导致的整体位移"处理成原地重新入场，而不是飘过去。
+  var snapNetSig = ''
+  var snapRevision = 0
+  // 车辆入场动画时长（秒）：原地"生长"，替代从旧位置飘移进场
+  var APPEAR_SEC = 0.45
+  // 标注分层（view.zoom 越小＝越放大；「回到校园」= zoom 1.00）：
+  //   T1 楼栋名（含食堂/餐厅/铺子，**同一层级同样式**）：zoom ∈ (0.50, 1.25)
+  //        —— 缩到最小(≥1.25)才消失；放大到 T3(取货点名)出现时隐藏（同一位置由 T3 接手）
+  //   T2 充电点/上货点名：zoom ≤ 1.00 —— 「回到校园」大小刚好显示，再缩小就不显示
+  //   T3 取货点名：zoom ≤ 0.50 —— 放大到「回到校园」的一半时显示
+  var TIER_T3_ZOOM = 0.50, TIER_T2_ZOOM = 1.00, TIER_T1_HIDE_OUT = 1.25
+  // 各层字号基准（zoom=1 时的像素）：楼栋 12 / 第二层 10 / 第三层 9
+  var LABEL_BASE_PX = { 1: 12, 2: 10, 3: 9 }
+  // 站点图标基准半径（zoom=1），第二层 4.4 / 第三层 3.6（比原来 5.4 小）
+  var SITE_HEAD_BASE = { 2: 4.4, 3: 3.6 }
   var snapNet = null
   function buildSnapNet() {
     snapNet = null
@@ -969,6 +1103,20 @@ window.Map3DGL = (function () {
       }
     }
     snapNet = segs.length ? segs : null
+    // 只有吸附网**内容真的变了**（重构/标定变更）才递增版本号：地图轮询每 5s 也会重建一次，
+    // 若每次都递增，会让车每 5s 无谓地"重新落位"一次。
+    var sig = netSig(snapNet)
+    if (sig !== snapNetSig) { snapNetSig = sig; snapRevision++ }
+  }
+  // 吸附网指纹：用来判断重建后内容是否真的变了（不比较全部线段，取头尾几段足够）
+  function netSig(segs) {
+    if (!segs || !segs.length) return 'none'
+    var n = segs.length, out = n + '|'
+    var k = Math.min(6, n)
+    for (var i = 0; i < k; i++) out += Math.round(segs[i][0][0]) + ',' + Math.round(segs[i][0][1]) + ';'
+    var last = segs[n - 1]
+    out += Math.round(last[1][0]) + ',' + Math.round(last[1][1])
+    return out
   }
   // 投影到最近路段；返回 {x,y,off}。off = 偏离路网的米数（0 表示就在路上）
   function snapToNet(px, py) {
@@ -1003,16 +1151,29 @@ window.Map3DGL = (function () {
       var sp = snapToNet(rp[0], rp[1])      // 吸附到机器人真实路网（该图层不显示，仅用于贴路）
       var a = robotAnim[sn]
       if (a) {
+        var pxm = scene ? scene.pxPerM : 19.45
+        var jumpPx = Math.hypot(sp.x - a.x, sp.y - a.y)
+        // 两种"重新落位"：① 吸附网内容变了（重构/标定刚生效 → 打开网页时最常见）
+        //                ② 单次跳变远超正常位移（后台切回、重启等）
+        var netChanged = (a.snapRev !== snapRevision)
+        if (netChanged || jumpPx > TELEPORT_M * pxm) {
+          a.x = sp.x; a.y = sp.y; a.th = num(r.theta)
+          a.trail = []                       // 别从旧位置拉出一条横穿地图的直线
+          a.lastPush = 0
+          // 位置不是"飘"过去，而是**原地重新生长**一次（隐藏这次换位，观感上像重新入场）
+          if (jumpPx > 0.5 * pxm) a.bornAt = null
+        }
+        a.snapRev = snapRevision
         a.tx = sp.x; a.ty = sp.y; a.tt = num(r.theta); a.on = true
         a.raw = rp; a.off = sp.off; a.snapped = sp.snapped
         if (r.text) a.text = r.text
       } else {
-        // 首次出现：直接落位，避免从 (0,0) 飘过来
+        // 首次出现：直接落位（不从别处飘过来），bornAt=null 交给渲染帧开始"原地生长"入场
         robotAnim[sn] = {
           x: sp.x, y: sp.y, th: num(r.theta),
           tx: sp.x, ty: sp.y, tt: num(r.theta), on: true, text: r.text || '',
-          raw: rp, off: sp.off, snapped: sp.snapped,
-          trail: [], lastPush: 0
+          raw: rp, off: sp.off, snapped: sp.snapped, snapRev: snapRevision,
+          trail: [], lastPush: 0, bornAt: null
         }
       }
     }
@@ -1193,7 +1354,13 @@ window.Map3DGL = (function () {
       while (da > Math.PI) da -= 6.2832
       while (da < -Math.PI) da += 6.2832
       a.th += da * Math.min(1, kSmooth * 1.8)
-      cars.push({ x: a.x, z: a.y, th: a.th, sn: a.sn || k, live: true, text: a.text, anim: a, snapped: a.snapped })
+      // 入场进度：首次出现后 0.45s 内从 0「原地生长」到 1（smoothstep），不产生位移
+      if (a.bornAt == null) a.bornAt = t
+      var ap = (t - a.bornAt) / APPEAR_SEC
+      if (ap > 1) ap = 1
+      else if (ap < 0) ap = 0
+      ap = ap * ap * (3 - 2 * ap)
+      cars.push({ x: a.x, z: a.y, th: a.th, sn: a.sn || k, live: true, text: a.text, anim: a, snapped: a.snapped, appear: ap })
     }
     // 说明：robotAnim 里的坐标在 ingestRobots 阶段就已换算成**场景像素**
     //（robotpose 原始像素优先 / meta 权威映射次之），这里不再做任何坐标变换。
@@ -1201,15 +1368,20 @@ window.Map3DGL = (function () {
     // 裁剪按**时间窗**（最近 TRAIL_SEC 秒）而不是只按点数：定位是「1s 一跳」的离散更新，
     // 在帧率高/虚拟时间加速时按点数裁剪会把拖尾拉成几十米的长线；按时间裁剪则任何帧率下长度一致。
     var TRAIL_SEC = 6
+    // 拖尾采样点取**车尾**（不是车中心）：车中心沿航向后退到后保险杠位置，
+    // 这样拖尾是从车屁股甩出来的，而不是从车身中间冒出来。
+    var tailPx = carTailPx()
     for (var cj = 0; cj < cars.length; cj++) {
       var cc = cars[cj]
       if (!cc.anim) continue
       var tr = cc.anim.trail || (cc.anim.trail = [])
+      var tailX = cc.x - Math.cos(cc.th) * tailPx
+      var tailZ = cc.z - Math.sin(cc.th) * tailPx
       if (!cc.anim.lastPush || t - cc.anim.lastPush > 0.18) {
         cc.anim.lastPush = t
         var last = tr.length ? tr[tr.length - 1] : null
-        if (!last || Math.hypot(cc.x - last[0], cc.z - last[1]) > 0.35 * scene.pxPerM) {
-          tr.push([cc.x, cc.z, t])
+        if (!last || Math.hypot(tailX - last[0], tailZ - last[1]) > 0.35 * scene.pxPerM) {
+          tr.push([tailX, tailZ, t])
           while (tr.length > 2 && t - tr[0][2] > TRAIL_SEC) tr.shift()
           if (tr.length > 120) tr.shift()
         }
@@ -1222,14 +1394,25 @@ window.Map3DGL = (function () {
       if (opts.demoCars) { if (!demo) demo = initDemo(); cars = demoPos(t) }
       else cars = []
     }
+    lastCars = cars
+    // 拖尾 3D 地面带（每帧重建 → 复用 buffer）。车辆拖尾在下方，车体遮挡它。
+    var tm = buildTrailMesh(cars)
+    if (tm) { tm.aux = null; trailBuf = uploadMeshInto(trailBuf, tm) }   // 拖尾不需要 aux（省一次上传）
+    else if (trailBuf) trailBuf.count = 0      // 没有拖尾就画 0 个顶点（保留 buffer 继续复用）
 
-    // 跟随：把视图中心平滑移到第一台车
+    // 跟随：把视图中心平滑移到跟随目标车（点地图选中；未选中退回首台）
     if (opts.follow && cars.length) {
-      var tgt = cars[0]
-      var cx = scene.bounds.center[0] + view.panX, cz = scene.bounds.center[2] + view.panY
-      view.panX += (tgt.x - cx) * 0.06
-      view.panY += (tgt.z - cz) * 0.06
-      updateCamera(false)
+      var tgtCar = null
+      for (var fi = 0; fi < cars.length; fi++) {
+        if (followSn && cars[fi].sn === followSn) { tgtCar = cars[fi]; break }
+      }
+      if (!tgtCar) tgtCar = cars[0]
+      if (tgtCar) {
+        var cx = scene.bounds.center[0] + view.panX, cz = scene.bounds.center[2] + view.panY
+        view.panX += (tgtCar.x - cx) * 0.06
+        view.panY += (tgtCar.z - cz) * 0.06
+        updateCamera(false)
+      }
     }
 
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -1258,9 +1441,14 @@ window.Map3DGL = (function () {
     // 新增道路画线预览（绿色，最上层便于看清）
     if (bufs.drawPrev) { gl.depthMask(true); drawMesh(bufs.drawPrev, null, 1, 0) }
 
+    // 车辆拖尾：3D 地面带，**在画车之前**绘制并写深度 → 车体会正确遮挡它（拖尾在车下方）
+    if (trailBuf) { gl.depthMask(true); drawMesh(trailBuf, null) }
+
     for (var m = 0; m < cars.length; m++) {
       var c = cars[m]
       var mtx = S.carMatrix(c.x, c.z, c.th, 0)
+      // 入场：原地按比例长大（绕车自身原点），配合叠层淡入，避免"飘移"入场
+      if (c.appear != null && c.appear < 1) mtx = S.mat4.mul(mtx, S.mat4.scale(c.appear, c.appear, c.appear))
       gl.depthMask(false)
       drawMesh(bufs.ring, mtx)
       drawMesh(bufs.beam, mtx)
@@ -1285,10 +1473,13 @@ window.Map3DGL = (function () {
     g.textBaseline = 'middle'
     for (var ci = 0; ci < cars.length; ci++) {
       var c = cars[ci]
-      drawTrail(g, c)
+      // 入场淡入：与 3D 车体的"原地生长"同步，避免车还没长出来、叠层标记先蹦出来
+      var cap = (c.appear == null ? 1 : c.appear)
+      g.globalAlpha = cap
       drawCarMarker(g, c)
+      if (cap <= 0.999) { g.globalAlpha = 1; continue }   // 未长成前先不画数据牌
       var top = S.projectPoint(cam, W, H, [c.x, carMesh.height + 1.6 * scene.pxPerM, c.z])
-      if (!top) continue
+      if (!top) { g.globalAlpha = 1; continue }
       var info = live.fleet[c.sn]
       var lines = []
       if (c.demo) lines.push('演示车 · 配送中')
@@ -1297,6 +1488,7 @@ window.Map3DGL = (function () {
         if (info.battery != null) lines.push('电量 ' + info.battery + '%')
       } else lines.push('无人车' + (c.snapped ? ' · 已贴路' : ''))
       drawPlate(g, top[0], top[1] - 26, lines, '#7ff0ff')
+      g.globalAlpha = 1
     }
 
     // ---- 被"视图偏移"的楼：用虚线 + 小圆圈标出真实位置 ----
@@ -1381,7 +1573,9 @@ window.Map3DGL = (function () {
 
     // ---- 点位标记（取货点/上货点/充电点）：来自平台 landmarks，世界坐标→场景雷达像素 ----
     // 与 2.5D 回退版（map3d-core.js）同色系：取货点绿 / 上货点橙 / 充电点黄；
-    // 每点画「地面光环 + 顶部小圆点 + 名称」，方便对着路网找站点位置。
+    // 图标是"定位针"；文字统一收集到 siteLabels，最后和楼名一起做避让排布。
+    var siteLabels = []
+    var seenLm = {}                   // 兜底去重：同名 + 同雷达坐标只画一个 pin / 收集一次文字
     if (live.bbox && live.meta && live.landmarks && live.landmarks.length) {
       var lmP2r = S.makePlatformToRadar(live.bbox, scene.radarW, scene.radarH, live.meta)
       if (lmP2r) {
@@ -1392,36 +1586,50 @@ window.Map3DGL = (function () {
           if (/固定路径|排队/.test(nm3)) continue          // 路网/排队点不是站点
           var pt3 = lmP2r(LM.x, LM.y)
           if (!pt3 || !isFinite(pt3[0]) || !isFinite(pt3[1])) continue
-          var col3
-          if (String(LM.type || '') === 'loadingPoint' || /上货/.test(nm3)) col3 = '#ffb03c'
-          else if (String(LM.type || '') === 'chargePoint' || /充电/.test(nm3)) col3 = '#ffd24a'
-          else col3 = '#2fd45c'
-          var sc3 = S.projectPoint(cam, W, H, [pt3[0], 2.2 * scene.pxPerM, pt3[1]])
+          var lmKey = nm3 + '|' + Math.round(pt3[0] * 10) + '|' + Math.round(pt3[1] * 10)
+          if (seenLm[lmKey]) continue                     // 同一点重复上报：只画一次
+          seenLm[lmKey] = 1
+          // 分层：充电点/上货点 = 第二层（小图标+小字）；取货点 = 第三层（更小）
+          var isCharge = String(LM.type || '') === 'chargePoint' || /充电/.test(nm3)
+          var isLoad = String(LM.type || '') === 'loadingPoint' || /上货/.test(nm3)
+          var tier = (isCharge || isLoad) ? 2 : 3
+          // 颜色：充电点=绿、上货点=黄、取货点=绿（沿用原色）
+          var col3 = isCharge ? '#2fd45c' : (isLoad ? '#ffd24a' : '#2fd45c')
+          // 图标与文字一起随视角缩放：view.zoom 越小＝越放大 → 图形越大
+          var kz = 1 / Math.max(0.01, view.zoom)
+          // 站点图标：经典"定位针"（下收敛三角 + 圆头 + 中心小孔），底尖落在真实点位上。
           var scb3 = S.projectPoint(cam, W, H, [pt3[0], 0.4, pt3[1]])
-          if (!sc3 || !scb3) continue
-          var pu = 0.5 + 0.5 * Math.sin(t * 2.6 + L0)
+          if (!scb3) continue
+          var tipX = scb3[0], tipY = scb3[1]
+          var headR = (SITE_HEAD_BASE[tier] || 4) * kz
+          var headY = tipY - headR * 2.6
           g.save()
-          // 地面光环（轻微呼吸，方便往路/车附近找）
-          g.globalAlpha = 0.35 + 0.3 * pu
-          g.fillStyle = col3
-          g.beginPath(); g.arc(scb3[0], scb3[1], 3.0 + 1.5 * pu, 0, 6.2832); g.fill()
+          // 地面落点：淡色描边小圆环（只示意位置，不做实心球）
+          g.strokeStyle = col3
+          g.globalAlpha = 0.5
+          g.lineWidth = Math.max(0.8, 1.4 * kz)
+          g.beginPath(); g.arc(tipX, tipY, headR * 0.63, 0, 6.2832); g.stroke()
           g.globalAlpha = 1
-          // 顶部脚标
-          g.strokeStyle = 'rgba(0,0,0,0.25)'
-          g.lineWidth = 1
-          g.beginPath(); g.moveTo(scb3[0], scb3[1] + 2); g.lineTo(sc3[0], sc3[1] - 2); g.stroke()
+          // 针身 + 圆头
           g.fillStyle = col3
-          g.shadowColor = col3; g.shadowBlur = 10
-          g.beginPath(); g.arc(sc3[0], sc3[1], 4.2, 0, 6.2832); g.fill()
+          g.shadowColor = col3; g.shadowBlur = 8 * kz
+          g.beginPath()
+          g.moveTo(tipX, tipY)
+          g.lineTo(tipX - headR * 0.72, headY + headR * 0.5)
+          g.lineTo(tipX + headR * 0.72, headY + headR * 0.5)
+          g.closePath(); g.fill()
+          g.beginPath(); g.arc(tipX, headY, headR, 0, 6.2832); g.fill()
           g.shadowBlur = 0
-          // 名称标签（跟随「楼栋名称」开关）
-          if (opts.labels && nm3) {
-            g.font = '11px "Microsoft YaHei",sans-serif'
-            g.lineWidth = 3
-            g.strokeStyle = 'rgba(6,18,32,0.85)'
-            g.strokeText(nm3, sc3[0] + 9, sc3[1] - 4)
-            g.fillStyle = col3
-            g.fillText(nm3, sc3[0] + 9, sc3[1] - 4)
+          // 中心小孔（深色），让图标更像"站点"而不是实心球
+          g.fillStyle = 'rgba(6,20,34,0.9)'
+          g.beginPath(); g.arc(tipX, headY, headR * 0.4, 0, 6.2832); g.fill()
+          // 名称标签：按**本层自己的缩放区间**决定是否显示（图标始终画，便于定位）
+          var tierShown = (tier === 2) ? (view.zoom <= TIER_T2_ZOOM) : (view.zoom <= TIER_T3_ZOOM)
+          if (opts.labels && nm3 && tierShown) {
+            siteLabels.push({
+              text: nm3, x: tipX + headR + 4, y: headY + 4, kind: 'site', color: col3,
+              pr: tier, tier: tier, wx: pt3[0], wy: 0.4, wz: pt3[1]
+            })
           }
           g.restore()
         }
@@ -1429,51 +1637,51 @@ window.Map3DGL = (function () {
     }
 
     if (!opts.labels) return
-    // 楼栋全息标签
-    var pulse = 0.5 + 0.5 * Math.sin(t * 2.2)
+    // ---- 第一层：楼栋名（宿舍楼 / 食堂 / 餐厅 / 铺子 **同层级、同样式**）----
+    // 缩放区间：(0.50, 1.25) —— 缩到最小(≥1.25)才消失；放大到 T3(取货点名)出现时隐藏。
+    var showT1 = (view.zoom > TIER_T3_ZOOM && view.zoom < TIER_T1_HIDE_OUT)
+    var blds = calib.buildings || []
     var items = []
-    for (var b = 0; b < (calib.buildings || []).length; b++) {
-      var bd = calib.buildings[b]
-      if (!/栋/.test(bd.name || '')) continue
-      var hpx = num(bd.height_m) * scene.pxPerM * opts.heightScale + 4.5 * scene.pxPerM
-      var tip = S.projectPoint(cam, W, H, [bd.center[0], hpx, bd.center[1]])
-      if (!tip) continue
-      g.strokeStyle = 'rgba(120,235,255,' + (0.20 + 0.35 * pulse).toFixed(3) + ')'
-      g.lineWidth = 2
-      g.beginPath(); g.arc(tip[0], tip[1], 6 + 8 * pulse, 0, 6.2832); g.stroke()
-      items.push({ text: bd.name, x: tip[0] + 9, y: tip[1] - 4, kind: 'name' })
+    if (showT1) {
+      for (var b = 0; b < blds.length; b++) {
+        var bd = blds[b]
+        if (bd.no_label === true) continue          // 标定里标记为"只渲染体块、不画名字"的楼
+        var hpx = num(bd.height_m) * scene.pxPerM * opts.heightScale + 4.5 * scene.pxPerM
+        var tip = S.projectPoint(cam, W, H, [bd.center[0], hpx, bd.center[1]])
+        if (!tip) continue
+        // 楼名只出文字，不画立体图标
+        items.push({ text: bd.name, x: tip[0] + 2, y: tip[1] - 4, kind: 'bld', color: '#9ef2ff', pr: 1, wx: bd.center[0], wy: hpx, wz: bd.center[1] })
+      }
     }
-    for (var b2 = 0; b2 < (calib.buildings || []).length; b2++) {
-      var bd2 = calib.buildings[b2]
-      if (/栋/.test(bd2.name || '')) continue
-      if (bd2.no_label === true) continue          // 标定里标记为"只渲染体块、不画名字"的楼
-      var h2 = num(bd2.height_m) * scene.pxPerM * opts.heightScale + 0.4 * scene.pxPerM
-      var tp = S.projectPoint(cam, W, H, [bd2.center[0], h2, bd2.center[1]])
-      if (tp) items.push({ text: bd2.name, x: tp[0] + 7, y: tp[1], kind: 'other' })
-    }
-    items.sort(function (a, b) { return a.y - b.y || a.x - b.x })
-    var placed = []
+    // 站点文字并入同一批（第二/三层已在收集时按各自缩放区间过滤过）
+    for (var sl = 0; sl < siteLabels.length; sl++) items.push(siteLabels[sl])
+
+    // ---- 统一绘制：**不挪位、不隐藏**（重叠只靠"变淡"，文字不消失）----
+    //   · 远的先画、近的后画 → 近处的名字自然压住远处的名字；
+    //   · 初始完全不透明(alpha=1)，越远越透明（被遮在后面的越淡），最近 1.00 → 最远 0.45；
+    //   · 同深度时按层级：楼栋(1)最后画、压在上层，然后第二层、第三层。
+    //   · 字号随视角缩放：font = 基准 / view.zoom（视角放大文字同步放大、缩小同步缩小）。
+    var eye = cam.eye
+    items.forEach(function (it) { it.d = Math.hypot(eye[0] - it.wx, eye[1] - it.wy, eye[2] - it.wz) })
+    items.sort(function (a, b) { return (b.d - a.d) || (b.pr - a.pr) })
+    var dMin = Infinity, dMax = -Infinity
+    items.forEach(function (it) { if (it.d < dMin) dMin = it.d; if (it.d > dMax) dMax = it.d })
+    var dSpan = Math.max(1e-6, dMax - dMin)
+    var kzText = 1 / Math.max(0.01, view.zoom)
     for (var k2 = 0; k2 < items.length; k2++) {
       var it = items[k2]
-      var wpx = String(it.text).length * 12.5 + 6, hpx2 = 15
-      for (var att = 0; att < 5; att++) {
-        var box = { x0: it.x - 1, y0: it.y - hpx2 / 2, x1: it.x + wpx, y1: it.y + hpx2 / 2 }
-        var hit = false
-        for (var pi = 0; pi < placed.length; pi++) {
-          var P = placed[pi]
-          if (box.x0 < P.x1 && box.x1 > P.x0 && box.y0 < P.y1 && box.y1 > P.y0) { hit = true; break }
-        }
-        if (!hit) break
-        it.y += 15
-      }
-      placed.push({ x0: it.x - 1, y0: it.y - hpx2 / 2, x1: it.x + wpx, y1: it.y + hpx2 / 2 })
-      var big = it.kind === 'name'
-      g.font = (big ? 'bold 12px ' : '11px ') + '"Microsoft YaHei",sans-serif'
-      g.lineWidth = 3
+      var tFar = (it.d - dMin) / dSpan                 // 0=最近 1=最远
+      var alpha = 1.00 - 0.55 * tFar                   // 1.00（完全不透明）→ 0.45
+      var bold = (it.kind === 'bld')
+      var base = bold ? LABEL_BASE_PX[1] : (it.pr === 2 ? LABEL_BASE_PX[2] : LABEL_BASE_PX[3])
+      g.globalAlpha = alpha
+      g.font = (bold ? 'bold ' : '') + (base * kzText).toFixed(1) + 'px "Microsoft YaHei",sans-serif'
+      g.lineWidth = Math.max(2, 3 * kzText)
       g.strokeStyle = 'rgba(6,18,32,0.85)'
       g.strokeText(it.text, it.x, it.y)
-      g.fillStyle = big ? '#9ef2ff' : '#7fb6d9'
+      g.fillStyle = it.color || '#9ef2ff'
       g.fillText(it.text, it.x, it.y)
+      g.globalAlpha = 1
     }
   }
   function strokePath(g, pts) {
@@ -1508,28 +1716,75 @@ window.Map3DGL = (function () {
     for (var k = 0; k < paths.length; k++) if (paths[k].pts && paths[k].pts.length > 1) demo.push(paths[k].pts)
     return demo
   }
-  // 行驶轨迹拖尾：由旧到新逐段加深加粗（青蓝渐变），一眼看出车往哪走、走到哪了
-  function drawTrail(g, c) {
-    var tr = c.anim && c.anim.trail
-    if (!tr || tr.length < 2) return
-    g.save()
-    g.lineCap = 'round'
-    g.lineJoin = 'round'
-    var n = tr.length
-    for (var i = 1; i < n; i++) {
-      var p0 = S.projectPoint(cam, W, H, [tr[i - 1][0], 1.4, tr[i - 1][1]])
-      var p1 = S.projectPoint(cam, W, H, [tr[i][0], 1.4, tr[i][1]])
-      if (!p0 || !p1) continue
-      var f = i / (n - 1)                    // 0 = 最旧，1 = 最新
-      g.strokeStyle = 'rgba(120,235,255,' + (0.14 + 0.60 * f * f).toFixed(3) + ')'
-      g.lineWidth = 1.6 + 4.4 * f
-      g.beginPath(); g.moveTo(p0[0], p0[1]); g.lineTo(p1[0], p1[1]); g.stroke()
+  // 行驶轨迹拖尾：**画成 3D 地面带**，而不是 2D 叠层。
+  // 为什么必须放到 3D：叠层永远盖在 3D 画布之上，所以 2D 画的拖尾会压在车模上；
+  // 放进 3D 后它参与深度测试，车体在它前面 → 会被正确遮挡，视觉上就是"拖尾在车下方"。
+  // 由旧到新逐段加深加粗（青蓝渐变），一眼看出车往哪走。
+  var TRAIL_Y = 4.4                       // 略高于道路带（3.0/3.6），避免与地面 z-fighting
+  function buildTrailMesh(cars) {
+    var m = S.newMesh()
+    var any = false
+    var tpx = carTailPx()
+    for (var ci = 0; ci < cars.length; ci++) {
+      var c = cars[ci]
+      var tr = c.anim && c.anim.trail
+      if (!tr || tr.length < 2) continue
+      // 末尾补上"当前车尾"点：拖尾从车屁股连住，不留一段空隙
+      var cur = [c.x - Math.cos(c.th) * tpx, c.z - Math.sin(c.th) * tpx]
+      var pts = []
+      for (var q = 0; q < tr.length; q++) pts.push([tr[q][0], tr[q][1]])
+      var lp = pts[pts.length - 1]
+      if (Math.hypot(cur[0] - lp[0], cur[1] - lp[1]) > 0.02 * scene.pxPerM) pts.push(cur)
+      var n = pts.length
+      if (n < 2) continue
+      for (var s = 0; s + 1 < n; s++) {
+        var p = pts[s], q2 = pts[s + 1]
+        var dx = q2[0] - p[0], dz = q2[1] - p[1]
+        var L = Math.hypot(dx, dz)
+        if (L < 1e-6) continue
+        var f2 = (s + 1) / (n - 1)                      // 0=最旧 1=最新
+        var half = (0.45 + 1.15 * f2) * scene.pxPerM / 2  // 由旧到新变宽
+        var ux = dx / L, uz = dz / L
+        var nx = -uz * half, nz = ux * half
+        // 沿走向各外扩半个宽度，让相邻段在拐弯处互相重叠，避免出现缺口
+        var ex = ux * half, ez = uz * half
+        var a0 = [p[0] - ex, TRAIL_Y, p[1] - ez]
+        var a1 = [q2[0] + ex, TRAIL_Y, q2[1] + ez]
+        var al = 0.10 + 0.55 * f2 * f2
+        S.pushQuad(m,
+          [a0[0] + nx, TRAIL_Y, a0[2] + nz], [a1[0] + nx, TRAIL_Y, a1[2] + nz],
+          [a1[0] - nx, TRAIL_Y, a1[2] - nz], [a0[0] - nx, TRAIL_Y, a0[2] - nz],
+          [0.47, 0.92, 1.0, al], [0, 1, 0])
+        any = true
+      }
     }
-    g.restore()
+    return any ? S.finalize(m) : null
   }
   // 车辆定位标记：地面光环（按透视投影成正圆）+ 垂直光柱 + 中心点
   function drawCarMarker(g, c) {
-    var r = CAR_LEN_M * 0.92 * scene.pxPerM
+    var ap = (c.appear == null ? 1 : c.appear)
+    var r = CAR_LEN_M * 0.92 * scene.pxPerM * ap
+    // 当前跟随目标车：额外画一个金色虚线外圈，提示"正在跟这辆车"
+    if (followSn && c.sn === followSn) {
+      var rr = CAR_LEN_M * 1.35 * scene.pxPerM
+      var rng = []
+      for (var kk = 0; kk <= 40; kk++) {
+        var aa = kk / 40 * 2 * Math.PI
+        var spp = S.projectPoint(cam, W, H, [c.x + Math.cos(aa) * rr, 0.8, c.z + Math.sin(aa) * rr])
+        if (spp) rng.push(spp)
+      }
+      if (rng.length > 3) {
+        g.save()
+        g.setLineDash([6, 5])
+        g.strokeStyle = 'rgba(255,213,61,0.95)'
+        g.lineWidth = 2
+        g.shadowColor = 'rgba(255,200,40,0.8)'; g.shadowBlur = 8
+        g.beginPath(); g.moveTo(rng[0][0], rng[0][1])
+        for (var kk2 = 1; kk2 < rng.length; kk2++) g.lineTo(rng[kk2][0], rng[kk2][1])
+        g.closePath(); g.stroke()
+        g.restore()
+      }
+    }
     var seg = 28
     var ring = []
     for (var i = 0; i <= seg; i++) {
@@ -1556,14 +1811,12 @@ window.Map3DGL = (function () {
     if (tipTop && tipBot) {
       var grd = g.createLinearGradient(tipTop[0], tipTop[1], tipBot[0], tipBot[1])
       grd.addColorStop(0, 'rgba(120,235,255,0.05)')
-      grd.addColorStop(1, 'rgba(120,235,255,0.85)')
+      grd.addColorStop(1, 'rgba(120,235,255,0.55)')
       g.save()
       g.strokeStyle = grd
       g.lineWidth = 3
       g.beginPath(); g.moveTo(tipTop[0], tipTop[1]); g.lineTo(tipBot[0], tipBot[1]); g.stroke()
-      g.fillStyle = '#eafcff'
-      g.shadowColor = '#7ff0ff'; g.shadowBlur = 12
-      g.beginPath(); g.arc(tipBot[0], tipBot[1], 3.4, 0, 6.2832); g.fill()
+      // 原来这里有个很亮的白点（#eafcff 实心圆）——用户反馈太扎眼、画面乱，去掉。
       g.restore()
     }
   }

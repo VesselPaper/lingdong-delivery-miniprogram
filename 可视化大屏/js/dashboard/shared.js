@@ -40,6 +40,9 @@ window.Dash = (function () {
   C.API_VIRTUAL = location.protocol === 'file:'
     ? 'http://127.0.0.1:3000/api/dashboard/virtual-robot'
     : '/api/dashboard/virtual-robot'
+  C.API_RECON = location.protocol === 'file:'
+    ? 'http://127.0.0.1:3000/api/dashboard/recon'
+    : '/api/dashboard/recon'
   C.ROBOT_POLL_MS = 1000
 
   // 公共工具

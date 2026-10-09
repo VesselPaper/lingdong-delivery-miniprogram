@@ -99,11 +99,8 @@
           <label class="ctlRange" title="立体 3D 车模的显示倍数（越小贴近真实比例，越大越醒目）">车模<input type="range" id="m3Car" min="20" max="150" value="90"></label>
           <span class="ctlSep"></span>
           <button id="m3Spin" title="自动环绕旋转">环绕</button>
-          <button id="m3Follow" title="镜头跟随第一台车">跟随</button>
+          <button id="m3Follow" title="镜头跟随无人车（点击地图上的车辆即可切换跟随目标）">跟随</button>
           <button id="m3Fade" title="楼体半透明：俯视时看清被楼压住的道路（默认关闭，楼体实心可见）">楼体透明</button>
-          <button id="m3Path" title="测绘出的可通行骨架线（青色荧光，默认关闭）">测绘线</button>
-          <button id="m3Route" title="橙色规划/演示路线（默认关闭）">规划路线</button>
-          <button id="m3Road" class="on" title="校园道路（OSM 参照，灰色）">校园道路</button>
           <button id="m3Ground" title="雷达底图：机器人激光测绘的**可通行区（有真实路宽）**，默认关闭；调试对齐时打开可对照">雷达图</button>
           <button id="m3Label" class="on" title="楼栋名称">标注</button>
           <button id="m3Align" title="3D图层重构：把灰色OSM路网/楼体逐栋逐路校补到雷达激光图真实位置（小车吸附到建模道路上）">重构</button>
@@ -139,23 +136,22 @@
             <button id="alFinishDraw" style="flex:1.4;background:#0e7f6f;border-color:#3fd7c2">完成(双击)</button>
           </div>
           <div id="reconDrawHint" hidden style="margin-bottom:7px;color:#8fe6c0">画线模式：左键逐点放点，完成后「完成」或在地图上双击收尾。</div>
-          <div style="display:flex;gap:5px;align-items:center;margin-bottom:8px">
-            <span>步长</span>
-            <button data-step="0.5" style="flex:1">0.5m</button>
-            <button data-step="1" class="on" style="flex:1">1m</button>
-            <button data-step="2" style="flex:1">2m</button>
-            <button data-step="5" style="flex:1">5m</button>
-          </div>
           <div style="display:grid;grid-template-columns:repeat(3,44px);gap:4px;justify-content:center;margin-bottom:8px">
             <span></span><button data-dx="0" data-dy="-1">▲</button><span></span>
             <button data-dx="-1" data-dy="0">◀</button><span></span><button data-dx="1" data-dy="0">▶</button>
             <span></span><button data-dx="0" data-dy="1">▼</button><span></span>
           </div>
+          <div style="display:flex;gap:5px;align-items:center;margin-bottom:6px">
+            <span>旋转</span>
+            <input id="alRotDrag" type="range" min="-180" max="180" step="0.5" value="0" style="flex:1;accent-color:#37e0ff">
+            <b id="alRotVal" style="flex:none;width:38px;text-align:center;color:#ffd53d">0°</b>
+          </div>
           <div style="display:flex;gap:5px;margin-bottom:8px">
-            <button data-rot="0.5" style="flex:1">↺0.5°</button>
-            <button data-rot="-0.5" style="flex:1">↻0.5°</button>
-            <button data-sc-inc="0.01" style="flex:1">↗缩放+</button>
-            <button data-sc-inc="-0.01" style="flex:1">↘缩放-</button>
+            <button id="alRotApply" style="flex:1;">应用旋转</button>
+          </div>
+          <div style="display:flex;gap:5px;margin-bottom:8px">
+            <button data-sc-inc="-0.02" style="flex:1">↘缩小</button>
+            <button data-sc-inc="0.02" style="flex:1">↗放大</button>
           </div>
           <div id="alHeightRow" style="display:none;gap:5px;align-items:center;margin-bottom:8px">
             <span>楼高</span>
@@ -164,15 +160,11 @@
             <button data-h-inc="0.5" style="flex:1">+0.5m</button>
           </div>
           <div style="display:flex;gap:6px">
-            <button id="alReset" style="flex:1">重置</button>
-            <button id="alRead" style="flex:1">读取</button>
-            <button id="alSave" style="flex:1.4;background:#0e7f6f;border-color:#3fd7c2">保存</button>
-          </div>
-          <div style="display:flex;gap:6px;margin-top:6px">
             <button id="alUndo" style="flex:1">↶ 撤回</button>
             <button id="alRedo" style="flex:1">↷ 还原</button>
+            <button id="alSave" style="flex:1.4;background:#0e7f6f;border-color:#3fd7c2">保存</button>
           </div>
-          <div id="alignNote" style="margin-top:7px;color:#9fbfcc">① 选「全域/楼栋/道路」→ ② 点地图选中（金色高亮）→ ③ 微调/改名/删除/新增 → 保存。灰色楼/路会移到雷达图正确位置；小车会吸附到该建模道路上。新增请切到「楼栋/道路」再点「新增」。微调/改名/删除/新增都可用「撤回/还原」回退重做；「重置」仅清空选中对象当前的偏移。</div>
+          <div id="alignNote" style="margin-top:7px;color:#9fbfcc"></div>
         </div>
 
         <!-- 虚拟测试车 · 手动状态面板（隐藏，点击工具栏「手动」展开） -->
@@ -242,21 +234,23 @@
 <script src="assets/map-calibration.js?v=3d42"></script>
 <!-- Scene3D 分件：先加载独立工具层（math → triangulate → camera），再加载场景主体 -->
 <script src="js/scene3d/math.js?v=3d42"></script>
-<script src="js/scene3d/triangulate.js?v=3d42"></script>
+<script src="js/scene3d/triangulate.js?v=3d66"></script>
 <script src="js/scene3d/camera.js?v=3d42"></script>
-<script src="js/scene3d.js?v=3d42"></script>
+<script src="js/scene3d.js?v=3d68"></script>
 <script src="js/map3d-core.js?v=3d42"></script>
 <script src="js/map3d.js?v=3d42"></script>
 <script>window.MAP_ASSET_VER='3d39'</script>
 <!-- 重构面板控制器（真3D渲染器的分层子模块，必须在 map3d-gl.js 之前加载、在 bind() 时注入能力） -->
-<script src="js/gl3d/recon.js?v=3d50"></script>
+<script src="js/gl3d/recon.js?v=3d64"></script>
+<!-- 内置默认重构数据（负责人手动完善后的新地图）：无本地存档时大屏回退到这版 -->
+<script src="assets/map-recon-default.js?v=3d60"></script>
 <!-- WebGL 着色器定义（纯 GLSL，不依赖 gl 实例，可在 map3d-gl.js 之前加载） -->
 <script src="js/render/gl3d/shaders.js?v=3d42"></script>
-<script src="js/map3d-gl.js?v=3d59"></script>
+<script src="js/map3d-gl.js?v=3d77"></script>
 <script src="js/map3d-entry.js?v=3d42"></script>
 <!-- 大屏骨架（分件）：共享上下文 → 数据源 → 界面渲染 → 地图 → 编排者/启动 -->
-<script src="js/dashboard/shared.js?v=3d60"></script>
-<script src="js/dashboard/api.js?v=3d60"></script>
+<script src="js/dashboard/shared.js?v=3d61"></script>
+<script src="js/dashboard/api.js?v=3d61"></script>
 <script src="js/dashboard/views-ui.js?v=3d42"></script>
 <script src="js/dashboard/map.js?v=3d42"></script>
 <script src="js/dashboard/main.js?v=3d60"></script>

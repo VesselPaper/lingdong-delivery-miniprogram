@@ -54,6 +54,22 @@ window.Map3DGLRecon = (function () {
     }
     fillReconSelect()
     updateReconDelta()
+    persistBackend('已撤回/还原（已保存到服务器）')
+  }
+  // 把当前 RECON 同步给服务器（撤回/还原也是真实业务操作，改动要落到后端共享）
+  function persistBackend(note) {
+    // 本机立即生效
+    if (host && host.saveRecon) host.saveRecon()
+    var api = window.Dash && window.Dash.api && window.Dash.api.saveRecon
+    if (api) {
+      api(RECON()).then(function () {
+        var n = document.getElementById('alignNote'); if (n) n.textContent = note || '已同步到服务器'
+      }).catch(function (e) {
+        var n = document.getElementById('alignNote'); if (n) n.textContent = '已保存本机；写服务器失败'
+      })
+    } else {
+      var n2 = document.getElementById('alignNote'); if (n2) n2.textContent = '已保存本机（localStorage）'
+    }
   }
   function undo() {
     if (!undoStack.length) return
@@ -297,8 +313,18 @@ window.Map3DGLRecon = (function () {
     })
     var sel = panel.querySelector('#reconSel')
     if (sel) sel.addEventListener('change', function () { if (sel.value) selectEdit(sel.value) })
-    Array.prototype.forEach.call(panel.querySelectorAll('[data-step]'), function (b) {
-      b.addEventListener('click', function () { setStep(Number(b.getAttribute('data-step'))) })
+    // 旋转滑块：实时显示角度，点「应用旋转」写入
+    var rotDrag = panel.querySelector('#alRotDrag')
+    var rotVal = panel.querySelector('#alRotVal')
+    var rotApply = panel.querySelector('#alRotApply')
+    if (rotDrag) rotDrag.addEventListener('input', function () {
+      var v = Number(rotDrag.value)
+      if (rotVal) rotVal.textContent = v + '°'
+    })
+    if (rotApply) rotApply.addEventListener('click', function () {
+      var v = rotDrag ? Number(rotDrag.value) : 0
+      if (rotVal) rotVal.textContent = v + '°'
+      applyObjRotTo(v)
     })
     function nudge(dx, dy) {
       var R = RECON(); if (!R) return
@@ -337,6 +363,17 @@ window.Map3DGLRecon = (function () {
         var cur = (typeof e.sc === 'number' && e.sc > 0) ? e.sc : 1
         e.sc = Math.max(0.5, cur + deltaSc)
       }
+      apply()
+    }
+    // 把选中的对象（或 global）旋转到指定**绝对角度**（度）。供滑块使用。
+    function applyObjRotTo(deg) {
+      var R = RECON(); if (!R) return
+      pushHist()
+      if (reconMode === 'global') { R.global.rot = num(deg); apply(); return }
+      if (!editRec) { var nn = document.getElementById('alignNote'); if (nn) nn.textContent = '请先在地图上选中要旋转的' + (reconMode === 'bld' ? '楼栋' : '道路'); return }
+      var e = reconEntry()
+      if (!e) return
+      e.rot = num(deg)
       apply()
     }
     // 对选中楼栋增减高度 deltaH（米）。仅 bld 模式生效。
@@ -477,16 +514,56 @@ window.Map3DGLRecon = (function () {
     })
     var read = panel.querySelector('#alRead')
     if (read) read.addEventListener('click', function () {
-      if (host && host.loadRecon) host.loadRecon()
-      fillReconSelect(); apply()
-      var n = panel.querySelector('#alignNote'); if (n) n.textContent = '已读取本机存档 dash3d_recon'
+      // 优先从服务器读取（全局一致）；服务器没有时回退本机 localStorage
+      var api = window.Dash && window.Dash.api && window.Dash.api.getRecon ? window.Dash.api : null
+      if (api) {
+        api.getRecon().then(function (d) {
+          if (d && d.recon && typeof d.recon === 'object') {
+            if (host && host.setRECON) host.setRECON(JSON.parse(JSON.stringify(d.recon)))
+            rebuildReconScene()
+            fillReconSelect(); apply()
+            var n = panel.querySelector('#alignNote')
+            if (n) n.textContent = '已读取服务器上的重构数据'
+          } else {
+            if (host && host.loadRecon) host.loadRecon()
+            fillReconSelect(); apply()
+            var n2 = panel.querySelector('#alignNote')
+            if (n2) n2.textContent = '服务器暂无重构数据，已读取本机存档 dash3d_recon'
+          }
+        }).catch(function () {
+          if (host && host.loadRecon) host.loadRecon()
+          fillReconSelect(); apply()
+          var n3 = panel.querySelector('#alignNote')
+          if (n3) n3.textContent = '读取服务器失败，已读取本机存档 dash3d_recon'
+        })
+      } else {
+        if (host && host.loadRecon) host.loadRecon()
+        fillReconSelect(); apply()
+        var n4 = panel.querySelector('#alignNote')
+        if (n4) n4.textContent = '已读取本机存档 dash3d_recon'
+      }
     })
     var sav = panel.querySelector('#alSave')
     if (sav) sav.addEventListener('click', function () {
+      // 本地 localStorage 立即生效（兼容旧版）
       if (host && host.saveRecon) host.saveRecon()
       updateReconDelta()
-      var n = panel.querySelector('#alignNote')
-      if (n) n.textContent = '已保存到本机（localStorage: dash3d_recon）→ 刷新后仍生效'
+      // 同时写服务器：让任何设备打开都看到这份重构（全局共享，真实业务持久化）
+      var rec = window.Dash && window.Dash.api && window.Dash.api.saveRecon ? RECON() : null
+      if (rec && window.Dash.api.saveRecon) {
+        window.Dash.api.saveRecon(rec)
+          .then(function () {
+            var n = panel.querySelector('#alignNote')
+            if (n) n.textContent = '已保存：本机 + 服务器（全局生效，任何设备打开都一致）'
+          })
+          .catch(function (e) {
+            var n = panel.querySelector('#alignNote')
+            if (n) n.textContent = '已保存到本机；写服务器失败（' + (e && e.message ? e.message : '未知') + '）'
+          })
+      } else {
+        var n2 = panel.querySelector('#alignNote')
+        if (n2) n2.textContent = '已保存到本机（localStorage: dash3d_recon）→ 刷新后仍生效'
+      }
     })
     // ---- 撤销 / 还原 ----
     var und = panel.querySelector('#alUndo')

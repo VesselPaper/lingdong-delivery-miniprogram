@@ -38,6 +38,16 @@
     var hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0)
     return !(hasNeg && hasPos)
   }
+  // 「严格」点在三角形内部：落在边上的点**不算**内部。
+  // 为什么必须严格：标定楼栋的 ring 普遍带**首尾重合的闭合点**（17/17 栋都有）。用上面的
+  // 非严格判定，这个重合点会被判成"在耳内"，于是每个候选耳都被否决 → 耳切提前卡住 →
+  // 屋顶只被三角化了一部分，表现为"每栋楼都缺一个三角形角"（实测缺 11%~57% 面积）。
+  function pointInTriStrict(p, a, b, c) {
+    var d1 = (p[0] - b[0]) * (a[1] - b[1]) - (a[0] - b[0]) * (p[1] - b[1])
+    var d2 = (p[0] - c[0]) * (b[1] - c[1]) - (b[0] - c[0]) * (p[1] - c[1])
+    var d3 = (p[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (p[1] - a[1])
+    return d1 > 0 && d2 > 0 && d3 > 0
+  }
   function triangulate(ring) {
     var n = ring.length
     var idx = []
@@ -59,7 +69,7 @@
         for (var m = 0; m < list.length; m++) {
           var im = list[m]
           if (im === i0 || im === i1 || im === i2) continue
-          if (pointInTri(ring[im], a, b, c)) { any = true; break }
+          if (pointInTriStrict(ring[im], a, b, c)) { any = true; break }
         }
         if (any) continue
         idx.push(i0, i1, i2)
@@ -69,8 +79,14 @@
       }
       if (!earFound) break
     }
-    if (list.length === 3) idx.push(list[0], list[1], list[2])
-    else if (idx.length === 0) { for (var f = 1; f + 1 < n; f++) idx.push(0, f, f + 1) }
+    // 收尾：耳切可能因退化顶点（共线/首尾重合）提前卡住，剩余多边形一律扇形补齐 ——
+    // 宁可有个别三角形重叠，也绝不能让屋顶缺一块（缺角是明显的视觉错误）。
+    if (list.length > 3) {
+      for (var f2 = 1; f2 + 1 < list.length; f2++) idx.push(list[0], list[f2], list[f2 + 1])
+    } else if (list.length === 3) {
+      idx.push(list[0], list[1], list[2])
+    }
+    if (idx.length === 0) { for (var f = 1; f + 1 < n; f++) idx.push(0, f, f + 1) }
     return idx
   }
 

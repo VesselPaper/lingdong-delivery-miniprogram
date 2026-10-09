@@ -245,12 +245,11 @@
       if (b.name && opts.labels !== false && b.no_label !== true) {
         var cx = cx0 + ox, cz = cz0 + oz
         if (deliver) {
-          var top = hpx + 5.0 * pxPerM
-          column(opaque, cx, cz, hpx, top, 0.40 * pxPerM, THEME.pin)
-          octa(opaque, cx, top, cz, 1.7 * pxPerM, THEME.pin)
+          // 楼名只出文字：不再在楼顶画橙色立体图标（柱子 + 八面体）。
+          // 标签直接标在楼顶稍上方即可。
           labels.push({
             text: b.name + (ox || oz ? '（视图偏移）' : ''),
-            x: cx, y: top + 1.6 * pxPerM, z: cz, kind: 'name'
+            x: cx, y: hpx + 0.8 * pxPerM, z: cz, kind: 'name'
           })
         } else {
           labels.push({
