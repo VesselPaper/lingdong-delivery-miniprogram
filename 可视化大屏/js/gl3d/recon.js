@@ -32,8 +32,13 @@ window.Map3DGLRecon = (function () {
   var undoStack = []        // 每次操作前的历史状态（回溯依据）
   var redoStack = []        // 撤销掉的状态（可还原）
   var HIST_MAX = 120
+  // 本次会话是否真的改过东西：只用于给「保存」加一道闸 ——
+  // 页面刚打开、一次都没改过时禁止写服务器，避免"加载失败退化成内置默认地图后
+  // 顺手点一下保存"把服务器上的版本整个覆盖掉。单向：改过就永久为 true。
+  var dirty = false
   function pushHist() {
     var R = RECON(); if (!R) return
+    dirty = true
     undoStack.push(cloneRecon(R))
     if (undoStack.length > HIST_MAX) undoStack.shift()
     redoStack = []          // 新操作使既有「还原」失效
@@ -54,6 +59,7 @@ window.Map3DGLRecon = (function () {
     }
     fillReconSelect()
     updateReconDelta()
+    cancelSync()
     persistBackend('已撤回/还原（已保存到服务器）')
   }
   // 把当前 RECON 同步给服务器（撤回/还原也是真实业务操作，改动要落到后端共享）
@@ -70,6 +76,19 @@ window.Map3DGLRecon = (function () {
     } else {
       var n2 = document.getElementById('alignNote'); if (n2) n2.textContent = '已保存本机（localStorage）'
     }
+  }
+  /* ---------------- 改动后自动保存 ----------------
+   * 任何会改 RECON 的操作结束后延迟 1.2s 统一写一次服务器：
+   * 连续点方向键 / 连点缩放时只在"停下来"之后发一次 POST，不刷屏。
+   * 手动「保存」与「撤回/还原」会先取消待执行的自动保存，避免重复写。 */
+  var syncTimer = null
+  function cancelSync() { if (syncTimer) { clearTimeout(syncTimer); syncTimer = null } }
+  function scheduleSync() {
+    cancelSync()
+    syncTimer = setTimeout(function () {
+      syncTimer = null
+      persistBackend('已自动保存到服务器（全局生效）')
+    }, 1200)
   }
   function undo() {
     if (!undoStack.length) return
@@ -330,7 +349,7 @@ window.Map3DGLRecon = (function () {
       var R = RECON(); if (!R) return
       pushHist()
       var s = step * ppmOf()
-      if (reconMode === 'global') { R.global.tx += dx * s; R.global.ty += dy * s; apply(); return }
+      if (reconMode === 'global') { R.global.tx += dx * s; R.global.ty += dy * s; apply(); scheduleSync(); return }
       var e = reconEntry()
       if (!e) return
       if (editRec && editRec.subtype === 'add') {
@@ -342,6 +361,7 @@ window.Map3DGLRecon = (function () {
       }
       else { e.dx += dx * s; e.dy += dy * s }
       apply()
+      scheduleSync()
     }
     // 对选中对象应用旋转 deltaRot（度）或缩放 deltaSc（倍）。global 模式退化为全域变换。
     function applyObjRotScale(deltaRot, deltaSc) {
@@ -350,7 +370,7 @@ window.Map3DGLRecon = (function () {
       if (reconMode === 'global') {
         if (deltaRot) R.global.rot = num(R.global.rot) + deltaRot
         if (deltaSc) R.global.sc = Math.max(0.5, num(R.global.sc) + deltaSc)
-        apply(); return
+        apply(); scheduleSync(); return
       }
       if (!editRec) {
         var nn = document.getElementById('alignNote'); if (nn) nn.textContent = '请先在地图上选中要旋转/缩放的' + (reconMode === 'bld' ? '楼栋' : '道路')
@@ -364,17 +384,19 @@ window.Map3DGLRecon = (function () {
         e.sc = Math.max(0.5, cur + deltaSc)
       }
       apply()
+      scheduleSync()
     }
     // 把选中的对象（或 global）旋转到指定**绝对角度**（度）。供滑块使用。
     function applyObjRotTo(deg) {
       var R = RECON(); if (!R) return
       pushHist()
-      if (reconMode === 'global') { R.global.rot = num(deg); apply(); return }
+      if (reconMode === 'global') { R.global.rot = num(deg); apply(); scheduleSync(); return }
       if (!editRec) { var nn = document.getElementById('alignNote'); if (nn) nn.textContent = '请先在地图上选中要旋转的' + (reconMode === 'bld' ? '楼栋' : '道路'); return }
       var e = reconEntry()
       if (!e) return
       e.rot = num(deg)
       apply()
+      scheduleSync()
     }
     // 对选中楼栋增减高度 deltaH（米）。仅 bld 模式生效。
     function applyBldHeight(deltaH) {
@@ -393,6 +415,7 @@ window.Map3DGLRecon = (function () {
         R.bldHeight[editRec.key] = Math.max(1, (cur == null ? 12 : cur) + num(deltaH))
       }
       apply()
+      scheduleSync()
       var nh2 = document.getElementById('alignNote')
       if (nh2) nh2.textContent = '已调整楼栋高度 ' + (bldCurrentHeight() == null ? '—' : bldCurrentHeight().toFixed(1)) + 'm'
     }
@@ -435,7 +458,8 @@ window.Map3DGLRecon = (function () {
         }
       }
       apply()
-      var n = panel.querySelector('#alignNote'); if (n) n.textContent = '已重置当前对象（未保存值已清零）'
+      scheduleSync()
+      var n = panel.querySelector('#alignNote'); if (n) n.textContent = '已重置当前对象（正在自动保存…）'
     })
     // ---- 改名 ----
     var rename = panel.querySelector('#alRename')
@@ -455,7 +479,8 @@ window.Map3DGLRecon = (function () {
           R.bldNames = R.bldNames || {}; R.bldNames[editRec.key] = newNm
         }
         rebuildReconScene()
-        var nb = document.getElementById('alignNote'); if (nb) nb.textContent = '已把楼栋「' + oldName + '」改名「' + newNm + '」（显示层生效，未落盘）'
+        scheduleSync()
+        var nb = document.getElementById('alignNote'); if (nb) nb.textContent = '已把楼栋「' + oldName + '」改名「' + newNm + '」（正在自动保存…）'
       } else {
         if (editRec.subtype === 'add') {
           var ar = (R.addRoads || [])[Number(editRec.key.split(':')[1])]
@@ -464,7 +489,8 @@ window.Map3DGLRecon = (function () {
           R.roadNames = R.roadNames || {}; R.roadNames[editRec.key] = newNm
         }
         rebuildReconScene()
-        var nr = document.getElementById('alignNote'); if (nr) nr.textContent = '已把道路「' + oldName + '」改名「' + newNm + '」（显示层生效，未落盘）'
+        scheduleSync()
+        var nr = document.getElementById('alignNote'); if (nr) nr.textContent = '已把道路「' + oldName + '」改名「' + newNm + '」（正在自动保存…）'
       }
       fillReconSelect(); updateReconDelta()
     })
@@ -490,7 +516,8 @@ window.Map3DGLRecon = (function () {
       }
       editRec = null; setEdited(null)
       apply()
-      var ne = document.getElementById('alignNote'); if (ne) ne.textContent = '已删除「' + name + '」（软删除，点「重置」可恢复；保存后刷新仍隐藏）'
+      scheduleSync()
+      var ne = document.getElementById('alignNote'); if (ne) ne.textContent = '已删除「' + name + '」（软删除，点「重置」可恢复；正在自动保存…）'
       fillReconSelect()
     })
     // ---- 新增（道路折线 / 楼栋轮廓） ----
@@ -545,6 +572,13 @@ window.Map3DGLRecon = (function () {
     })
     var sav = panel.querySelector('#alSave')
     if (sav) sav.addEventListener('click', function () {
+      // 闸：本次会话一次都没改过 → 不写服务器（防止用内置默认地图覆盖服务器版本）
+      if (!dirty) {
+        var ns = panel.querySelector('#alignNote')
+        if (ns) ns.textContent = '没有需要保存的改动'
+        return
+      }
+      cancelSync()   // 手动保存优先，取消待执行的自动保存，避免重复写
       // 本地 localStorage 立即生效（兼容旧版）
       if (host && host.saveRecon) host.saveRecon()
       updateReconDelta()
@@ -597,6 +631,8 @@ window.Map3DGLRecon = (function () {
     openPanel: function () { fillReconSelect(); updateReconDelta() },
     // 供主渲染器在真正改动 RECON 前调用一次（例如「新增道路/楼栋」完成落库）
     beforeChange: pushHist,
+    // 供主渲染器在新增道路/楼栋落库后调用：延迟统一写服务器
+    scheduleSync: scheduleSync,
     undo: undo,
     redo: redo,
     canUndo: function () { return undoStack.length > 0 },

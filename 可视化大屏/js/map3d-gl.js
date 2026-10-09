@@ -97,8 +97,13 @@ window.Map3DGL = (function () {
       var s = window.localStorage && window.localStorage.getItem('dash3d_recon')
       var src = null
       if (s) { try { src = JSON.parse(s) } catch (e) { src = null } }
-      if (!(src && typeof src === 'object')) src = window.MAP_DEFAULT_RECON || null
-      if (src && typeof src === 'object') applyReconObject(src)
+      if (src && typeof src === 'object') {
+        applyReconObject(src)
+        markReconSource('local')
+      } else if (window.MAP_DEFAULT_RECON && typeof window.MAP_DEFAULT_RECON === 'object') {
+        applyReconObject(window.MAP_DEFAULT_RECON)
+        markReconSource('default')
+      }
     } catch (e) {}
   }
   function saveRecon() {
@@ -171,9 +176,10 @@ window.Map3DGL = (function () {
         var name = nextBldName()
         RECON.addBlds.push({ name: name, cls: 'bld', ring: ring })
         rebuildGrey()
+        if (window.Map3DGLRecon && window.Map3DGLRecon.scheduleSync) window.Map3DGLRecon.scheduleSync()
         cancelReconDraw()
         var nb = document.getElementById('alignNote')
-        if (nb) nb.textContent = '已新增楼栋「' + name + '」（保存后写进 dash3d_recon；可选中它再微调位置）'
+        if (nb) nb.textContent = '已新增楼栋「' + name + '」（正在自动保存…；可选中它再微调位置）'
       } else {
         cancelReconDraw()
         var nb2 = document.getElementById('alignNote')
@@ -185,10 +191,11 @@ window.Map3DGL = (function () {
       if (window.Map3DGLRecon && window.Map3DGLRecon.beforeChange) window.Map3DGLRecon.beforeChange()
       RECON.addRoads.push({ name: '新路' + (RECON.addRoads.length + 1), cls: 'road', pts: reconDrawPts.slice() })
       rebuildGrey()
+      if (window.Map3DGLRecon && window.Map3DGLRecon.scheduleSync) window.Map3DGLRecon.scheduleSync()
     }
     cancelReconDraw()
     var n = document.getElementById('alignNote')
-    if (n) n.textContent = '已新增一条道路（保存后写进 dash3d_recon）'
+    if (n) n.textContent = '已新增一条道路（正在自动保存…）'
   }
   function beginReconDraw(kind) {
     reconDrawKind = kind === 'bld' ? 'bld' : 'road'
@@ -405,10 +412,19 @@ window.Map3DGL = (function () {
   // 后端无 recon 接口/鉴权关闭/超时则静默忽略，保持当前显示（本地 localStorage 或内置默认）。
   // 需要等场景就绪（gl + calib）后再应用，否则 rebuild 会因 calib 为空而空跑，导致服务器数据没真正显示。
   function loadReconRemote() {
-    var url = (window.Dash && window.Dash.C && window.Dash.C.API_RECON) || null
-    if (!url) return
+    // 接口地址定义在「大屏骨架」的共享配置里，而它在本脚本**之后**才加载：
+    // 所以不能一进函数就取地址（那时必然拿到空值、直接退出且永不重试，
+    // 会导致服务器上的重构数据永远读不到）。改为进入轮询后惰性解析。
+    function reconUrl() {
+      var d = window.Dash
+      if (d && d.C && d.C.API_RECON) return d.C.API_RECON
+      // 兜底：脚本顺序异常时也能取到；file:// 双击打开时指向本机后端
+      return (location.protocol === 'file:' ? 'http://127.0.0.1:3000' : '') + '/api/dashboard/recon'
+    }
     function tryOnce() {
       if (!ready || !calib) return false      // 场景还没就绪，稍后重试
+      var url = reconUrl()
+      if (!url) return false
       var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null
       var timer = setTimeout(function () { if (ctrl) ctrl.abort() }, 6000)
       fetch(url, { signal: ctrl ? ctrl.signal : undefined, cache: 'no-store' })
