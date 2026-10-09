@@ -15,7 +15,10 @@
  *   → 车辆/光环/光柱（不透明车体 + 混合光环）
  * 因为墙面不写深度，**机器人走到楼后面依然可见**（这正是用户要的）。
  *
- * 操作：左键拖动=环绕 · 滚轮=缩放 · 右键/Shift+拖动=平移 · 双击=复位 · 单指/双指（触摸）
+ * 操作：左键拖动=平移 · 右键拖动=旋转/俯仰 · 中键拖动=平移 · Ctrl/Alt+左键=旋转
+ *      滚轮=缩放 · 左键单击=选中车辆 · 双击=画轮廓时结束绘制（不再复位视角）
+ *      触摸：单指拖动=平移 · 双指=旋转 + 捏合缩放
+ * 文字：位置一律固定在自己的锚点上，**不因互相遮挡而挪位**；重叠时按重叠层数降透明度。
  * ============================================================ */
 window.Map3DGL = (function () {
   'use strict'
@@ -667,7 +670,11 @@ window.Map3DGL = (function () {
     if (!gl || !calib) return
     var ce = effectiveCalib()
     scene = S.buildStatic(ce, {
-      roads: opts.roads, paths: opts.paths, labels: opts.labels, heightScale: opts.heightScale
+      roads: opts.roads, paths: opts.paths, labels: opts.labels, heightScale: opts.heightScale,
+      // 关掉"自动让路"：原先路线压进楼里（<0.4m）时会把整栋楼推开（最多 9m），
+      // 楼和楼名就画在了错误的位置上。现在楼一律待在标定的真实位置，遮挡交给
+      // "墙面半透明"去化解（见本文件顶部渲染顺序：墙面不写深度，被楼挡住的路线/车辆依然可见）。
+      clearRoad: false
     })
     // 道路拓扑网：规划路线用它做"吸附 + 最短路"，保证黄线一定压在灰色道路上
     roadNet = S.buildRoadGraph(ce.roads || [])
@@ -1186,6 +1193,8 @@ window.Map3DGL = (function () {
   var TIER_T3_ZOOM = 0.50, TIER_T2_ZOOM = 1.00, TIER_T1_HIDE_OUT = 1.25
   // 各层字号基准（zoom=1 时的像素）：楼栋 12 / 第二层 10 / 第三层 9
   var LABEL_BASE_PX = { 1: 12, 2: 10, 3: 9 }
+  // 站点名被别的文字压住时的透明度下限：再挤也不低于这个值，保证"文字永不消失"
+  var LABEL_ALPHA_MIN = 0.32
   // 站点图标基准半径（zoom=1），第二层 4.4 / 第三层 3.6（比原来 5.4 小）
   var SITE_HEAD_BASE = { 2: 4.4, 3: 3.6 }
   var snapNet = null
@@ -1575,8 +1584,10 @@ window.Map3DGL = (function () {
   }
 
   /* ---------------- 2D 叠加层：全息标签 / 橙色路线 / 车辆数据 ---------------- */
-  // 文字宽度测量（带缓存）：标签避让要用；同一串字 + 同一字号只量一次
+  // 文字宽度测量（带缓存）：标签排版要用；同一串字 + 同一字号只量一次
   var _twCache = {}
+  // 上一帧标注的落笔情况（文字/锚点/实际落笔点/透明度），供排查与回归验证用
+  var _lastLabels = []
   function textWidth(g, txt, font) {
     var k = font + '|' + txt
     var v = _twCache[k]
@@ -1632,10 +1643,12 @@ window.Map3DGL = (function () {
       g.globalAlpha = 1
     }
 
-    // ---- 被"视图偏移"的楼：用虚线 + 小圆圈标出真实位置 ----
-    // 注意：**不再画那串黄字**（"真实位置 · 视图已偏移 Xm"）。用户明确要求
-    // 东苑12栋 / 东苑13栋 / 第三学生食堂 不要显示这串文字（这三栋就是全部被偏移的楼），
-    // 所以这里直接去掉文本，只留中性的虚线 + 圆圈做"真实位置"点位提示。
+    // ---- 万一有楼被"显示偏移"：用虚线 + 小圆圈标出真实位置 ----
+    // 前置事实：现在默认**不会有**任何楼被偏移 —— 手工偏移（visual_offset_m）已全部清空，
+    // 自动让路也在 rebuildStaticMesh 里关掉了（clearRoad:false）。这段是"安全网"：
+    // 谁以后又给某栋楼配了 visual_offset_m，真实位置就会被标出来，不至于偷偷画错地方。
+    // 注意：**不画文字**。原来那串黄字（"真实位置 · 视图已偏移 Xm"）用户明确要求去掉，
+    // 所以这里只留中性的虚线 + 圆圈。
     if (scene.moved && scene.moved.length && opts.labels) {
       g.save()
       g.setLineDash([4, 4])
@@ -1781,7 +1794,7 @@ window.Map3DGL = (function () {
       }
     }
 
-    if (!opts.labels) { flushPlates(); return }   // 关掉标注也要把数据牌画在最上层
+    if (!opts.labels) { _lastLabels = []; flushPlates(); return }   // 关掉标注也要把数据牌画在最上层
     // ---- 第一层：楼栋名（宿舍楼 / 食堂 / 餐厅 / 铺子 **同层级、同样式**）----
     // 缩放区间：(0.50, 1.25) —— 缩到最小(≥1.25)才消失；放大到 T3(取货点名)出现时隐藏。
     var showT1 = (view.zoom > TIER_T3_ZOOM && view.zoom < TIER_T1_HIDE_OUT)
@@ -1813,55 +1826,51 @@ window.Map3DGL = (function () {
     items.forEach(function (it) { if (it.d < dMin) dMin = it.d; if (it.d > dMax) dMax = it.d })
     var dSpan = Math.max(1e-6, dMax - dMin)
     var kzText = 1 / Math.max(0.01, view.zoom)
-    // 逐项先定字号/透明度（避让排布要拿字号量宽度）
+    // 逐项先定字号/透明度（算重叠要拿字号量宽度）
     for (var k0 = 0; k0 < items.length; k0++) {
       var it0 = items[k0]
       it0.bold = (it0.kind === 'bld')
       it0.base = it0.bold ? LABEL_BASE_PX[1] : (it0.pr === 2 ? LABEL_BASE_PX[2] : LABEL_BASE_PX[3])
       it0.font = (it0.bold ? 'bold ' : '') + (it0.base * kzText).toFixed(1) + 'px "Microsoft YaHei",sans-serif'
       it0.alpha = 1.00 - 0.55 * ((it0.d - dMin) / dSpan)
-      it0.tx = it0.x; it0.ty = it0.y      // 最终落笔位置（下面避让只改站点项的）
+      it0.tx = it0.x; it0.ty = it0.y      // 落笔位置＝锚点本身：文字一律不再挪位
     }
-    // ---- 站点文字避让：楼栋名原地不动，站点文字上下挪一行半行 ----
-    // 为什么需要：上货点/充电点/取货点常挤在铺子门口（本图 3 个点相距不到 5m），三层分级后字号又小，
-    // 几个名字叠在一起就糊成一团 —— 而铺子门口恰好是最该看清的位置。
-    // 设计约定不破：**文字永不消失**（候选位置全被占就画回原位）；楼栋名优先级最高、一律不挪。
-    // 站点之间"由近到远"抢位：越靠近镜头（画得越靠上层）的越先保住原位，远的让位。
-    var rowH = Math.max(9, LABEL_BASE_PX[3] * kzText * 1.55)
+    // ---- 文字位置固定：不为了避让而挪位，重叠时按"被压住的程度"降低透明度 ----
+    // 原先会把站点文字上下挪行、左右让位，名字因此跑到针尖之外，看起来"名字不在那个点上"。
+    // 用户要求：位置不要因为被遮挡而移动，而是根据遮挡弱化显示效果（如降低透明度）。
+    // 现在的规则：
+    //   · 所有文字都画在自己的锚点上（楼栋名 = 楼中心上方；站点名 = 针头右侧）；
+    //   · 楼栋名优先级最高：先占位，且从不淡化；
+    //   · 站点名与已占位的文字框重叠时，按重叠个数逐级降透明度（下限 LABEL_ALPHA_MIN），
+    //     先画的（更远的）被后画的压住时自然更淡 → 主次分明，且**文字永不消失**。
     var taken = []
-    function hitBox(x, y, w, h) {
+    function overlapCount(x, y, w, h) {
+      var n = 0
       for (var i = 0; i < taken.length; i++) {
-        var b = taken[i]
-        if (x < b[2] && x + w > b[0] && y < b[3] && y + h > b[1]) return true
+        var bk = taken[i]
+        if (x < bk[2] && x + w > bk[0] && y < bk[3] && y + h > bk[1]) n++
       }
-      return false
+      return n
     }
-    function reserve(it, x, y, w, h) { taken.push([x - 2, y - h, x + w + 3, y + h * 0.45]) }
-    var kb2, its2
-    for (kb2 = 0; kb2 < items.length; kb2++) {
+    function reserve(x, y, w, h) { taken.push([x - 2, y - h, x + w + 3, y + h * 0.45]) }
+    for (var kb2 = 0; kb2 < items.length; kb2++) {
       var ib = items[kb2]
       if (!ib.bold) continue
-      var wb = textWidth(g, ib.text, ib.font), hb = ib.base * kzText * 1.2
-      reserve(ib, ib.x, ib.y, wb, hb)
+      reserve(ib.x, ib.y, textWidth(g, ib.text, ib.font), ib.base * kzText * 1.2)
     }
     for (var ks2 = items.length - 1; ks2 >= 0; ks2--) {     // 反向遍历＝由近到远
-      its2 = items[ks2]
+      var its2 = items[ks2]
       if (its2.bold) continue
       var ws = textWidth(g, its2.text, its2.font), hs = its2.base * kzText * 1.2
-      // 先试上下挪行（0 / ±1 / ±2 / ±3 行），都不行再试左右让半个字宽
-      var cand = [0, -rowH, rowH, -2 * rowH, 2 * rowH, -3 * rowH, 3 * rowH]
-      var placed = false
-      for (var cc = 0; cc < cand.length; cc++) {
-        var yy = its2.y + cand[cc]
-        if (!hitBox(its2.x - 2, yy - hs, ws + 5, hs * 1.45)) { its2.ty = yy; placed = true; break }
-      }
-      for (var hc = 0; hc < 2 && !placed; hc++) {
-        var xx = its2.x + (hc ? -(ws + 9) : (ws * 0.62 + 7))   // 挪到针的左侧 / 右侧
-        if (!hitBox(xx - 2, its2.y - hs, ws + 5, hs * 1.45)) { its2.tx = xx; placed = true }
-      }
-      // placed 仍为 false：5 个候选位都压字 → 保持原位画出去（"文字永不消失"）
-      reserve(its2, its2.tx, its2.ty, ws, hs)
+      var nOv = overlapCount(its2.x, its2.y, ws, hs)
+      // 压住它的东西越多越淡：每个重叠 ×0.6，但不低于下限（文字永不消失）
+      if (nOv > 0) its2.alpha = Math.max(LABEL_ALPHA_MIN, its2.alpha * Math.pow(0.6, nOv))
+      reserve(its2.x, its2.y, ws, hs)
     }
+    // 记下这一帧的落笔情况（只读快照，供 labelsDebug() 断言"文字没有被挪位"）
+    _lastLabels = items.map(function (it) {
+      return { text: it.text, kind: it.kind, x: it.x, y: it.y, tx: it.tx, ty: it.ty, alpha: it.alpha }
+    })
     for (var k2 = 0; k2 < items.length; k2++) {
       var it = items[k2]
       g.globalAlpha = it.alpha
@@ -2142,6 +2151,12 @@ window.Map3DGL = (function () {
     viewState: function () {
       return { az: view.az, el: view.el, panX: view.panX, panY: view.panY, zoom: view.zoom }
     },
+    // 只读：当前被"显示偏移"挪动的楼（手工 visual_offset_m 或自动让路）。
+    // 验证脚本用它断言"楼都画在真实位置上"（勿删）。
+    sceneMoved: function () { return (scene && scene.moved) ? scene.moved : [] },
+    // 只读：上一帧标注的落笔情况（锚点 x/y vs 实际落笔 tx/ty、透明度 alpha）。
+    // 验证脚本用它断言"文字位置固定、重叠只降透明度"（勿删）。
+    labelsDebug: function () { return _lastLabels },
     setCarScale: setCarScale,
     setRobots: setRobots,
     // 选中/跟随（大屏左侧车辆卡面用）：setSelected 由大屏调用（silent 同步，不回环）
