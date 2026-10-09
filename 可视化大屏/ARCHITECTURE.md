@@ -59,7 +59,7 @@ vendor/leaflet → assets/map-calibration → js/scene3d/{math,triangulate,camer
 | 起步行 | 功能段 | 你要改这类东西时读这里 |
 |---|---|---|
 | ~36 | 3D 图元（squareCap/ribbon/column/octa…） | 扁带、柱、八面体基本形状 |
-| ~86 | 建筑（屋顶/墙面/描边/让路） | 楼栋外观、让路算法 |
+| ~86 | 建筑（屋顶/墙面/描边/让路） | 楼栋外观、让路算法（**现已默认关闭**，见 README） |
 | ~157 | 静态场景（buildStatic，把全图楼/路拼好） | 整体场景组装、主题彩色映射 |
 | ~318 | 车辆（buildCar） | 送餐车 3D 模型 |
 | ~399 | 光环/光柱（buildRing/buildBeam） | 车底光环、车顶光柱 |
