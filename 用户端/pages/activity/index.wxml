@@ -5,22 +5,12 @@
   </view>
 
   <view class="act-body">
+    <!-- 用户端只展示活动图片本身：商家在设计好的海报里已经写清了活动信息（折扣、时间、商品），
+         再渲染一套系统文案等于重复表达，还会跟海报风格打架。
+         没配图的活动在这里不展示（它在用户端的表现形态就是那张图）。 -->
     <block wx:if="{{activities.length}}">
-      <view class="act-card" wx:for="{{activities}}" wx:key="id" bindtap="onActivity" data-link="{{item.link}}" data-type="{{item.type}}">
-        <view class="act-card-top">
-          <view class="act-card-title">{{item.title}}</view>
-          <view class="act-type-tag" wx:if="{{item.type === 'discount'}}">折扣</view>
-          <view class="act-type-tag tag-reduce" wx:elif="{{item.type === 'full_reduce'}}">满减</view>
-        </view>
-        <view wx:if="{{item.highlight}}" class="act-highlight-row">
-          <view class="act-highlight">{{item.highlight}}</view>
-          <view class="act-highlight-txt" wx:if="{{item.highlightTxt}}">{{item.highlightTxt}}</view>
-        </view>
-        <view wx:if="{{item.highlightSub}}" class="act-highlight-sub text-sub text-sm">{{item.highlightSub}}</view>
-        <view class="act-card-sub text-weak text-sm" wx:if="{{item.subtitle}}">{{item.subtitle}}</view>
-        <view class="act-time text-weak text-sm" wx:if="{{item.timeTxt}}"><t-icon name="time" size="13" color="#999999" />{{item.timeTxt}}</view>
-        <view wx:if="{{item.type !== 'custom'}}" class="act-go">去逛逛 ›</view>
-        <view class="btn btn-sm act-btn" wx:else-if="{{item.link}}">查看详情</view>
+      <view class="act-card" wx:for="{{activities}}" wx:key="id" bindtap="onActivity" data-index="{{index}}">
+        <image class="act-poster-full" src="{{item.image}}" mode="widthFix" lazy-load />
       </view>
     </block>
     <view wx:else class="empty">

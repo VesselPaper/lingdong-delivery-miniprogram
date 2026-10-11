@@ -9,7 +9,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 24rpx;
+  margin-bottom: 20rpx;
 }
 
 .act-head-title {
@@ -21,79 +21,207 @@
 .act-add {
   background: #3078C0;
   color: #ffffff;
+  flex: 0 0 auto;   /* 微信 button 默认参与 flex 拉伸，会把标题顶开 */
 }
 
-.act-card {
-  padding: 28rpx;
-}
-
-.act-top {
+/* ===== 筛选行：左侧小标签标明维度（状态 / 类型），右侧横向滚动标签 ===== */
+.filter-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  margin-bottom: 16rpx;
 }
 
-.act-title {
-  font-size: 30rpx;
-  font-weight: 600;
-  color: #111111;
+.filter-label {
+  flex: 0 0 auto;
+  width: 56rpx;
+  font-size: 22rpx;
+  color: #8A97A8;
 }
 
-.act-sub {
-  margin-top: 12rpx;
+.filter-bar {
+  flex: 1;
+  min-width: 0;     /* flex 子项不设 min-width 会把 scroll-view 撑开而不是滚动 */
+  white-space: nowrap;
 }
 
-.act-meta {
-  margin-top: 12rpx;
-}
-
-.act-actions {
-  display: flex;
-  gap: 16rpx;
-  margin-top: 20rpx;
-}
-
-.act-actions .danger {
-  color: #FA5151;
-  border-color: #FA5151;
-}
-
-.act-badges {
-  display: flex;
-  gap: 12rpx;
-  margin-top: 14rpx;
-}
-
-.badge {
-  font-size: 20rpx;
-  padding: 4rpx 14rpx;
-  border-radius: 8rpx;
-  background: #F5F7FA;
+.filter-tab {
+  display: inline-block;
+  padding: 10rpx 24rpx;
+  margin-right: 14rpx;
+  font-size: 24rpx;
   color: #666666;
+  background: #F1F3F6;
+  border-radius: 999rpx;
 }
 
-.badge-type {
+.filter-tab.on {
   background: #EBF3FB;
   color: #3078C0;
   font-weight: 600;
 }
 
-.badge-go {
-  background: #E8F7EC;
-  color: #2AA34F;
+/* 类型维度的标签：白底描边，和状态维度（浅蓝实底）区分开，
+   避免两行长得一样、商家分不清自己在筛哪个维度 */
+.type-tab {
+  background: #ffffff;
+  border: 1rpx solid #E2E8F0;
+  padding: 8rpx 22rpx;
 }
 
-.badge-soon {
-  background: #FFF6E0;
-  color: #D69A00;
+.type-tab.on {
+  background: #EEF6FF;
+  border-color: #3078C0;
+  color: #3078C0;
+  font-weight: 600;
 }
 
-.badge-gray {
-  background: #F0F0F0;
-  color: #999999;
+/* ===== 两列网格 ===== */
+/* 用 calc 定宽 + flex-wrap，比 space-between 更稳：行内数量与间距都可控，
+   不会因为最后一行只剩一张卡而被拉到两端 */
+.act-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18rpx;
 }
 
-.badge-red {
-  background: #FDEEEE;
+.act-card {
+  width: calc(50% - 9rpx);
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 1rpx solid #EEF1F5;
+  border-radius: 16rpx;
+  overflow: hidden;      /* 图片要贴到卡片圆角内 */
+  padding: 0;            /* 覆盖全局 .card 的内边距 */
+  margin-bottom: 0;      /* 覆盖全局 .card 的下边距，间距交给 gap */
+}
+
+/* 海报：固定 4:3 比例的图片区（高度跟随宽度，不会因为图片尺寸不同而参差）。
+   用 4:3 而不是 16:9——两列卡片宽度约 342rpx，16:9 只有 192rpx 高太扁；
+   也不取 1:1，那是商品图的惯例，活动海报多是横版。 */
+.act-poster {
+  position: relative;
+  width: 100%;
+  padding-bottom: 75%;
+  background: #F4F7FB;
+  overflow: hidden;
+}
+
+.poster-img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.poster-ph {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+}
+
+.poster-ph-text {
+  font-size: 20rpx;
+  color: #B9C6D6;
+}
+
+.poster-tag {
+  position: absolute;
+  left: 12rpx;
+  top: 12rpx;
+}
+
+/* 卡片正文 */
+.act-body {
+  padding: 18rpx 20rpx 16rpx;
+}
+
+.act-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #111111;
+  /* 活动名可能较长，给两行再截断；单行会把「开学季全场五折」这类名字切得太早 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.35;
+  min-height: 76rpx;   /* 固定两行高度，让同排卡片底部对齐 */
+}
+
+.act-promo {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  font-weight: 600;
   color: #E64340;
 }
+
+.act-time {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-top: 10rpx;
+  font-size: 20rpx;
+}
+
+/* 卡片上的活动类型小标记：和时间状态同一行，不额外占高度 */
+.act-type-mini {
+  flex: 0 0 auto;
+  padding: 2rpx 10rpx;
+  border-radius: 4rpx;
+  background: #EEF3FA;
+  color: #5A7CA6;
+  font-size: 20rpx;
+}
+
+.act-time-txt {
+  color: #999999;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.act-foot {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-top: 16rpx;
+}
+
+.act-btn {
+  flex: 1;
+  height: 52rpx;
+  line-height: 52rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: #3078C0;
+  border: 2rpx solid #A8C8EA;
+  border-radius: 8rpx;
+  box-sizing: border-box;
+}
+
+.act-more {
+  flex: 0 0 auto;
+  width: 52rpx;
+  height: 52rpx;
+  line-height: 46rpx;
+  text-align: center;
+  font-size: 26rpx;
+  letter-spacing: 1rpx;
+  color: #999999;
+  border: 2rpx solid #E5E8EE;
+  border-radius: 8rpx;
+  box-sizing: border-box;
+}
+
+/* 时间状态色（全局 st-* 在 app.wxss，这里仅补网格内的竖排节奏） */
+.st-green { color: #2BA471; }
+.st-orange { color: #F5A623; }
+.st-gray { color: #999999; }

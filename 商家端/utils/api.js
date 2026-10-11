@@ -21,6 +21,7 @@ const api = {
   deliveryMonitor: '/merchant/delivery/monitor',
   robots: '/merchant/robots',
   activities: '/merchant/activities',
+  // 活动上下线：action='publish'（发布到用户端）/ 'offline'（下线）
   activityStatus: '/merchant/activities/status',
   deviceScan: '/merchant/device/scan',
   deviceWxacode: '/merchant/device/wxacode',

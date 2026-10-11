@@ -332,27 +332,39 @@ module.exports = (store, deps) => {
   // ---------- 商家端活动管理（发布/编辑/上下线/删除）——店主专属 ----------
   router.get('/merchant/activities', ownerGuard, (req, res) => ok(res, q.merchantActivities(store)))
 
+  // 新建活动：status_action='draft'（默认，只保存不上架）/ 'publish'（保存并发布）
   router.post('/merchant/activities', ownerGuard, (req, res) => {
-    const { title, subtitle = '', image = '', link = '', sort = 0, type = 'custom', config, start_at = '', end_at = '' } = req.body || {}
-    const t = String(title || '').trim()
+    const { title, subtitle = '', image = '', link = '', sort = 0, type = 'custom', config, start_at = '', end_at = '', status_action = 'draft' } = req.body || {}
+    // 草稿允许标题留空（商家常先存个壳再慢慢填），但库里不留空标题，用占位名兜底
+    const t = String(title || '').trim() || (status_action === 'draft' ? '未命名活动' : '')
     if (!t) return res.status(400).json({ code: 400, msg: '活动标题不能为空' })
     if (t.length > 60) return res.status(400).json({ code: 400, msg: '活动标题过长' })
     const img = safeImageUrl(image)
     if (img === null) return res.status(400).json({ code: 400, msg: '活动图片地址不合法' })
+    // 状态一律由后端裁决：新建时基础状态是草稿（0），只有 publish 才置 1
+    const st = q.resolveActivityStatus(status_action, 0)
+    if (st.error) return res.status(st.error.status).json({ code: st.error.status, msg: st.error.msg })
+    // 发布必须有图：用户端活动页是纯图片列表，首页轮播也只取有图的活动，
+    // 没图的活动发出去等于用户端什么都看不到（商家会以为系统坏了）
+    if (st.status === 1 && !img) {
+      return res.status(400).json({ code: 400, msg: '发布活动需要先上传活动图片' })
+    }
     const cfgJson = typeof config === 'string' ? config : JSON.stringify(config || {})
     const id = q.insertActivity(store, {
       title: t,
       subtitle: cleanText(subtitle, 120),
       image: img,
       link: cleanText(link, 300),
-      sort, type, config: cfgJson, start_at, end_at
+      sort, type, config: cfgJson, start_at, end_at,
+      status: st.status
     })
-    audit(req, 'activity/create', 'activity#' + id, 'title=' + t + ' type=' + type)
-    ok(res, { id })
+    audit(req, 'activity/create', 'activity#' + id, 'title=' + t + ' type=' + type + ' status=' + st.status)
+    ok(res, { id, status: st.status })
   })
 
+  // 编辑活动：status_action='draft'（保存，不改变上下架状态）/ 'publish'（保存并发布）
   router.put('/merchant/activities', ownerGuard, (req, res) => {
-    const { id, title, subtitle, image, link, sort, type, config, start_at, end_at } = req.body || {}
+    const { id, title, subtitle, image, link, sort, type, config, start_at, end_at, status_action } = req.body || {}
     if (!id) return res.status(400).json({ code: 400, msg: '缺少活动ID' })
     const cur = q.findActivityById(store, id)
     if (!cur) return res.status(404).json({ code: 404, msg: '活动不存在' })
@@ -364,6 +376,19 @@ module.exports = (store, deps) => {
       img = safeImageUrl(image)
       if (img === null) return res.status(400).json({ code: 400, msg: '活动图片地址不合法' })
     }
+    // 状态与图片校验放在写库之前：避免「发布被拒、内容却已存库」的中间状态
+    // （PUT 是全量更新，先写再校验会让一次失败的发布悄悄改掉活动内容）
+    let nextStatus = null
+    if (status_action !== undefined) {
+      const st = q.resolveActivityStatus(status_action, cur.status)
+      if (st.error) return res.status(st.error.status).json({ code: st.error.status, msg: st.error.msg })
+      // 发布必须有图（与新建接口同一条规则）：用户端活动页是纯图片列表，
+      // 没图的活动发出去用户端什么都看不到。img 此时已是本次提交的最终图片。
+      if (st.status === 1 && !img) {
+        return res.status(400).json({ code: 400, msg: '发布活动需要先上传活动图片' })
+      }
+      nextStatus = st.status
+    }
     q.updateActivity(store, id, {
       title: t,
       subtitle: subtitle === undefined ? cur.subtitle : cleanText(subtitle, 120),
@@ -371,15 +396,26 @@ module.exports = (store, deps) => {
       link: link === undefined ? cur.link : cleanText(link, 300),
       sort, type, config, start_at, end_at, cur
     })
-    audit(req, 'activity/update', 'activity#' + id, 'title=' + t + ' type=' + (type !== undefined ? type : cur.type))
+    // 状态跟着动作走：只保存不动上下架状态；发布才置 1（已下线的活动借此重新上架）
+    if (nextStatus !== null && nextStatus !== Number(cur.status)) q.updateActivityStatus(store, id, nextStatus)
+    audit(req, 'activity/update', 'activity#' + id, 'title=' + t + ' type=' + (type !== undefined ? type : cur.type) + (status_action !== undefined ? ' action=' + status_action : ''))
     ok(res)
   })
 
-  // 活动上下线：status 1 发布（用户端可见）/ 0 下线
+  // 活动上下线：publish → 1 发布（用户端可见）/ offline → 2 下线。
+  // 不接受直接传 1：发布必须显式走 publish，避免前端一个手滑把草稿顶上架。
   router.put('/merchant/activities/status', ownerGuard, (req, res) => {
-    q.updateActivityStatus(store, req.body.id, req.body.status)
-    audit(req, 'activity/status', 'activity#' + req.body.id, 'status=' + Number(req.body.status))
-    ok(res)
+    const { id, status, action } = req.body || {}
+    if (!id) return res.status(400).json({ code: 400, msg: '缺少活动ID' })
+    const cur = q.findActivityById(store, id)
+    if (!cur) return res.status(404).json({ code: 404, msg: '活动不存在' })
+    // 兼容旧调用（只传 status：1 发布 / 0 下线），新代码建议传 action
+    const act = action !== undefined ? action : (Number(status) === 1 ? 'publish' : 'offline')
+    const st = q.resolveActivityStatus(act, cur.status)
+    if (st.error) return res.status(st.error.status).json({ code: st.error.status, msg: st.error.msg })
+    q.updateActivityStatus(store, id, st.status)
+    audit(req, 'activity/status', 'activity#' + id, 'action=' + act + ' status=' + st.status)
+    ok(res, { status: st.status })
   })
 
   router.delete('/merchant/activities', ownerGuard, (req, res) => {

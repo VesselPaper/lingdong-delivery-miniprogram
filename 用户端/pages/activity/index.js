@@ -1,13 +1,7 @@
-// 活动页：顶部渐变权益头 + 活动列表（后端 /activity/list，无进行中活动时显示空态）
+// 活动页：顶部渐变权益头 + 活动图片列表（后端 /activity/list，无进行中活动时显示空态）
 const api = require('../../utils/api')
 const request = require('../../utils/request')
 const session = require('../../utils/session')
-
-const fmtTime = (v) => {
-  if (!v) return ''
-  const s = String(v).replace('T', ' ').slice(0, 16)
-  return s
-}
 
 Page({
   data: {
@@ -26,45 +20,39 @@ Page({
   async load() {
     try {
       const activities = await request.get(api.activityList)
-      // 只展示"进行中"活动，给不同类型附上展示文案与时间
-      const list = (activities || [])
-        .filter((a) => !a.state || a.state === 'active')
-        .map((a) => {
-          const item = Object.assign({}, a)
-          const conf = a.config || {}
-          if (a.type === 'discount' && Number(conf.discount) > 0 && Number(conf.discount) < 1) {
-            const zhe = (Number(conf.discount) * 10).toFixed(1).replace(/\.0$/, '')
-            item.highlight = `${zhe} 折`
-            item.highlightTxt = '折扣活动'
-            item.highlightSub = conf.scope === 'goods' ? '指定商品享受折扣' : '全场商品享受折扣'
-          } else if (a.type === 'full_reduce' && Array.isArray(conf.tiers)) {
-            const tops = conf.tiers.filter((t) => Number(t.threshold) > 0)
-              .sort((x, y) => Number(x.threshold) - Number(y.threshold))
-              .map((t) => `满${t.threshold}减${t.reduce}`)
-            item.highlight = tops.length ? tops[tops.length - 1] : '满减优惠'
-            item.highlightTxt = '满减活动'
-            item.highlightSub = tops.length ? tops.join(' / ') : ''
-          } else {
-            item.highlight = ''
-            item.highlightTxt = '活动'
-          }
-          // 起止时间展示
-          item.timeTxt = (a.start_at || a.end_at)
-            ? `${fmtTime(a.start_at)} — ${fmtTime(a.end_at)}`
-            : ''
-          return item
-        })
+      // 只展示「进行中 + 有图」的规则活动：
+      //   · 纯展示活动属于首页轮播（商家把它当图片入口用）
+      //   · 没配图的活动在用户端没有表现形态（这里整页都是图片），所以过滤掉
+      const list = (activities || []).filter((a) =>
+        a.type !== 'custom' && (!a.state || a.state === 'active') && a.image
+      )
       this.setData({ activities: list })
     } catch (e) { /* handled */ }
   },
 
   onActivity(e) {
-    // 折扣/满减活动点击进商品售卖页；自由活动若配了链接则跳链接
-    const { link, type } = e.currentTarget.dataset
-    if (type === 'custom') {
-      if (link) wx.navigateTo({ url: link })
-    } else {
+    // 点活动卡片：有适用商品 → 商城只显示这些商品（活动适用的那批）；
+    // 否则（纯展示活动）跳到商家配置的链接；都没配就明确提示，而不是点了没反应。
+    const a = this.data.activities[Number(e.currentTarget.dataset.index)]
+    if (!a) return
+    const ids = (a.config && Array.isArray(a.config.goods_ids)) ? a.config.goods_ids : []
+    if (a.type !== 'custom' && ids.length) {
+      wx.setStorageSync('goods_id_filter', ids.map(Number))
+      wx.setStorageSync('goods_category', '')
+      wx.setStorageSync('goods_keyword', '')
+      wx.setStorageSync('goods_focus', 0)
       wx.switchTab({ url: '/pages/goods/list' })
+      return
     }
+    if (a.type !== 'custom') {
+      // 全场活动：没有具体商品集合，直接进商城
+      wx.setStorageSync('goods_category', '')
+      wx.setStorageSync('goods_keyword', '')
+      wx.setStorageSync('goods_focus', 0)
+      wx.switchTab({ url: '/pages/goods/list' })
+      return
+    }
+    if (a.link) { wx.navigateTo({ url: a.link }); return }
+    wx.showToast({ title: '该活动暂无跳转目标', icon: 'none' })
   }
 })

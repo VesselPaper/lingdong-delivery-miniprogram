@@ -44,6 +44,20 @@
   <view class="history-mask" wx:if="{{showHistory}}" catchtap="closeHistory"></view>
 
   <!-- 常态内容：福利卡 + 分类 + 热门商品 -->
+  <!-- 活动位：商家发布的「纯展示」活动（首页第一落点，放在福利卡之上）。
+       用纵向排列而不是 swiper 轮播：swiper 必须有固定高度，任何非该比例的图都会被裁掉内容；
+       这里每张图按原始比例完整显示（widthFix），商家上传什么尺寸就显示什么尺寸。
+       没有已发布的纯展示活动时整块不渲染，不留空白。 -->
+  <view class="banner-list" wx:if="{{banners.length}}">
+    <image wx:for="{{banners}}" wx:key="id"
+      class="banner-img"
+      src="{{item.image}}"
+      mode="widthFix"
+      lazy-load
+      bindtap="onBannerTap"
+      data-index="{{index}}" />
+  </view>
+
   <!-- 福利卡片：点击箭头/卡片进入商城 -->
   <view class="coupon-card" bindtap="goAll">
     <view class="coupon-head">

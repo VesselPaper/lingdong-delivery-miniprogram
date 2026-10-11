@@ -44,9 +44,11 @@ module.exports = {
   listActivities: (store) => store.prepare('SELECT * FROM activities WHERE status=1 ORDER BY sort, id DESC').all(),
   merchantActivities: (store) => store.prepare('SELECT * FROM activities ORDER BY sort, id DESC').all(),
   findActivityById: (store, id) => store.prepare('SELECT * FROM activities WHERE id=?').get(Number(id)),
+  // status 由调用方决定：0=草稿（保存但不上架）/ 1=已发布。此前这里硬编码 1，
+  // 导致「保存」等于「上架」，商家无法先存草稿再发布。
   insertActivity: (store, f) => {
-    const info = store.prepare('INSERT INTO activities (title, subtitle, image, link, status, sort, type, config, start_at, end_at) VALUES (?,?,?,?,1,?,?,?,?,?)')
-      .run(f.title, f.subtitle, f.image, f.link, Number(f.sort || 0), String(f.type || 'custom'), String(f.config || '{}'), f.start_at || null, f.end_at || null)
+    const info = store.prepare('INSERT INTO activities (title, subtitle, image, link, status, sort, type, config, start_at, end_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(f.title, f.subtitle, f.image, f.link, Number(f.status) === 1 ? 1 : 0, Number(f.sort || 0), String(f.type || 'custom'), String(f.config || '{}'), f.start_at || null, f.end_at || null)
     return Number(info.lastInsertRowid)
   },
   updateActivity: (store, id, f) => store.prepare('UPDATE activities SET title=?, subtitle=?, image=?, link=?, sort=?, type=?, config=?, start_at=?, end_at=? WHERE id=?')
@@ -65,3 +67,25 @@ module.exports = {
   updateActivityStatus: (store, id, status) => store.prepare('UPDATE activities SET status=? WHERE id=?').run(Number(status), Number(id)),
   deleteActivity: (store, id) => store.prepare('DELETE FROM activities WHERE id=?').run(Number(id))
 }
+
+// ── 活动状态的唯一权威规则（保存/发布/下线都走这里，避免各处各判一套）──
+// activities.status 三态：
+//   0 = 草稿   只存在商家端，用户端活动页看不到，也不参与折扣/满减计价
+//   1 = 已发布 用户端可见 + 参与计价（listActivities / promotion.loadActive 都按 status=1 取）
+//   2 = 已下线 发布过又下线，同样对用户端不可见
+// 注意：0 专指「从未发布过」，与 2「发布过又下线」在列表上要显示成不同标签。
+//
+// action 语义（关键：防止越权发布与误下线）：
+//   draft   保存草稿：草稿仍为草稿；已发布/已下线的活动保持原状态不变
+//           —— 否则商家改一下文案点「保存」就把线上活动悄悄下线了。
+//   publish 发布：置 1，用于草稿发布、以及已下线活动重新上架
+//   offline 下线：置 2，对用户端隐藏；此后重新发布时仍能正确显示「已下线」
+function resolveActivityStatus(action, curStatus) {
+  const cur = Number(curStatus)
+  if (action === 'publish') return { status: 1 }
+  if (action === 'offline') return { status: 2 }
+  if (action === 'draft') return { status: cur === 1 || cur === 2 ? cur : 0 }
+  return { error: { status: 400, msg: '未知的活动状态操作：' + action } }
+}
+
+module.exports.resolveActivityStatus = resolveActivityStatus

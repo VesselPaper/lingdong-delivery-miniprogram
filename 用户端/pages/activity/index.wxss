@@ -1,4 +1,4 @@
-/* 以白为主、蓝只在顶部起手：30% 处收到纯白，往下整页白底，卡片浮在白底上更干净 */
+/* 以白为主、蓝只在顶部起手：30% 处收到纯白 */
 .activity-page {
   min-height: 100vh;
   background: linear-gradient(180deg, #EAF4FF 0%, #FFFFFF 30%);
@@ -6,10 +6,9 @@
   box-sizing: border-box;
 }
 
-/* 头栏：原来 #9CCDF2→#6FB2E7 的深蓝渐变块是页面最重的蓝色；
-   压成顶部极浅蓝 → 向下渐隐到透明（透出白底），与整页白主调统一 */
+/* 头栏：顶部极浅蓝 → 向下渐隐到透明 */
 .act-head {
-  padding: 48rpx 40rpx 200rpx;
+  padding: 48rpx 40rpx 120rpx;
   background: linear-gradient(180deg, #DCEBFA 0%, rgba(255, 255, 255, 0) 100%);
 }
 
@@ -27,90 +26,21 @@
 }
 
 .act-body {
-  margin-top: -160rpx;
+  margin-top: -90rpx;
   padding: 0 32rpx 40rpx;
 }
 
+/* 一个活动 = 一张图片。没有白底、没有描边、没有系统文案：
+   商家把折扣/时间/商品都设计进海报里了，外面再包一层卡片会和海报本身的设计打架。
+   图片用小圆角收边，保证和整页的圆角语言一致。 */
 .act-card {
-  background: #ffffff;
-  border: 1rpx solid #EBEBEB;
-  border-radius: 12rpx;
-  padding: 32rpx;
-  margin-bottom: 20rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  border-radius: 16rpx;
+  overflow: hidden;
+  margin-bottom: 24rpx;
+  background: #F1F5FA;
 }
 
-.act-card-title {
-  font-size: 32rpx;
-  font-weight: 600;
-  color: #111111;
-}
-
-.act-card-top {
-  display: flex;
-  align-items: center;
-  gap: 14rpx;
+.act-poster-full {
   width: 100%;
-}
-
-.act-type-tag {
-  font-size: 20rpx;
-  color: #3078C0;
-  background: #EBF3FB;
-  padding: 4rpx 12rpx;
-  border-radius: 6rpx;
-  font-weight: 600;
-}
-
-.act-type-tag.tag-reduce {
-  color: #E64340;
-  background: #FDEEEE;
-}
-
-.act-highlight {
-  margin-top: 16rpx;
-  font-size: 44rpx;
-  font-weight: 700;
-  color: #E64340;
-}
-
-.act-highlight-sub {
-  margin-top: 6rpx;
-}
-
-.act-card-sub {
-  margin-top: 10rpx;
-}
-
-.act-highlight-row {
-  display: flex;
-  align-items: baseline;
-  gap: 12rpx;
-  margin-top: 16rpx;
-}
-
-.act-highlight-txt {
-  font-size: 24rpx;
-  color: #E64340;
-  font-weight: 600;
-}
-
-.act-time {
-  margin-top: 14rpx;
-  display: flex;
-  align-items: center;
-  gap: 6rpx;
-}
-
-.act-go {
-  margin-top: 18rpx;
-  font-size: 26rpx;
-  color: #3078C0;
-  font-weight: 600;
-}
-
-.act-btn {
-  margin-top: 24rpx;
+  display: block;
 }

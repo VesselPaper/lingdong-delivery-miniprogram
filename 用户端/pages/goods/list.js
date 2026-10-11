@@ -62,11 +62,14 @@ Page({
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 1 })
     }
-    // 首页跳转带入的分类 / 关键词（消费后即清除，避免下次误用）
+    // 首页跳转带入的分类 / 关键词 / 活动商品集合（消费后即清除，避免下次误用）
     const cat = wx.getStorageSync('goods_category') || ''
     const kw = wx.getStorageSync('goods_keyword') || ''
+    const ids = wx.getStorageSync('goods_id_filter') || []
     if (cat) wx.removeStorageSync('goods_category')
     if (kw) wx.removeStorageSync('goods_keyword')
+    if (ids && ids.length) wx.removeStorageSync('goods_id_filter')
+    this.idFilter = Array.isArray(ids) ? ids : []
     this.pendingCategory = cat
     if (kw && kw !== this.data.keyword) this.setData({ keyword: kw })
     this.loadGoods()
@@ -153,10 +156,21 @@ Page({
       this.cartMap = byGoods
 
       const kw = this.data.keyword.trim()
+      // 首页/活动页点活动图带来的「活动适用商品」筛选（走 storage，因为商城是 tabBar 页，
+      // switchTab 不支持 query 参数）。消费一次即清除，避免下次进商城还残留上次的活动范围。
+      const idFilter = this.idFilter || []
+      this.idFilter = []
       // 搜索命中「商品名 或 分类」（如搜「零食」可命中分类「饼干零食」下的全部商品）
-      const filtered = kw
+      let filtered = kw
         ? list.filter((g) => (g.name || '').indexOf(kw) > -1 || (g.category || '').indexOf(kw) > -1)
         : list
+      if (idFilter.length) {
+        const pick = {}
+        idFilter.forEach((id) => { pick[Number(id)] = true })
+        const hit = filtered.filter((g) => pick[Number(g.id)])
+        // 活动商品可能已被商家下架/售罄移除：命中为空就回落到全部，而不是给用户一个空页面
+        if (hit.length) filtered = hit
+      }
       const catOrder = this.data.categories.slice()
       filtered.forEach((g) => {
         if (catOrder.indexOf(g.category) === -1) catOrder.push(g.category)

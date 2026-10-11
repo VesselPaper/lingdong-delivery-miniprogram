@@ -4,31 +4,59 @@
     <view class="btn btn-sm act-add" wx:if="{{isOwner}}" bindtap="add">新建活动</view>
   </view>
 
-  <view class="list">
-    <block wx:for="{{activities}}" wx:key="id">
-      <view class="act-card card" bindtap="edit" data-id="{{item.id}}">
-        <view class="act-top">
-          <view class="act-title">{{item.title}}</view>
-          <view class="tag {{item.status === 1 ? 'tag-green' : ''}}">{{item.status === 1 ? '已发布' : '已下线'}}</view>
+  <!-- 状态筛选：按「商家此刻能对它做什么」分组（标签带计数，一眼看出有没有草稿） -->
+  <view class="filter-row" wx:if="{{all.length}}">
+    <text class="filter-label">状态</text>
+    <scroll-view class="filter-bar" scroll-x>
+      <view class="filter-tab {{filter === item.key ? 'on' : ''}}"
+        wx:for="{{tabs}}" wx:key="key"
+        bindtap="setFilter" data-key="{{item.key}}">{{item.label}} {{item.count}}</view>
+    </scroll-view>
+  </view>
+
+  <!-- 活动类型筛选：与状态正交，用来分辨「打折 / 满减 / 纯展示」各有哪些活动。
+       计数随状态联动（看草稿时就是草稿里的类型分布） -->
+  <view class="filter-row" wx:if="{{all.length}}">
+    <text class="filter-label">类型</text>
+    <scroll-view class="filter-bar" scroll-x>
+      <view class="filter-tab type-tab {{typeFilter === item.key ? 'on' : ''}}"
+        wx:for="{{typeTabs}}" wx:key="key"
+        bindtap="setTypeFilter" data-key="{{item.key}}">{{item.label}} {{item.count}}</view>
+    </scroll-view>
+  </view>
+
+  <!-- 两列网格：图片是主视觉，商家一眼认出是哪张海报 -->
+  <view class="act-grid">
+    <view class="act-card" wx:for="{{activities}}" wx:key="id" bindtap="edit" data-id="{{item.id}}">
+      <view class="act-poster">
+        <image wx:if="{{item.image}}" class="poster-img" src="{{item.image}}" mode="aspectFill" lazy-load />
+        <view wx:else class="poster-ph">
+          <t-icon name="activity" size="34" color="#C6D6E8" />
+          <text class="poster-ph-text">未配图</text>
         </view>
-        <view class="act-badges">
-          <view class="badge badge-type">{{item.type_txt}}</view>
-          <view class="badge {{item.state === 'active' ? 'badge-go' : (item.state === 'offline' ? 'badge-gray' : 'badge-soon')}}">{{item.state_txt}}</view>
+        <!-- 上架状态压在图片上，不占额外高度 -->
+        <view class="tag poster-tag {{item.statusClass}}">{{item.statusText}}</view>
+      </view>
+
+      <view class="act-body">
+        <view class="act-title">{{item.title}}</view>
+        <view class="act-promo ellipsis">{{item.promoText}}</view>
+        <view class="act-time">
+          <text class="act-type-mini">{{item.type_txt}}</text>
+          <text class="{{item.stateClass}}">{{item.state_txt}}</text>
+          <text class="act-time-txt">{{item.timeTxt}}</text>
         </view>
-        <view class="act-sub text-sub text-sm" wx:if="{{item.subtitle}}">{{item.subtitle}}</view>
-        <view class="act-meta text-weak text-sm">
-          <text wx:if="{{item.link}}">链接：{{item.link}}</text>
-          <text wx:else>无跳转链接</text>
-        </view>
-        <view class="act-actions" catchtap="noop">
-          <view class="btn btn-sm btn-outline" bindtap="toggleStatus" data-id="{{item.id}}" data-status="{{item.status}}">{{item.status === 1 ? '下线' : '发布'}}</view>
-          <view class="btn btn-sm btn-outline danger" bindtap="del" data-id="{{item.id}}">删除</view>
+        <view class="act-foot" catchtap="noop">
+          <view class="act-btn" wx:if="{{item.status !== 1}}" bindtap="goPublish" data-id="{{item.id}}">去发布</view>
+          <view class="act-btn" wx:else bindtap="onMore" data-id="{{item.id}}">管理</view>
+          <view class="act-more" bindtap="onMore" data-id="{{item.id}}">···</view>
         </view>
       </view>
-    </block>
-    <view wx:if="{{!activities.length}}" class="empty">
-      <view class="empty-icon"><t-icon name="activity" size="40" color="#C9D2DE" /></view>
-      <view class="empty-text">暂无活动，点击右上角新建</view>
     </view>
+  </view>
+
+  <view wx:if="{{!activities.length}}" class="empty">
+    <view class="empty-icon"><t-icon name="activity" size="40" color="#C9D2DE" /></view>
+    <view class="empty-text">{{all.length ? '没有该状态的活动' : '暂无活动，点击右上角新建'}}</view>
   </view>
 </view>

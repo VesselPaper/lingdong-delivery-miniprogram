@@ -54,6 +54,7 @@ Page({
     keyword: '',               // 首页搜索关键词（确认后携带跳转商城页执行搜索）
     categories: [],            // 分类按钮
     hotGroups: [],             // 热门商品分组（每行一个分类）
+    banners: [],               // 首页轮播位：商家发布的「纯展示」活动（有图才展示）
     cartCount: 0,
     cartTotal: '0.00',
     flyBall: { show: false, x: 0, y: 0, dx: 0, dy: 0, move: false },  // 加购飞入的小球
@@ -79,6 +80,7 @@ Page({
     this.loadCategories()
     this.loadAddress()
     this.loadShopStatus()
+    this.loadBanners()
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 0 })
     }
@@ -190,6 +192,40 @@ Page({
     wx.removeStorageSync(POINT_KEY)
     this.setData({ location: POINT_UNSET, pickedPointId: null, showPointPicker: false, pointUnset: true })
     await this.syncPoint('')
+  },
+
+  // 首页轮播位：只展示商家发布的「纯展示」活动（有图才显示）。
+  // 打折/满减也允许配图，但它们属于规则活动，出现在「活动」页；
+  // 若要放到首页轮播，商家把类型选成「纯展示」即可（与用户端活动页的分工见 doc）。
+  async loadBanners() {
+    try {
+      const list = await request.get(api.activityList)
+      const banners = (list || []).filter((a) => a.type === 'custom' && a.image)
+      this.setData({ banners })
+    } catch (e) {
+      this.setData({ banners: [] })
+    }
+  },
+
+  // 点轮播图：规则活动（有适用商品）→ 商城只显示这些商品；否则按商家配置的链接跳转
+  onBannerTap(e) {
+    const a = this.data.banners[Number(e.currentTarget.dataset.index)]
+    if (!a) return
+    const ids = (a.config && Array.isArray(a.config.goods_ids)) ? a.config.goods_ids : []
+    if (ids.length) {
+      wx.setStorageSync('goods_id_filter', ids.map(Number))
+      wx.setStorageSync('goods_category', '')
+      wx.setStorageSync('goods_keyword', '')
+      wx.setStorageSync('goods_focus', 0)
+      wx.switchTab({ url: '/pages/goods/list' })
+      return
+    }
+    if (a.link) {
+      wx.navigateTo({ url: a.link })
+      return
+    }
+    // 纯展示且没配跳转：明确告知，而不是点了没反应
+    wx.showToast({ title: '该活动暂无跳转目标', icon: 'none' })
   },
 
   async loadCategories() {

@@ -224,6 +224,12 @@ Page({
     wx.navigateTo({ url: '/pages/delivery/scanPickup' })
   },
 
+  // 空态「去下单」：本页是普通页（navigateTo 进来的），商城是 tabBar 页，
+  // 因此必须用 switchTab —— 用 navigateTo 跳 tabBar 页会静默失败，点上去没有任何反应。
+  goOrder() {
+    wx.switchTab({ url: '/pages/goods/list' })
+  },
+
   // P1-4：配送异常(6)订单的退款/投诉出口 —— 卡死或异常订单用户必须有自助入口
   goRefund() {
     if (!this.data.orderId) return
