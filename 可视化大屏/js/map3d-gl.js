@@ -1209,6 +1209,10 @@ window.Map3DGL = (function () {
   var LABEL_ALPHA_MIN = 0.32
   // 站点图标基准半径（zoom=1），第二层 4.4 / 第三层 3.6（比原来 5.4 小）
   var SITE_HEAD_BASE = { 2: 4.4, 3: 3.6 }
+  // 点位去重（2026-10-12，负责人反馈"商铺上货一片点位很近"）：
+  // 屏幕距离 < SITE_CULL_PX 的多个点位只留一个 —— 优先级 上货点(3) > 充电点(2) > 取货点(1)，
+  // 其余点位**连同名称整组隐藏**；放大后点位分开会重新出现（密度自适应，不会永久消失）。
+  var SITE_CULL_PX = 36
   var snapNet = null
   function buildSnapNet() {
     snapNet = null
@@ -1767,6 +1771,9 @@ window.Map3DGL = (function () {
     if (opts.sites && live.bbox && live.landmarks && live.landmarks.length) {
       var lmP2r = S.makePlatformToRadar(live.bbox, scene.radarW, scene.radarH, live.meta)
       if (lmP2r) {
+        // 先收集所有候选点位（含屏幕坐标与优先级），再按"上货点>充电点>取货点"做屏幕距离去重，
+        // 解决"商铺上货/零栋库房/充电点"这类贴在一起的点位挤成一团的问题（2026-10-12）。
+        var siteCands = []
         for (var L0 = 0; L0 < live.landmarks.length; L0++) {
           var LM = live.landmarks[L0]
           if (!LM || !isFinite(num(LM.x)) || !isFinite(num(LM.y))) continue
@@ -1781,42 +1788,57 @@ window.Map3DGL = (function () {
           var isCharge = String(LM.type || '') === 'chargePoint' || /充电/.test(nm3)
           var isLoad = String(LM.type || '') === 'loadingPoint' || /上货/.test(nm3)
           var tier = (isCharge || isLoad) ? 2 : 3
+          // 去重优先级：上货点(3) > 充电点(2) > 取货点/其他(1)；同优先级保留先遇到的（稳定排序）
+          var pri = isLoad ? 3 : (isCharge ? 2 : 1)
           // 颜色：充电点=绿、上货点=黄、取货点=绿（沿用原色）
           var col3 = isCharge ? '#2fd45c' : (isLoad ? '#ffd24a' : '#2fd45c')
-          // 图标与文字一起随视角缩放：view.zoom 越小＝越放大 → 图形越大
           var kz = 1 / Math.max(0.01, view.zoom)
-          // 站点图标：经典"定位针"（下收敛三角 + 圆头 + 中心小孔），底尖落在真实点位上。
           var scb3 = S.projectPoint(cam, W, H, [pt3[0], 0.4, pt3[1]])
           if (!scb3) continue
-          var tipX = scb3[0], tipY = scb3[1]
-          var headR = (SITE_HEAD_BASE[tier] || 4) * kz
-          var headY = tipY - headR * 2.6
+          siteCands.push({ nm3: nm3, tier: tier, pri: pri, col3: col3, kz: kz, tipX: scb3[0], tipY: scb3[1], wx: pt3[0], wz: pt3[1] })
+        }
+        // 高优先级先占位（Array.sort 稳定 → 同优先级保持原顺序）
+        siteCands.sort(function (a, b) { return b.pri - a.pri })
+        var keptSites = []
+        for (var ci = 0; ci < siteCands.length; ci++) {
+          var sc = siteCands[ci]
+          var tooClose = false
+          for (var kj = 0; kj < keptSites.length; kj++) {
+            if (Math.hypot(sc.tipX - keptSites[kj].tipX, sc.tipY - keptSites[kj].tipY) < SITE_CULL_PX) { tooClose = true; break }
+          }
+          if (!tooClose) keptSites.push(sc)
+        }
+        // 只画留下来的点位（图标 + 名称；被去重掉的整组不画）
+        for (var di = 0; di < keptSites.length; di++) {
+          var K = keptSites[di]
+          var headR = (SITE_HEAD_BASE[K.tier] || 4) * K.kz
+          var headY = K.tipY - headR * 2.6
           g.save()
           // 地面落点：淡色描边小圆环（只示意位置，不做实心球）
-          g.strokeStyle = col3
+          g.strokeStyle = K.col3
           g.globalAlpha = 0.5
-          g.lineWidth = Math.max(0.8, 1.4 * kz)
-          g.beginPath(); g.arc(tipX, tipY, headR * 0.63, 0, 6.2832); g.stroke()
+          g.lineWidth = Math.max(0.8, 1.4 * K.kz)
+          g.beginPath(); g.arc(K.tipX, K.tipY, headR * 0.63, 0, 6.2832); g.stroke()
           g.globalAlpha = 1
           // 针身 + 圆头
-          g.fillStyle = col3
-          g.shadowColor = col3; g.shadowBlur = 8 * kz
+          g.fillStyle = K.col3
+          g.shadowColor = K.col3; g.shadowBlur = 8 * K.kz
           g.beginPath()
-          g.moveTo(tipX, tipY)
-          g.lineTo(tipX - headR * 0.72, headY + headR * 0.5)
-          g.lineTo(tipX + headR * 0.72, headY + headR * 0.5)
+          g.moveTo(K.tipX, K.tipY)
+          g.lineTo(K.tipX - headR * 0.72, headY + headR * 0.5)
+          g.lineTo(K.tipX + headR * 0.72, headY + headR * 0.5)
           g.closePath(); g.fill()
-          g.beginPath(); g.arc(tipX, headY, headR, 0, 6.2832); g.fill()
+          g.beginPath(); g.arc(K.tipX, headY, headR, 0, 6.2832); g.fill()
           g.shadowBlur = 0
           // 中心小孔（深色），让图标更像"站点"而不是实心球
           g.fillStyle = 'rgba(6,20,34,0.9)'
-          g.beginPath(); g.arc(tipX, headY, headR * 0.4, 0, 6.2832); g.fill()
+          g.beginPath(); g.arc(K.tipX, headY, headR * 0.4, 0, 6.2832); g.fill()
           // 名称标签：按**本层自己的缩放区间**决定是否显示（图标始终画，便于定位）
-          var tierShown = (tier === 2) ? (view.zoom <= TIER_T2_ZOOM) : (view.zoom <= TIER_T3_ZOOM)
-          if (opts.labels && nm3 && tierShown) {
+          var tierShown = (K.tier === 2) ? (view.zoom <= TIER_T2_ZOOM) : (view.zoom <= TIER_T3_ZOOM)
+          if (opts.labels && K.nm3 && tierShown) {
             siteLabels.push({
-              text: nm3, x: tipX + headR + 4, y: headY + 4, kind: 'site', color: col3,
-              pr: tier, tier: tier, wx: pt3[0], wy: 0.4, wz: pt3[1]
+              text: K.nm3, x: K.tipX + headR + 4, y: headY + 4, kind: 'site', color: K.col3,
+              pr: K.tier, tier: K.tier, wx: K.wx, wy: 0.4, wz: K.wz
             })
           }
           g.restore()
