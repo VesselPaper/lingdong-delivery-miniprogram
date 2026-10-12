@@ -47,6 +47,9 @@ window.Map3DGL = (function () {
     // 配送点标记（平台 landmarks：取货点/上货点/充电点）—— 默认开，工具栏「配送点」按钮可关
     sites: true,
     spin: false, follow: false, roofFade: false,
+    // 车体"穿透幽灵"：被楼/屋顶挡住时，同色再画一遍（35% 混合）→ 看得见车的轮廓与朝向；
+    // 车清晰可见时"同色叠同色"= 像素不变，对画面零影响。2026-10-12 加（库房窄、车被楼吃掉）。
+    carXray: true,
     carNames: true,        // 车辆简洁名称（默认一行文字；选中车才展开完整数据牌）
     // 大屏左侧车辆卡面 ↔ 地图车辆 双向同步的回调（大屏在 setOpts 里注入）：
     //   onCarSelect(sn)     地图上点中某台车 → 大屏高亮左侧对应卡面（**不自动开启跟随**）
@@ -1557,7 +1560,11 @@ window.Map3DGL = (function () {
     // 用于临时看清被楼压住的道路。淡出时关闭 depthMask，让楼后的车也能透出来。
     var roofAlpha = 1
     if (opts.roofFade) {
-      var t2 = Math.max(0, Math.min(1, (view.el - 45) / 35))
+      // 2026-10-12 修：淡出起点原来是 45°，而**启动视角恰好就是 45°**（resetView 里 view.el = 45）
+      // → 默认视角下 t2 恒为 0、屋顶照样写深度、照样把车吃掉，表现为"点了楼体透明没反应"。
+      // 像素实测：45° 点按钮只变 0.34%（= 动画噪声），75° 变 5.81%。改成 20° 起步后，
+      // 45° 即淡到 34% 且不写深度（车透出来），20° 以内的极低视角仍保持楼体实心。
+      var t2 = Math.max(0, Math.min(1, (view.el - 20) / 25))
       roofAlpha = 1 - 0.66 * t2
     }
     gl.depthMask(roofAlpha > 0.985)
@@ -1583,11 +1590,25 @@ window.Map3DGL = (function () {
       var mtx = S.carMatrix(c.x, c.z, c.th, 0)
       // 入场：原地按比例长大（绕车自身原点），配合叠层淡入，避免"飘移"入场
       if (c.appear != null && c.appear < 1) mtx = S.mat4.mul(mtx, S.mat4.scale(c.appear, c.appear, c.appear))
+      // 光环/光柱是"标记"，不该被建筑裁切：原来只关 depthMask，深度**测试**仍生效，
+      // 车一旦躲到楼后就连标记一起被裁掉 → 现在把测试也关掉（2026-10-12 修）。
       gl.depthMask(false)
+      gl.disable(gl.DEPTH_TEST)
       drawMesh(bufs.ring, mtx)
       drawMesh(bufs.beam, mtx)
+      gl.enable(gl.DEPTH_TEST)
       gl.depthMask(true)
       drawMesh(bufs.car, mtx)
+      // 车体穿透"幽灵"：同色再画一遍（关深度测试 + 35% 混合）。
+      // 车清晰可见时：同色叠同色 = 像素不变（对画面零影响）；
+      // 被楼/屋顶挡住时：与建筑色按 35% 混合 → 半透明车影，看得出车在哪、朝哪边。
+      if (opts.carXray !== false) {
+        gl.depthMask(false)
+        gl.disable(gl.DEPTH_TEST)
+        drawMesh(bufs.car, mtx, 0.35)
+        gl.enable(gl.DEPTH_TEST)
+        gl.depthMask(true)
+      }
     }
     drawOverlay(t, cars)
   }
@@ -1970,63 +1991,93 @@ window.Map3DGL = (function () {
     }
     return any ? S.finalize(m) : null
   }
-  // 车辆定位标记：地面光环（按透视投影成正圆）+ 垂直光柱 + 中心点
+  // 车辆定位标记：地面光环 + 呼吸圈 + 垂直光柱 + 顶端定位泡。
+  // 2026-10-12 加强（负责人反馈"库房那片车被楼挡住、看不清"）：
+  //   ① 光环有**屏幕像素下限**（26px）—— 校园尺度 + 缩远后原来会小到看不见；
+  //   ② 光柱保证屏幕长度 ≥ 64px 并加顶端定位泡 —— 车被楼完全盖住时靠柱子定位；
+  //   ③ 呼吸圈 —— 帮眼睛在大屏上更快锁定（选中车更亮、更大）。
   function drawCarMarker(g, c) {
     var ap = (c.appear == null ? 1 : c.appear)
-    var r = CAR_LEN_M * 0.92 * scene.pxPerM * ap
-    // 当前选中的车：额外画一个金色虚线外圈，提示"这台车已被选中"（跟随目标=选中车）
-    if (selectedSn && c.sn === selectedSn) {
-      var rr = CAR_LEN_M * 1.35 * scene.pxPerM
-      var rng = []
-      for (var kk = 0; kk <= 40; kk++) {
-        var aa = kk / 40 * 2 * Math.PI
-        var spp = S.projectPoint(cam, W, H, [c.x + Math.cos(aa) * rr, 0.8, c.z + Math.sin(aa) * rr])
-        if (spp) rng.push(spp)
-      }
-      if (rng.length > 3) {
-        g.save()
-        g.setLineDash([6, 5])
-        g.strokeStyle = 'rgba(255,213,61,0.95)'
-        g.lineWidth = 2
-        g.shadowColor = 'rgba(255,200,40,0.8)'; g.shadowBlur = 8
-        g.beginPath(); g.moveTo(rng[0][0], rng[0][1])
-        for (var kk2 = 1; kk2 < rng.length; kk2++) g.lineTo(rng[kk2][0], rng[kk2][1])
-        g.closePath(); g.stroke()
-        g.restore()
-      }
-    }
-    var seg = 28
-    var ring = []
+    var isSel = !!(selectedSn && c.sn === selectedSn)
+    var pxm = scene ? scene.pxPerM : 19.45
+    var r = CAR_LEN_M * 0.92 * pxm * ap
+    var ctr = S.projectPoint(cam, W, H, [c.x, 0.8, c.z])
+    if (!ctr) return
+    // 投影出地面圆环，并量出它在屏幕上的平均半径
+    var seg = 28, ring = []
     for (var i = 0; i <= seg; i++) {
       var a = i / seg * 2 * Math.PI
       var sp = S.projectPoint(cam, W, H, [c.x + Math.cos(a) * r, 0.8, c.z + Math.sin(a) * r])
       if (sp) ring.push(sp)
     }
+    var rs = 0
     if (ring.length > 3) {
-      g.save()
-      g.shadowColor = 'rgba(80,220,255,0.9)'
-      g.shadowBlur = 10
-      g.strokeStyle = 'rgba(120,235,255,0.9)'
-      g.lineWidth = 1.6
+      var dsum = 0
+      for (var q = 0; q < ring.length; q++) dsum += Math.hypot(ring[q][0] - ctr[0], ring[q][1] - ctr[1])
+      rs = dsum / ring.length
+    }
+    var MIN_R = 26
+    var rr = Math.max(rs, MIN_R)
+    g.save()
+    g.shadowColor = isSel ? 'rgba(255,200,40,0.85)' : 'rgba(80,220,255,0.9)'
+    g.shadowBlur = isSel ? 16 : 10
+    g.strokeStyle = isSel ? 'rgba(255,213,61,0.95)' : 'rgba(120,235,255,0.92)'
+    g.lineWidth = isSel ? 2.6 : 1.9
+    if (rs >= MIN_R && ring.length > 3) {
+      // 够大：按真实投影画，保留"贴地椭圆"的立体感
       g.beginPath()
       g.moveTo(ring[0][0], ring[0][1])
       for (var k = 1; k < ring.length; k++) g.lineTo(ring[k][0], ring[k][1])
       g.closePath()
       g.stroke()
+    } else {
+      // 太小：改画屏幕正圆，保证任何缩放下都看得见
+      g.beginPath(); g.arc(ctr[0], ctr[1], rr, 0, 6.2832); g.stroke()
+    }
+    // 呼吸圈：向外扩散 + 淡出（相位取渲染时钟 _now[秒]，不新增定时器）
+    var ph = (typeof _now === 'number' ? _now : Date.now() / 1000) % 1
+    g.globalAlpha = ap * (1 - ph) * (isSel ? 0.8 : 0.5)
+    g.lineWidth = 2
+    g.beginPath(); g.arc(ctr[0], ctr[1], rr * (1 + 0.5 * ph) + 3, 0, 6.2832); g.stroke()
+    g.restore()
+    if (isSel) {
+      // 选中车：金色虚线外圈（原行为保留；半径按屏幕半径算，缩远后不会飘到天上）
+      g.save()
+      g.setLineDash([6, 5])
+      g.strokeStyle = 'rgba(255,213,61,0.95)'
+      g.lineWidth = 2
+      g.shadowColor = 'rgba(255,200,40,0.8)'; g.shadowBlur = 8
+      g.beginPath(); g.arc(ctr[0], ctr[1], rr * 1.45 + 6, 0, 6.2832); g.stroke()
       g.restore()
     }
-    // 光柱：车顶 -> 地面（高度随车模尺寸缩放，避免小车配大光柱）
-    var tipTop = S.projectPoint(cam, W, H, [c.x, CAR_LEN_M * 1.9 * scene.pxPerM, c.z])
+    // 光柱：地面 → 车顶上方。高度取"车高 1.9 倍"与"7 米"的较大者，
+    // 再保证屏幕长度 ≥ 64px（缩远时柱子不会短到看不见）
+    var topW = Math.max(CAR_LEN_M * 1.9 * pxm, 7 * pxm)
+    var tipTop = S.projectPoint(cam, W, H, [c.x, topW, c.z])
     var tipBot = S.projectPoint(cam, W, H, [c.x, 0.2, c.z])
     if (tipTop && tipBot) {
+      var dx = tipTop[0] - tipBot[0], dy = tipTop[1] - tipBot[1]
+      var len = Math.hypot(dx, dy)
+      if (len < 64) {
+        var ux = len > 1e-6 ? dx / len : 0, uy = len > 1e-6 ? dy / len : -1
+        tipTop = [tipBot[0] + ux * 64, tipBot[1] + uy * 64]
+      }
       var grd = g.createLinearGradient(tipTop[0], tipTop[1], tipBot[0], tipBot[1])
-      grd.addColorStop(0, 'rgba(120,235,255,0.05)')
-      grd.addColorStop(1, 'rgba(120,235,255,0.55)')
+      grd.addColorStop(0, 'rgba(120,235,255,0.10)')
+      grd.addColorStop(1, 'rgba(120,235,255,0.60)')
       g.save()
       g.strokeStyle = grd
       g.lineWidth = 3
       g.beginPath(); g.moveTo(tipTop[0], tipTop[1]); g.lineTo(tipBot[0], tipBot[1]); g.stroke()
-      // 原来这里有个很亮的白点（#eafcff 实心圆）——用户反馈太扎眼、画面乱，去掉。
+      // 顶端定位泡：小菱形（不画亮白实心点 —— 用户以前反馈太扎眼）
+      var pd = isSel ? 6.5 : 5
+      g.fillStyle = isSel ? 'rgba(255,213,61,0.95)' : 'rgba(120,235,255,0.95)'
+      g.strokeStyle = 'rgba(8,26,36,0.85)'
+      g.lineWidth = 1
+      g.beginPath()
+      g.moveTo(tipTop[0], tipTop[1] - pd); g.lineTo(tipTop[0] + pd, tipTop[1])
+      g.lineTo(tipTop[0], tipTop[1] + pd); g.lineTo(tipTop[0] - pd, tipTop[1])
+      g.closePath(); g.fill(); g.stroke()
       g.restore()
     }
   }
