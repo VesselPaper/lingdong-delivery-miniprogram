@@ -79,15 +79,16 @@ async function buildAdminState(store, deps) {
     if (out.robot.machine_status === 'exception') alerts.push({ level: 'bad', text: '机器人处于异常状态（exception），可能死锁' })
     if (!out.robot.online) alerts.push({ level: 'bad', text: '机器人离线，无法执行任务' })
   }
-  // 5) 上货点召唤连续失败（delivery/timers.js 熔断后写进 meta 的告警）：
+  // 5) 上货点召唤连续失败（delivery/timers.js 落进 meta 的告警）：
   //    车叫不到上货点却一直有单，是「有单却没人上货」的直接原因，必须显式亮出来。
+  //    注意：默认口径是**持续重试**（不停手），这条只是提示运营去查车/点位。
   for (const r of q.summonKeepAlerts(store)) {
     let info = {}
     try { info = JSON.parse(r.value || '{}') } catch (e) { /* 值坏了就按空处理 */ }
     alerts.push({
       level: 'bad',
       text: '上货点召唤连续失败 ' + (info.fails || '?') + ' 次（车 ' + (info.device_sn || String(r.key).split(':').pop()) + '，批次 ' + (info.batch_no || '-') + '）：' +
-        '机器人无法到位，已停止自动重发；请检查车是否停在充电桩/禁行区，或上货点是否可达'
+        (info.stopped ? '已停止自动重发' : '系统仍在持续重试') + '；请检查车是否停在充电桩/禁行区，或上货点是否可达'
     })
   }
   out.alerts = alerts

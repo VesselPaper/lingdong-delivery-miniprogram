@@ -20,22 +20,28 @@ const keepAt = new Map()
 // SUMMON_LOADING_KEEP_TRY_MS 调小；测试里调成 0 以便连续调用）。
 const keepTryAt = new Map()
 // 上货点守候「连续失败」计数(device_sn->{n,at,taskId})：平台把召唤任务判失败(50)/未到达就终态(40/60)时 +1。
-// 连续失败达到 SUMMON_LOADING_KEEP_MAX_FAILS（默认 3）就停止重发并落一条告警 —— 避免出现
-// 「叫一次→任务失败→车回充电桩→30 秒后再叫」的死循环：真车会一直在两点间来回跑、白耗电，
-// 而且真问题（车停在充电桩/禁行区、或点位不可达）会被这个循环掩盖（2026-10-12 实测踩到）。
+// 注意口径（负责人 2026-10-12 定）：**失败不等于放弃**。平台判失败我们不解释、也不因此停手 ——
+// 默认持续重试（把车一直保持在"去上货点/在上货点"的循环里，不让它就此回充电桩），
+// 只在连续失败到 SUMMON_LOADING_KEEP_ALERT_FAILS（默认 3）时于管理端亮一条告警提示运营去看；
+// 只有显式设 SUMMON_LOADING_KEEP_MAX_FAILS>0 才停手（排查用）。
 const keepFail = new Map()
 // 观测到过 status=30（到达）的召唤任务 id：这一轮算「健康周期」，不计数失败。
 const keepArrived = new Set()
 const KEEP_ALERT_PREFIX = 'summon_keep_alert:'
 
-function keepTryMs() { return Number(process.env.SUMMON_LOADING_KEEP_TRY_MS || 30 * 1000) }
-function keepMaxFails() { return Number(process.env.SUMMON_LOADING_KEEP_MAX_FAILS || 3) }
+function keepTryMs() { return Number(process.env.SUMMON_LOADING_KEEP_TRY_MS || 15 * 1000) }
+// 停手阈值：**默认 0 = 不停手**。负责人 2026-10-12 定的口径：召唤任务被平台判失败这件事不归我们管，
+// 但我们的处理不能是"放弃、让车直接回充电桩"——只要还有单要上货，就尽量继续把车叫过去（持续重试）。
+// 设成 >0 才在连续失败 N 次后停手（排查用，例如 =1 相当于"只发一次"）。
+function keepMaxFails() { return Number(process.env.SUMMON_LOADING_KEEP_MAX_FAILS || 0) }
+// 告警阈值：连续失败 N 次就在管理端亮告警（**只提示、不影响重试**）。0 = 不告警。
+function keepAlertFails() { return Number(process.env.SUMMON_LOADING_KEEP_ALERT_FAILS || 3) }
 
-// 熔断告警落 meta（管理页读取展示）：跨阈值那一刻写一次，到达/收工后清掉。
+// 失败告警落 meta（管理页读取展示）：跨阈值那一刻写一次，到达/收工后清掉。stopped=是否已停手重试。
 function setKeepAlert(store, sn, info) {
   try {
     const v = JSON.stringify({
-      device_sn: String(sn), fails: info.n, last_task: String(info.taskId || ''),
+      device_sn: String(sn), fails: info.n, stopped: !!info.stopped, last_task: String(info.taskId || ''),
       batch_no: String(info.batchNo || ''), at: new Date().toLocaleString('zh-CN', { hour12: false })
     })
     store.prepare('INSERT INTO meta (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
@@ -238,13 +244,18 @@ function start(store, deps) {
 // 判定与动作：
 //   · 没有 light_task_id            → 召唤一次（首次）
 //   · 查询失败                        → 保守重发（沿用旧行为）
-//   · status=30（到达）               → 健康：清熔断/告警，不重发
+//   · status=30（到达）               → 健康：清连续失败计数与告警，不重发
 //   · status=0/10/20（活着）          → 不重发；距上次召唤超过 SUMMON_LOADING_KEEP_MS 才在到期前续一次
 //   · 40/50/60（终态）                → 这一轮结束了：到过 30 算正常结束（续一次维持守候）；
-//                                      没到过 30 就是「叫不过去」→ 计一次连续失败，达到上限（默认 3）后停止重发并告警
+//                                      没到过 30 就是「叫不过去」→ 计一次连续失败。
+//     ⚠️ 关键口径（负责人 2026-10-12 定）：任务被平台判失败这件事不归我们管，但**不许因此停手让车回充电桩**。
+//        默认（SUMMON_LOADING_KEEP_MAX_FAILS=0）**持续重试**，只要还有单要上货就一直把车叫过去；
+//        连续失败到 SUMMON_LOADING_KEEP_ALERT_FAILS（默认 3）只在管理端亮告警（只提示、不影响重试）。
+//        只有显式设置 SUMMON_LOADING_KEEP_MAX_FAILS>0 才会停手（排查用，=1 相当于"只发一次"）。
 async function keepLoadingSummon(store, deps) {
   const keepMs = Number(process.env.SUMMON_LOADING_KEEP_MS || 4 * 60 * 1000)
   const maxFails = keepMaxFails()
+  const alertFails = keepAlertFails()
   const loadables = store.prepare(`
     SELECT id, batch_no, device_sn, light_task_id FROM delivery_batches
     WHERE status IN (0,1) AND total_orders>0 AND device_sn!='' ORDER BY id ASC`).all()
@@ -295,13 +306,17 @@ async function keepLoadingSummon(store, deps) {
         cur.at = Date.now()
         cur.taskId = String(lid || cur.taskId)
         keepFail.set(sn, cur)
-        if (maxFails > 0 && cur.n >= maxFails) {
-          need = false
-          if (cur.n === maxFails) {
-            console.warn('[summon] 上货点召唤连续失败 ' + cur.n + ' 次，已停止自动重发（车 ' + sn + '，批次 ' + (newest && newest.batch_no || '') + '）：' +
-              '平台把召唤任务判为失败/未到达，请检查车是否停在充电桩或禁行区、上货点是否可达（可用 SUMMON_LOADING_KEEP_MAX_FAILS 调整阈值）')
-            setKeepAlert(store, sn, { n: cur.n, taskId: cur.taskId, batchNo: newest && newest.batch_no })
-          }
+        const stopAt = maxFails // 0 = 不停手（默认）
+        const alertAt = alertFails // 0 = 不告警
+        const stopping = stopAt > 0 && cur.n >= stopAt
+        if (stopping) need = false
+        // 首次跨过「告警阈值」或「停手阈值」时各打印一次并落告警（避免每 5 秒刷屏）
+        const crossed = (alertAt > 0 && cur.n === alertAt) || (stopAt > 0 && cur.n === stopAt && stopAt !== alertAt)
+        if (crossed) {
+          console.warn('[summon] 上货点召唤连续失败 ' + cur.n + ' 次（车 ' + sn + '，批次 ' + (newest && newest.batch_no || '') + '）：平台把召唤任务判为失败/未到达；' +
+            (stopping ? '已停止自动重发（SUMMON_LOADING_KEEP_MAX_FAILS=' + stopAt + '）' : '仍在持续重试（车会一直保持在去上货点/上货点的循环里，不允许它就此回充电桩）') +
+            '。请检查车是否停在充电桩或禁行区、上货点是否可达')
+          setKeepAlert(store, sn, { n: cur.n, taskId: cur.taskId, batchNo: newest && newest.batch_no, stopped: stopping })
         }
       }
 
