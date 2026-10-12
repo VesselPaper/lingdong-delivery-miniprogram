@@ -1,15 +1,13 @@
 <view class="bp">
   <!-- 输入方式：粘贴 / 扫码 -->
   <view class="seg">
-    <view class="seg-item {{tab === 'paste' ? 'on' : ''}}" bindtap="onTab" data-tab="paste">从表格粘贴</view>
+    <view class="seg-item {{tab === 'paste' ? 'on' : ''}}" bindtap="onTab" data-tab="paste">手动录入</view>
     <view class="seg-item {{tab === 'scan' ? 'on' : ''}}" bindtap="onTab" data-tab="scan">扫码录入</view>
   </view>
 
   <view class="panel" wx:if="{{tab === 'paste'}}">
     <view class="tip">
-      在 Excel / 表格里选中一片区域复制，再粘贴到下面的框里。列的先后顺序随便，
-      只要第一行有「名称、条码、分类、单位、售价、库存」这样的表头就能自动对上；
-      没有表头就按这个顺序认：名称 → 条码 → 分类 → 单位 → 售价 → 库存。
+      录入顺序：名称-->条码-->分类-->单位-->售价-->库存
     </view>
     <textarea class="paste" placeholder="在这里长按粘贴" placeholder-class="ph" value="{{pasteText}}" bindinput="onPasteInput" auto-height />
     <view class="btn-main" bindtap="doParse">解析成商品列表</view>
@@ -17,8 +15,7 @@
 
   <view class="panel" wx:if="{{tab === 'scan'}}">
     <view class="tip">
-      对着商品包装上的条码连着扫，扫一个加一行。库里已经录过的商品会自动带出名称、分类、单位和售价；
-      没录过的只带出条码，名称和售价要手动补。
+      扫码直接录入商品
     </view>
     <view class="scan-btn" bindtap="scanOne">
       <t-icon name="scan" size="64rpx" color="#3078C0" />

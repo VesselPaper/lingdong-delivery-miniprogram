@@ -21,7 +21,6 @@
   </view>
   <view wx:elif="{{mapError}}" class="card map-error">
     <view class="map-error-text">{{mapError}}</view>
-    <view class="map-error-tip text-weak text-sm">地图来自开放物流平台 building/mapInfo，请确认平台可用后刷新</view>
     <view class="btn btn-sm robot-retry" bindtap="refreshMap">重试</view>
   </view>
   <view wx:elif="{{mapLoading}}" class="card map-error">
@@ -68,7 +67,6 @@
   <view wx:elif="{{robotsError}}" class="card robot-error">
     <view class="robot-error-icon"><t-icon name="info-circle" size="40" color="#C0C6CF" /></view>
     <view class="robot-error-text">{{robotsError}}</view>
-    <view class="robot-error-tip text-weak text-sm">机器人由开放物流平台统一管理，请配置平台凭据后重试</view>
     <view class="btn btn-sm robot-retry" bindtap="retryRobots">重试</view>
   </view>
 

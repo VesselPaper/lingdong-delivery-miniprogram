@@ -7,9 +7,9 @@ const upload = require('../../utils/upload')
 // 活动类型：图片不是一种类型，而是贴在任意类型上的「外观」。
 // 所以「纯展示」= 只配图不配规则；打折/满减可以另外配海报。
 const TYPE_LIST = [
-  { value: 'discount', label: '打折', desc: '按折扣出售' },
-  { value: 'full_reduce', label: '满减', desc: '满 X 减 Y' },
-  { value: 'custom', label: '纯展示', desc: '只放图片' }
+  { value: 'discount', label: '打折' },
+  { value: 'full_reduce', label: '满减' },
+  { value: 'custom', label: '纯展示' }
 ]
 
 // 活动状态文案：0=草稿（从未发布）/ 1=已发布（用户端生效）/ 2=已下线（发布过又下线）
@@ -31,6 +31,9 @@ Page({
     typeList: TYPE_LIST,
     type: 'discount',
     form: { title: '', subtitle: '', link: '', sort: '0', start_at: '', end_at: '' },
+    // 长期活动：不设起止日期（用户端显示「长期有效」）。
+    // 由 form 的两个日期是否都为空推导，避免出现「开关开着但日期还在」的矛盾状态。
+    longTerm: true,
     image: '',                     // 活动海报（/uploads/xxx.jpg），三种类型都可配
     discount: '',
     discountCalcHint: '',
@@ -116,7 +119,7 @@ Page({
 
     const total = Math.max(max, current)
     const options = []
-    for (let i = 1; i <= total; i++) options.push(i === 1 ? '第 1 位（最靠前）' : '第 ' + i + ' 位')
+    for (let i = 1; i <= total; i++) options.push('第 ' + i + ' 位')
 
     this.setData({
       sortOptions: options,
@@ -164,6 +167,8 @@ Page({
         patch.selectedMap = this.mapSelected(patch.selectedGoods)
       }
       if (type === 'custom') patch.customDetail = item.subtitle || ''
+      // 长期标志由「两个日期是否都为空」推导（唯一真源是 form，不改真相）
+      patch.longTerm = !patch.form.start_at && !patch.form.end_at
       this.setData(patch)
       this.refreshPreview()
     } catch (e) { /* handled */ }
@@ -178,6 +183,17 @@ Page({
   onSortChange(e) {
     const idx = Number(e.detail.value)
     this.setData({ sortIndex: idx, 'form.sort': String(idx + 1) })
+  },
+
+  // 长期开关：打开=不设起止日期（后端按空值即不设限处理），关闭=展开日期让商家填
+  onLongTerm(e) {
+    const on = !!(e.detail && e.detail.value)
+    this.setData({
+      longTerm: on,
+      // 切换时清掉已选日期与选择器的值，避免留下「长期但仍有日期」的脏状态
+      'form.start_at': '',
+      'form.end_at': ''
+    })
   },
 
   onField(e) {

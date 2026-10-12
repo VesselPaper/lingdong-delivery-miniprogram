@@ -25,7 +25,6 @@
         <t-icon name="close" size="26rpx" color="#ffffff" />
       </view>
     </view>
-    <view class="img-hint text-weak text-sm">支持从相册选择或拍摄，最多 1 张</view>
   </view>
 
   <view class="card">
@@ -35,25 +34,25 @@
     </view>
     <view class="field">
       <view class="field-label">原价</view>
-      <input class="field-input" type="digit" placeholder="选填，划线价展示" value="{{form.original_price}}" bind:change="onField" data-field="original_price" />
+      <input class="field-input" type="digit" placeholder="选填" value="{{form.original_price}}" bind:change="onField" data-field="original_price" />
     </view>
     <view class="field">
       <view class="field-label">库存</view>
-      <input class="field-input" type="number" placeholder="不填默认 99" value="{{form.stock}}" bind:change="onField" data-field="stock" />
+      <input class="field-input" type="number" placeholder="库存" value="{{form.stock}}" bind:change="onField" data-field="stock" />
     </view>
     <view class="field">
       <view class="field-label">条码</view>
-      <input class="field-input" placeholder="商品条形码" value="{{form.barcode}}" bind:change="onField" data-field="barcode" />
+      <input class="field-input" placeholder="条码" value="{{form.barcode}}" bind:change="onField" data-field="barcode" />
     </view>
     <view class="field">
       <view class="field-label">主单位</view>
-      <input class="field-input" placeholder="如：袋 / 盒 / 瓶" value="{{form.unit}}" bind:change="onField" data-field="unit" />
+      <input class="field-input" placeholder="单位" value="{{form.unit}}" bind:change="onField" data-field="unit" />
     </view>
   </view>
 
   <view class="card">
     <view class="field-label">商品描述</view>
-    <textarea class="desc-input" placeholder="介绍商品卖点，如口味、配料" value="{{form.description}}" bind:change="onField" data-field="description" auto-height maxlength="200" />
+    <textarea class="desc-input" placeholder="介绍商品卖点" value="{{form.description}}" bind:change="onField" data-field="description" auto-height maxlength="200" />
   </view>
 
   <view class="bottom-bar safe-bottom">
