@@ -3,7 +3,7 @@
 > 本文件放在 **git 仓库根**，随代码一起同步给所有成员。
 > 任何 AI 客户端（DSH / Codex / Cursor / Zed / Copilot / Claude 等）在本仓库里工作时，**请先读完本文件再动代码**。
 > 它只回答三件事：**东西放在哪**、**代码怎么写 / 怎么拆**、**提交和验证有什么硬规矩**。
-> 最后更新：2026-10-11。
+> 最后更新：2026-10-12。
 
 ---
 
@@ -45,7 +45,25 @@ node tests\test_batch_flow.js     # 其余 test_*.js 同理
 
 - **Node 必须 ≥ 22.13**（建议 24 LTS）。后端用的是 Node 内置 `node:sqlite`（`backend/db.js`），低于该版本起不来。
 - 依赖只有 `express` + `cors`，无编译型模块，`cd backend && npm install` 即可。
-- 本地配置写在 `backend/.env`（**不进仓库**，见 §6）。
+- **小程序后端地址已内置**：双端 `utils/config.js` 的 `CLOUD_BASE` 指向云端后端（`http://47.108.151.96:3000/api`），`develop` 环境默认走它 —— clone 后**不用改任何地址**就能在开发者工具里跑、也能扫码真机预览（真机预览要在开发者工具勾「详情 → 本地设置 → 不校验合法域名」，因为它是 http + IP）。只想连本机后端时按该文件里的注释切换成局域网 IP，**改完不要提交**。体验版 / 正式版仍要 https 域名，填 `PROD_BASE`。
+- 本地配置写在 `backend/.env`（**不进仓库**，见 §6）；`.env` 不存在时后端启动会**自动**从 `.env.example` 复制一份，所以 clone 下来直接 `node server.js` 就能跑（默认 demo + mock 档）。
+- **跑不起来 / 别人那儿行我这儿不行，先自检**：`node backend/tools/selfcheck.js` —— 一条命令列出"缺什么、缺了会有什么后果、怎么补"（Node 版本、依赖、`.env`、启动守卫、`data/` 里各文件、登录账号、大屏资源、双端小程序地址）。只读、无副作用、不连平台。
+
+### 2.1 第一次跑起来就能登（默认账号）
+
+账号只存在本地库 `backend/data/lingdong.db` 里（**不进仓库**），新 clone 的库是空的。为了让成员不必先"手工建号"才能进界面，后端在**非正式档**（`RUN_MODE` ≠ `production`）首次启动时会自动补齐三个默认账号，并把账号密码打印在控制台：
+
+| 端 | 账号 | 密码 | 备注 |
+| --- | --- | --- | --- |
+| 管理员网页 `/admin/` | `LDPZadmin` | `ldpzjkxy2026` | 也可用 `node tools/admin_user.js add` 手工建 |
+| 商家端小程序 | `LDPZmar1` | `ldpzjkxy2026` | 店主角色 |
+| 用户端小程序 | `LDPZstu1` | `ldpzjkxy2026` | 用户端 2026-10-11 起支持「账号密码登录」，微信登录仍在 |
+
+- 账号名 / 密码都能用 `.env` 的 `BOOTSTRAP_ADMIN_*`、`BOOTSTRAP_MERCHANT_*`、`BOOTSTRAP_STUDENT_*`（各含 `_USERNAME` / `_PASSWORD`）覆盖；`BOOTSTRAP_ACCOUNTS=0` 彻底关闭自举。
+- **`production` 档不会自动建号**（默认口令上生产是真事故），仍要求 `tools/admin_user.js` 手工创建。
+- **单点登录**：同一账号只允许一个有效会话。第二次登录会把前一次踢下线，被踢的那一端会明确提示「该账号已在别处登录，你已被踢下线」并回到登录页（管理员网页、商家端、用户端口径一致）。
+- 用户端原来只有微信一键登录、**没有账号密码入口**；现在两条路都通，成员本机没配微信凭据时用账号密码即可。
+
 
 ---
 
@@ -57,13 +75,13 @@ node tests\test_batch_flow.js     # 其余 test_*.js 同理
 | `backend/db.js` | 建库 / 迁移 / 语句封装（`node:sqlite`，已开 WAL） |
 | `backend/domains/<域>/` | **按业务域分层**，现有五个域：`admin`、`delivery`、`goods`、`order`、`user`。每个域内部固定是 `routes.js`（HTTP 入口）+ `service.js`（业务）+ `queries.js`（SQL），按需加 `timers.js`（定时器）、`live.js`（实时推送）。域内共用的小工具放 `domains/_shared.js` |
 | `backend/services/` | **跨域共用能力**：平台对接 `platform.js` / `platform-http.js` / `platform-mock.js` / `platform-callbacks.js`、组单 `batch.js`、虚拟车 `virtualRobot.js`、推送 `push.js`、运行时开关 `runtime.js`、订单取消 `orderCancel.js`、状态事件 `statusEvents.js` 等 |
-| `backend/tests/` | 可直接 `node` 跑的回归测试 `test_*.js`（10 个） |
+| `backend/tests/` | 可直接 `node` 跑的回归测试 `test_*.js`（11 个） |
 | `backend/tools/` | 运维小工具（建管理员、生成分类图标等） |
 | `backend/data/` | **不进仓库**：`lingdong.db`（+ `-wal`/`-shm`）、`map-recon.json`（大屏 3D 重构）、`admin-calib.json`（定位标定） |
 | `backend/seed_images/` `backend/uploads/` | 种子商品图（**在仓库里**）/ 运行时上传（**不进仓库**） |
 | `用户端/` `商家端/` | 两个微信小程序。`pages/<页面>/{js,json,wxml,wxss}`；`utils/api.js` 是**接口定义清单**、`request.js` 请求封装、`config.js` 环境地址、`pay.js` 支付；`components/` 自定义组件；`custom-tab-bar/` 底部栏；`miniprogram_npm/` 第三方编译产物（**别手改**） |
 | `管理员网页/` | 原生 web。`admin.js` 是入口装配，实际功能按块放在 `js/parts/admin/`、`js/parts/map/`；样式在 `css/`；`vendor/` 第三方库（**别手改**） |
-| `可视化大屏/` | **零构建** vanilla JS + WebGL2 3D 地图。`index.html` 用 `<script src="...?v=xxx">` **按顺序**加载：`js/dashboard/`（外壳 `main.js`、接口 `api.js`、地图 `map.js`、视图 `views-ui.js`、共用 `shared.js`）、`js/map3d-gl.js`（3D 主渲染）、`js/scene3d/`（相机/数学/三角化）、`js/gl3d/recon.js`（3D 重构）、`assets/`（底图与标定，`map-calibration.js` **不进仓库**）、`deploy/`（大屏机启动脚本与看门狗）、`configs/default.js`（多租户预留模板，**暂不接入**） |
+| `可视化大屏/` | **零构建** vanilla JS + WebGL2 3D 地图。`index.html` 用 `<script src="...?v=xxx">` **按顺序**加载：`js/dashboard/`（外壳 `main.js`、接口 `api.js`、地图 `map.js`、视图 `views-ui.js`、共用 `shared.js`）、`js/map3d-gl.js`（3D 主渲染）、`js/scene3d/`（相机/数学/三角化）、`js/gl3d/recon.js`（3D 重构）、`assets/`（底图与标定；**`map-calibration.js` 在仓库里**，2026-09-18 起随代码提交）、`deploy/`（大屏机启动脚本与看门狗）、`configs/default.js`（多租户预留模板，**暂不接入**） |
 | `simulator/` | 模拟小车：`run.js` / `simple.js` / `lib/` |
 | `doc/` | 项目文档：编号件 `01_…` ~ `14_…`（产品、架构、数据库、状态字典、测试回归等）+ 专题子目录 `04_核心业务链路/`、`05_页面与交互详解/`、`06_接口与数据协议/`、`上线计划/`、`逻辑树/` |
 | `agent/agent交接文档/` | `会话交接文档/`（每次会话追加一份）、`git交接文档/`（每次提交新增一份）；`agent/理思路文件夹/` 是链路梳理笔记 |
@@ -95,13 +113,13 @@ node tests\test_batch_flow.js     # 其余 test_*.js 同理
 
 | 行数 | 文件 | 备注 |
 | --- | --- | --- |
-| 2171 | `可视化大屏/js/map3d-gl.js` | 3D 主渲染，**拆之前先问用户** |
-| 1754 | `管理员网页/admin.js` | 入口装配，可继续拆到 `js/parts/` |
-| 1466 | `backend/services/platform-http.js` | 平台对接，可拆请求/标定/点位 |
+| 2180 | `可视化大屏/js/map3d-gl.js` | 3D 主渲染，**拆之前先问用户** |
+| 1765 | `管理员网页/admin.js` | 入口装配，可继续拆到 `js/parts/` |
+| 1496 | `backend/services/platform-http.js` | 平台对接，可拆请求/标定/点位 |
 | 900 | `backend/services/batch.js` | 组单算法，可拆算分与约束 |
 | 840 | `backend/domains/delivery/routes.js` | |
 | 778 | `backend/domains/admin/routes.js` | |
-| 677 | `backend/db.js` | 建表与迁移可分离 |
+| 694 | `backend/db.js` | 建表与迁移可分离 |
 | 670 | `backend/services/platform.js` | |
 | 660 | `backend/domains/delivery/service.js` | |
 | 641 | `可视化大屏/js/gl3d/recon.js` | |
@@ -125,7 +143,7 @@ node tests\test_batch_flow.js     # 其余 test_*.js 同理
 
 | 改动范围 | 必须做的验证 |
 | --- | --- |
-| 配送 / 订单 / 组单 | 在 `backend/` 下逐个跑 `node tests\test_*.js`，10 个测试文件必须**全绿** |
+| 配送 / 订单 / 组单 | 在 `backend/` 下逐个跑 `node tests\test_*.js`，11 个测试文件必须**全绿** |
 | 后端接口 | 起服务后真调一次接口（用 `node -e "fetch(...)"`，**不要**用 `Invoke-WebRequest`，非交互 pwsh 下会走 IE 引擎失败） |
 | 可视化大屏 | **真实浏览器**（CDP 无头 Edge）跑回归探针：键位、三栏布局、启动读服务器数据、保存防护等，要求 **0 console 报错**，并确认服务器地图数据被原样还原 |
 | 小程序 | 微信开发者工具真机 / 模拟器预览一次；改了 `config.js` 或域名要留意「网络异常」 |
@@ -140,11 +158,10 @@ node tests\test_batch_flow.js     # 其余 test_*.js 同理
 
 | 项 | 为什么不在仓库 | clone 后怎么办 |
 | --- | --- | --- |
-| `backend/.env` | 含真实凭据（平台 appid/secret、微信支付、AppSecret），由负责人在线下发 | 复制 `backend/.env.example` 为 `.env`，本地演示保持 `PLATFORM_MOCK=true` 即可跑通 |
-| 双端 `utils/config.js` 里的开发机 IP | 每人局域网 IP 不同，提交会互相覆盖 | 自己改 `BASES.develop` 为**你本机**的局域网 IP（真机调试用）；**不要把自己的 IP 提交上去** |
+| `backend/.env` | 含真实凭据（平台 appid/secret、微信支付、AppSecret），由负责人在线下发 | **2026-10-11 起后端启动会自动从 `.env.example` 复制一份**（已存在则绝不覆盖），本地演示保持 `PLATFORM_MOCK=true` 即可跑通；要接真凭据再编辑它 |
 | `backend/data/` | 运行时数据（含 WAL） | 首次启动自动建库并写入种子数据；需要历史数据向负责人要 |
 | `backend/uploads/` | 运行时上传 | 不用管，按需生成 |
-| `可视化大屏/assets/map-calibration.js` | 校准流程生成 | 向负责人索取，或重跑 `可视化大屏/deploy/` 下的校准脚本 |
+| `可视化大屏/assets/map-calibration.js` | **在仓库里，不用索取**（2026-09-18 起随代码提交；与 `map-calibration.json` 内容等价，多一份 JS 是为了 file:// 双击也能用） | 无需操作。注意重跑 `可视化大屏/deploy/` 的校准脚本会**覆盖仓库文件**，跑完记得提交，否则别人拿到的还是旧标定 |
 | `接口/` 平台 OpenAPI 导出 | 官方导出里**带示例凭据**，且体量大 | 见 §7 |
 
 ---
@@ -155,7 +172,7 @@ node tests\test_batch_flow.js     # 其余 test_*.js 同理
 
 | 想要的接口 | 去哪找 |
 | --- | --- |
-| **越凡（robox）开放物流平台**官方规格 | 负责人本机工作区的 `接口\默认模块.openapi.json`（OpenAPI 文件，**不在仓库里**）。**若你本地找不到这份文件，先问用户**，不要凭猜测硬写对接代码 |
+| **越凡（robox）开放物流平台**官方规格 | 负责人本机工作区的 `资料\接口\默认模块.openapi.json`（OpenAPI 文件，**不在仓库里**）。**若你本地找不到这份文件，先问用户**，不要凭猜测硬写对接代码 |
 | 平台对接的落地说明（我们怎么用的） | `doc/07_配送平台对接.md` |
 | 自建后端 HTTP 接口 | 各域 `backend/domains/<域>/routes.js`（真实来源）；`doc/06_接口与数据协议/` 是整理稿 |
 | 小程序调了哪些后端接口 | `用户端/utils/api.js`、`商家端/utils/api.js` |
@@ -177,7 +194,7 @@ node tests\test_batch_flow.js     # 其余 test_*.js 同理
    - 遗留待办
 4. 推送前先 `git pull --rebase`，**禁止 `--force`**（会丢弃其他成员的提交）。
 5. 每完成一段会话工作，在 `agent/agent交接文档/会话交接文档/` **追加新一份**交接文档（编号递增）：写当前现状、已核实的结论、待办、被否决的方案，供下一个会话接手。
-6. 线上/生产相关的凭据、IP、`appid`/`secret` **一律不进仓库**。
+6. **凭据一律不进仓库**：API 密钥、口令（含 `BOOTSTRAP_*_PASSWORD`）、`appid`/`secret`、支付与微信凭据、`backend/.env` 本体都不进仓库。**服务器公网地址（IP / 域名）可以进仓库** —— 它是所有人小程序都要连的公开接口地址，写在双端 `utils/config.js` 的 `CLOUD_BASE` 里，换服务器只改这一处。
 
 ---
 
@@ -199,7 +216,7 @@ node tests\test_batch_flow.js     # 其余 test_*.js 同理
 1. **读**：本文件 → `README.md` → 最新《会话交接文档》→ 最新《git交接文档》。
 2. **clone** 仓库，确认在 `main` 分支。
 3. **装环境**：Node ≥ 22.13（建议 24 LTS）+ 微信开发者工具。
-4. **补本地配置**：`backend/.env`（向负责人要凭据，或先用 mock）、双端 `utils/config.js` 的 `BASES.develop` 改成你自己的局域网 IP。
+4. **补本地配置**：`backend/.env` 现在会自动生成（从 `.env.example` 复制，不用手建）；双端 `utils/config.js` 默认已指向**云端后端**（`CLOUD_BASE`），**不用改** —— 只想连本机后端时按该文件里的注释切换成自己的局域网 IP（改完不要提交）。
 5. **跑通**：起后端（3000）→ 打开 `/admin/` 与 `/dashboard/` → 需要的话跑一遍 `backend/tests/`。
 6. **动代码前**先 `read` 目标文件与所在域的邻居文件（`routes.js` / `service.js` / `queries.js`），确认落位规则（§3.1）与拆分规范（§4）后再改。
 
@@ -209,3 +226,7 @@ node tests\test_batch_flow.js     # 其余 test_*.js 同理
 
 目录结构、分层方式、提交规范发生变化时，**在提交代码的同时更新本文件**（和《git交接文档》一起提交）。
 本文件只写**长期有效的规范**；项目当前进度、待办、已知问题一律写进《会话交接文档》，不要往这里搬。
+
+**本文件（仓库记忆）与项目记忆的分工**：负责人自己的项目习惯、本机偏好写在**仓库之外**的项目记忆里（`送餐无人车\AGENTS.md`，它不在 git 仓库内、**不进仓库**），**不要加到本文件**；本文件只收面向**所有成员**的长期规范。
+
+**任何人（包括成员的 AI）不要擅自往本文件新增条目或修改规范**：先跟负责人说明、得到同意，再改，并与代码放在同一次提交里。

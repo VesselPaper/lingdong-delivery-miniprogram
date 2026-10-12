@@ -6,22 +6,30 @@
 //   trial   = 体验版（微信后台点「上传」后设为体验版）
 //   release = 正式版
 //
-// ⚠️ 部署到服务器时只需要改两处：
-//   1) 把下面的 PROD_BASE 换成你的线上域名（微信要求 https，不能用 IP）
-//   2) 微信公众平台 → 开发管理 → 开发设置 → 服务器域名
-//      把该域名同时加进「request 合法域名」和「socket 合法域名」（两个都要加）
-//      WebSocket 地址由 utils/push.js 自动从 baseUrl 推导（https→wss），无需另配
+// ⚠️ 地址来源只有两处，换地址只改这里：
+//   1) CLOUD_BASE —— 云端后端（现在的正式后端，http + IP）
+//   2) PROD_BASE  —— 以后有域名 + 备案 + https 时用；微信的体验版/正式版只认 https 域名
+//
+// 2026-10-12 起 develop 默认指向【云端后端】，所以 clone 下来**不用改任何地址**就能：
+//   · 在微信开发者工具里直接跑
+//   · 扫码在手机上预览（开发版，不需要和你电脑在同一个网络）
+// 手机预览注意两点：
+//   1) 开发者工具里勾上「详情 → 本地设置 → 不校验合法域名」（云地址是 http + IP，微信默认不放行）
+//   2) develop 连的是**生产后端**，会连真实无人车；不要拿它下测试单、派测试车
+const CLOUD_BASE = 'http://47.108.151.96:3000/api'
+
+// 只想连本机后端（局域网联调）时：把上面那行注释掉，启用下面这行并改成你电脑的 WLAN IPv4；
+// 改完**不要提交**这个文件，否则会把云端默认值覆盖掉。
+// const CLOUD_BASE = 'http://192.168.1.100:3000/api'
+
+// 以后上域名时把这里换成线上域名，并确保是 https（微信要求）
 const PROD_BASE = 'https://请换成你的域名/api'
 
 const BASES = {
-  develop: 'http://localhost:3000/api', // 开发者工具模拟器：和后端同机，localhost 永远有效
+  develop: CLOUD_BASE,
   trial: PROD_BASE,
   release: PROD_BASE
 }
-
-// 真机调试：手机和电脑不是同一台机器，localhost 不通，必须指向电脑的局域网 IP。
-// IP 随网络 / DHCP 变化，换了网络先 `ipconfig` 看 WLAN 的 IPv4 地址，再改下面这一行。
-BASES.develop = 'http://192.168.70.50:3000/api'   // 2026-10-07 当前 WLAN IP
 
 let envVersion = 'develop'
 try {
