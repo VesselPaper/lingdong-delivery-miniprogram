@@ -684,6 +684,47 @@ function robotposeToMetersAdmin(rx, ry) {
   }
 }
 
+// ---------------- EVIZ 实时位置取数：两条路互为兜底 ----------------
+// ① 代理接口 iotGatewayProxy/{SN}/buildingManager/om-api/EvizServer —— 平台把请求代理到该设备的网关服务
+// ② frame 文件 deviceRuntime/eviz/{SN} —— 返回 OSS 上 eviz_frame 的**签名地址**，下载下来就是同一份 JSON
+// 2026-10-12 生产真机实测（R110A2603AUEQC00）：
+//   ① COMM_500 "service-iot-gateway-svc{SN}: Name does not resolve" —— 平台内部解析不到该设备网关服务；
+//   ② COMM_200，frame 里 robotpose=[1106,2667,0.091]、locQuality=84.0 —— 定位数据本身完好。
+// 故①取不到时自动走②：**平台代理故障不再等于「大屏没车」**。两条路返回同一份 EvizServer 结构、
+// robotpose 数值相同，坐标口径不变（大屏投放与既有标定都不用改）。
+// EVIZ_FRAME_FALLBACK=0 可关闭兜底（只留①，用于对照排查）。
+const EVIZ_FRAME_FALLBACK = String(process.env.EVIZ_FRAME_FALLBACK || '1') !== '0'
+
+// 平台返回的 data 常是「字符串包着 JSON」（内层序列化）：必须先 JSON.parse 再取 robotpose，
+// 否则恒为空、开舱门禁一直报「无法获取无人车位置」（2026-09-16 真机实测踩过）。
+function parseEvizInner(d) {
+  let inner = d
+  if (typeof inner === 'string') {
+    try { inner = JSON.parse(inner) } catch (e) { return null }
+  }
+  return inner && typeof inner === 'object' ? inner : null
+}
+
+// 取该设备当前 EVIZ 数据（含 robotpose）；两条路都失败返回 null（调用方回退缓存）
+async function fetchEvizJson(deviceSn) {
+  try {
+    const r = await requestPlatform('GET', '/open-api/v1/iotGatewayProxy/' + encodeURIComponent(deviceSn) + '/buildingManager/om-api/EvizServer')
+    const inner = parseEvizInner(r && r.data)
+    if (inner && Array.isArray(inner.robotpose) && inner.robotpose.length >= 2) return inner
+  } catch (e) { /* ① 失败 → 走 ② 兜底 */ }
+  if (!EVIZ_FRAME_FALLBACK) return null
+  try {
+    const r2 = await requestPlatform('GET', '/open-api/v1/deviceRuntime/eviz/' + encodeURIComponent(deviceSn))
+    const d2 = r2 && r2.data
+    // frame 地址是**签名 URL、约 15 分钟过期**（Expires 每次调用刷新）→ 必须拿到就立刻下载
+    const url = typeof d2 === 'string' ? d2 : ((d2 && (d2.url || d2.frameUrl)) || '')
+    if (!/^https?:\/\//.test(url)) return null
+    const g = await httpGetBuffer(url, 3)
+    if (!g || !g.ok) return null
+    return parseEvizInner(g.buf.toString('utf8'))
+  } catch (e) { return null }
+}
+
 async function getDevicePosition(store, taskId) {
   const t = store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(taskId)
   if (!t) return null
@@ -692,15 +733,7 @@ async function getDevicePosition(store, taskId) {
   if (hit && Date.now() - hit.ts < 3000) return hit.pos
   if (!t.device_sn) return hit ? hit.pos : null
   try {
-    const r = await requestPlatform('GET', '/open-api/v1/iotGatewayProxy/' + encodeURIComponent(t.device_sn) + '/buildingManager/om-api/EvizServer')
-    const d = r && r.data
-    // 平台 EvizServer 返回的 data 是「字符串包着 JSON」（内层序列化），直接当对象取 robotpose 永远为空。
-    // 2026-09-16 真机实测确认：必须先 JSON.parse 再取字段，否则 getDevicePosition 恒返回 null，
-    // 开舱门禁会一直报「无法获取无人车位置」。
-    let inner = d
-    if (typeof d === 'string') {
-      try { inner = JSON.parse(d) } catch (e) { inner = null }
-    }
+    const inner = await fetchEvizJson(t.device_sn)
     if (inner && Array.isArray(inner.robotpose) && inner.robotpose.length >= 2) {
       // eviz robotpose 与点位坐标不是同一坐标系（点位为平台局部米，robotpose 为其激光 SLAM 网格坐标）。
       // 2026-09-16 真机实测两组对应点求解相似变换并自洽验证：
@@ -738,12 +771,7 @@ async function getDevicePositionBySn(store, deviceSn, hintText) {
   const hit = posCacheBySn.get(deviceSn)
   if (hit && Date.now() - hit.ts < 3000) return hit.pos
   try {
-    const r = await requestPlatform('GET', '/open-api/v1/iotGatewayProxy/' + encodeURIComponent(deviceSn) + '/buildingManager/om-api/EvizServer')
-    const d = r && r.data
-    let inner = d
-    if (typeof d === 'string') {
-      try { inner = JSON.parse(d) } catch (e) { inner = null }
-    }
+    const inner = await fetchEvizJson(deviceSn)
     if (inner && Array.isArray(inner.robotpose) && inner.robotpose.length >= 2) {
       const m = robotposeToMeters(Number(inner.robotpose[0]), Number(inner.robotpose[1]))
       const ma = robotposeToMetersForAdmin(Number(inner.robotpose[0]), Number(inner.robotpose[1]))
