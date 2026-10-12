@@ -2190,15 +2190,7 @@ window.Map3DGL = (function () {
       g.strokeStyle = grd
       g.lineWidth = 3
       g.beginPath(); g.moveTo(tipTop[0], tipTop[1]); g.lineTo(tipBot[0], tipBot[1]); g.stroke()
-      // 顶端定位泡：小菱形（不画亮白实心点 —— 用户以前反馈太扎眼）
-      var pd = isSel ? 6.5 : 5
-      g.fillStyle = isSel ? 'rgba(255,213,61,0.95)' : 'rgba(120,235,255,0.95)'
-      g.strokeStyle = 'rgba(8,26,36,0.85)'
-      g.lineWidth = 1
-      g.beginPath()
-      g.moveTo(tipTop[0], tipTop[1] - pd); g.lineTo(tipTop[0] + pd, tipTop[1])
-      g.lineTo(tipTop[0], tipTop[1] + pd); g.lineTo(tipTop[0] - pd, tipTop[1])
-      g.closePath(); g.fill(); g.stroke()
+      // 2026-10-12 负责人要求：图标上不要加圆点 → 光柱顶端的小菱形定位泡已去掉，只留光柱。
       g.restore()
     }
   }
@@ -2215,32 +2207,19 @@ window.Map3DGL = (function () {
     if (!info) return (c && c.snapped) ? '已贴路' : '在线'
     return String(info.machine_text || info.machine_status || '在线') + (c.snapped ? ' · 已贴路' : '')
   }
-  // 未选中车的简洁名称：白色粗体 + 深色描边 + 青色小圆点前缀（和光环同色系 → "这是车"），
-  // 不画底板/引线（"贴"在车边，不抢画面）。
-  // 2026-10-12 负责人反馈"小车名称和楼栋文字一样，要区分"：
-  // 楼栋名是淡青细字（#9ef2ff），小车名改为纯白粗体 + 圆点前缀，一眼能分开。
+  // 未选中车的简洁名称：小一号白字 + 深色描边（不画底板/引线、不发光、不加前缀圆点）。
+  // 2026-10-12 负责人：与楼栋区分 —— 只要"小一点的白字"即可，名称前不加圆点。
   function drawCarName(g, x, y, text, strong) {
     if (!text) return
     var kz = 1 / Math.max(0.01, view.zoom)
     g.save()
     g.textAlign = 'center'
     g.textBaseline = 'middle'
-    g.font = 'bold ' + (13 * kz).toFixed(1) + 'px "Microsoft YaHei",sans-serif'
-    var tw = textWidth(g, text, g.font)
-    // 车标圆点前缀（青色，与光环/光柱同色系）
-    var dotR = Math.max(3, 4 * kz)
-    g.fillStyle = 'rgba(127,240,255,0.95)'
-    g.shadowColor = 'rgba(80,220,255,0.9)'
-    g.shadowBlur = 6 * kz
-    g.beginPath(); g.arc(x - tw / 2 - dotR - 5 * kz, y, dotR, 0, 6.2832); g.fill()
-    g.shadowBlur = 0
-    // 名称：白色粗体 + 深色描边
+    g.font = 'bold ' + (12 * kz).toFixed(1) + 'px "Microsoft YaHei",sans-serif'
     g.lineWidth = Math.max(2, 3 * kz)
     g.strokeStyle = 'rgba(6,18,32,0.9)'
     g.strokeText(text, x, y)
     g.fillStyle = 'rgba(255,255,255,0.98)'
-    g.shadowColor = 'rgba(80,220,255,0.55)'
-    g.shadowBlur = 5 * kz
     g.fillText(text, x, y)
     g.restore()
     g.textAlign = 'start'
