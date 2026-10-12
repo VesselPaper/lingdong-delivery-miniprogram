@@ -405,7 +405,7 @@ async function getMapOverview(store) {
     //   与 laserscan 同帧；因此额外下发 px/py 供前端直接投到地图上，不再走 POS_CAL 相似变换。
     const robots = []
     try {
-      const devList = await getDeviceList()
+      const devList = await getDeviceList({ withVirtual: true })   // 展示：大屏地图要能画出虚拟测试车
       if (devList.ok && Array.isArray(devList.robots)) {
         for (const dev of devList.robots) {
           if (!dev.online || !dev.device_sn) continue
@@ -1066,9 +1066,12 @@ const MACHINE_TEXT = {
 
 // ---------------- 机器人设备列表 ----------------
 // 调平台 runtimeStatusList，返回真实设备状态；未配置凭据/调用失败时返回 { ok:false, msg }
-// 虚拟机器人（VIRTUAL_ROBOT=1）会并入清单：即便真实平台不可用也返回它，便于纯离线联调演示。
-function withVirtualRobot(res) {
-  if (!virtualRobot.enabled()) return res
+// 虚拟机器人（VIRTUAL_ROBOT=1）**默认不并入清单** —— 只有纯展示调用点显式传 { withVirtual:true } 才会并入。
+// 为什么默认隔离（2026-10-11）：getDeviceList 是全后端业务判定的**共用入口**（派车 / 召唤 / 忙闲判定 /
+// 运力统计 / 上货门禁）。在这里默认把虚拟车摘掉，业务代码就**不可能**拿到它，不必每处记得 filter；
+// 展示路径显式开口，联调演示照常。虚拟车是接口层模拟数据，平台侧并不存在该设备。
+function withVirtualRobot(res, withVirtual) {
+  if (!withVirtual || !virtualRobot.enabled()) return res
   const vs = virtualRobot.devices()
   if (res && res.ok && Array.isArray(res.robots)) {
     for (const v of vs) {
@@ -1079,13 +1082,16 @@ function withVirtualRobot(res) {
   return { ok: true, robots: vs, msg: ((res && res.msg) ? res.msg + '；' : '') + '仅虚拟机器人（模拟）' }
 }
 
-async function getDeviceList() {
-  if (MOCK) return withVirtualRobot({ ok: false, msg: '本地演示模式，未接入真实开放物流平台' })
-  if (!platformReady()) return withVirtualRobot({ ok: false, msg: '未配置开放物流平台凭据（PLATFORM_APPID/PLATFORM_SECRET/PLATFORM_PRINCIPALID）' })
+// opts.withVirtual = true 时才并入虚拟测试车。**仅限纯展示调用点**（大屏地图 / 管理页 / 商家端设备列表）；
+// 业务判定（派车 / 召唤 / 忙闲 / 运力统计 / 上货门禁）一律不传 → 从最底层就拿不到虚拟车。
+async function getDeviceList(opts) {
+  const wantVirtual = !!(opts && opts.withVirtual)
+  if (MOCK) return withVirtualRobot({ ok: false, msg: '本地演示模式，未接入真实开放物流平台' }, wantVirtual)
+  if (!platformReady()) return withVirtualRobot({ ok: false, msg: '未配置开放物流平台凭据（PLATFORM_APPID/PLATFORM_SECRET/PLATFORM_PRINCIPALID）' }, wantVirtual)
   try {
     const r = await requestPlatform('GET', '/open-api/v1/deviceRuntime/runtimeStatusList?principalId=' + encodeURIComponent(PRINCIPAL_ID) + '&curPage=1&size=50')
     if (r.code !== 'COMM_200' || !r.data) {
-      return withVirtualRobot({ ok: false, msg: (r && r.msg) || '获取设备列表失败' })
+      return withVirtualRobot({ ok: false, msg: (r && r.msg) || '获取设备列表失败' }, wantVirtual)
     }
     const data = r.data
     const list = Array.isArray(data) ? data : (data.data || [])
@@ -1108,15 +1114,23 @@ async function getDeviceList() {
         curr_map_id: d.currMapId || '',
         status_update_time: d.statusUpdateTime || ''
       }))
-    })
+    }, wantVirtual)
   } catch (e) {
-    return withVirtualRobot({ ok: false, msg: '获取机器人失败：' + e.message })
+    return withVirtualRobot({ ok: false, msg: '获取机器人失败：' + e.message }, wantVirtual)
   }
 }
 
 // 查询任务状态（单条，供接口返回）
 function getTaskStatus(store, taskId) {
   return store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(taskId)
+}
+
+// 虚拟测试车（LD-SIM-*）**一律不允许**接受任何会下发到真实平台的指令：
+// 平台侧并不存在该设备，下发必然失败；更糟的是会把"假设备"当成可操作的真车。
+// 判定只看设备号（isVirtual），**与 VIRTUAL_ROBOT 开关无关** —— 开关关掉后残留的虚拟设备号同样要挡住。
+function virtualBlocked(deviceSn, what) {
+  if (!virtualRobot.isVirtual(deviceSn)) return null
+  return { ok: false, msg: '虚拟测试车仅用于演示，不支持' + (what || '该操作') + '（未向平台发送任何指令）' }
 }
 
 // ---------------- 商家面对面扫码上货（设备控制，真实模式） ----------------
@@ -1128,6 +1142,7 @@ function getTaskStatus(store, taskId) {
 async function grantControl(deviceSn, durationSec = 180) {
   if (MOCK) return { ok: true, data: { ctrlId: 'mock-ctrl', sessionId: 'mock-session', expireTime: 0 } }
   if (!deviceSn) return { ok: false, msg: '缺少设备编号' }
+  const vb = virtualBlocked(deviceSn, '设备控制授权'); if (vb) return vb
   try {
     const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/authority/grant', { deviceSn, principalId: PRINCIPAL_ID }, { duration: String(durationSec) })
     return r && r.code === 'COMM_200'
@@ -1144,6 +1159,7 @@ async function grantControl(deviceSn, durationSec = 180) {
 //   2) 再调 /deviceCtrl/loading/verify —— 真正开舱动作（只调 verify/match 会「显示成功但舱门不开」，autoOpen 在 loading/verify 上生效）
 async function loadingVerify(deviceSn, platformTaskId, strategies) {
   if (MOCK) return { ok: true }
+  const vb = virtualBlocked(deviceSn, '上货验证开舱'); if (vb) return vb
   try {
     const m = await requestPlatform('POST', '/open-api/v1/deviceCtrl/verify/match', {
       deviceSn, strategies: strategies || {}, autoOpen: false
@@ -1163,6 +1179,7 @@ async function loadingVerify(deviceSn, platformTaskId, strategies) {
 // 舱门控制：stockCmd 1 开 / 0 关（不影响任务状态，用于「关舱等待」）
 async function drawerCtrl(deviceSn, stockCmd) {
   if (MOCK) return { ok: true }
+  const vb = virtualBlocked(deviceSn, '舱门控制'); if (vb) return vb
   try {
     const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/drawerCtrl', {
       deviceSn, stockPos: 'pos_1', stockCmd: Number(stockCmd)
@@ -1176,6 +1193,7 @@ async function drawerCtrl(deviceSn, stockCmd) {
 // 确认上货：关舱并开始配送（任务流转 50 已上货）
 async function loadingConfirm(deviceSn, platformTaskId, strategies) {
   if (MOCK) return { ok: true }
+  const vb = virtualBlocked(deviceSn, '确认上货'); if (vb) return vb
   try {
     const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/loading/confirm', {
       deviceSn, id: Number(platformTaskId), strategies: strategies || {}
@@ -1200,6 +1218,8 @@ const POS_M_PER_UNIT = Number(process.env.POS_M_PER_UNIT || 1.0)
 async function robotAtLoadingPoint(store, deviceSn) {
   if (MOCK) return { ok: true, at_loading_point: true, distance_m: 0 }
   if (!deviceSn) return { ok: false, msg: '缺少设备编号', at_loading_point: false, distance_m: null }
+  const vb = virtualBlocked(deviceSn, '上货门禁判定')
+  if (vb) return { ok: false, msg: vb.msg, at_loading_point: false, distance_m: null }
   // 机器状态预检：充电/返程/回待机 = 不在上货点，直接拒绝（避免充电桩旁误判就位）
   const dev = await getDeviceList()
   if (dev.ok && dev.robots && dev.robots.length) {
@@ -1239,6 +1259,8 @@ async function robotAtLoadingPoint(store, deviceSn) {
 async function robotAtPoint(store, deviceSn, landmarkId, landmark) {
   if (MOCK) return { ok: true, at_point: true, distance_m: 0 }
   if (!deviceSn) return { ok: false, msg: '缺少设备编号', at_point: false, distance_m: null }
+  const vb = virtualBlocked(deviceSn, '点位到达门禁判定')
+  if (vb) return { ok: false, msg: vb.msg, at_point: false, distance_m: null }
   // 机器状态预检：充电/返程/回待机 = 不在目标点，直接拒绝
   const dev = await getDeviceList()
   if (dev.ok && dev.robots && dev.robots.length) {
@@ -1286,6 +1308,8 @@ async function robotAtPoint(store, deviceSn, landmarkId, landmark) {
 async function isRobotBusy(store, deviceSn) {
   if (MOCK) return { ok: true, busy: false, msg: '' }
   if (!deviceSn) return { ok: false, busy: true, msg: '缺少设备编号' }
+  // 虚拟测试车不是真实运力：明确拒绝派单（否则会被当成"空闲可派单"的真车）
+  if (virtualRobot.isVirtual(deviceSn)) return { ok: false, busy: true, msg: '虚拟测试车仅用于演示，不能派单' }
   const active = store.prepare(`
     SELECT COUNT(*) c FROM delivery_tasks d JOIN orders o ON o.id = d.order_id
     WHERE d.device_sn=? AND d.void_at IS NULL AND d.task_status BETWEEN 50 AND 79`).get(deviceSn)
@@ -1335,6 +1359,7 @@ async function cancelQueueTask(platformTaskId) {
 async function closeTask(deviceSn, platformTaskId, reason) {
   if (MOCK) return { ok: true }
   if (!deviceSn || !platformTaskId) return { ok: false, msg: '缺少设备编号或任务ID' }
+  const vb = virtualBlocked(deviceSn, '强制关闭任务'); if (vb) return vb
   try {
     const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/close', {
       deviceSn, principalId: PRINCIPAL_ID, taskId: Number(platformTaskId), stockPos: 'pos_1',
@@ -1351,6 +1376,7 @@ async function closeTask(deviceSn, platformTaskId, reason) {
 async function releaseControl(deviceSn, ctrlId) {
   if (MOCK) return { ok: true }
   if (!ctrlId) return { ok: false, msg: '缺少控制权ID' }
+  const vb = virtualBlocked(deviceSn, '释放设备控制权'); if (vb) return vb
   try {
     const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/authority/release', { deviceSn, principalId: PRINCIPAL_ID }, { 'ctrl-id': ctrlId })
     return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '释放控制权失败' }
@@ -1365,6 +1391,7 @@ async function releaseControl(deviceSn, ctrlId) {
 // 因为缺了 verify/match 这一步（Apifox 规格：机器人到达送货点发起验证前必须先调 verify/match）。
 async function unloadingVerify(deviceSn, platformTaskId, strategies) {
   if (MOCK) return { ok: true }
+  const vb = virtualBlocked(deviceSn, '取餐开舱'); if (vb) return vb
   try {
     const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/verify/match', {
       deviceSn, strategies: strategies || {}, autoOpen: true
@@ -1378,6 +1405,7 @@ async function unloadingVerify(deviceSn, platformTaskId, strategies) {
 // 关闭舱门：unloading/confirm 关舱返回（40s 未调用平台自动关舱；此项不改变任务状态）
 async function unloadingConfirm(deviceSn, platformTaskId, strategies) {
   if (MOCK) return { ok: true }
+  const vb = virtualBlocked(deviceSn, '关舱'); if (vb) return vb
   try {
     const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/unloading/confirm', {
       deviceSn, strategies: strategies || {}
@@ -1413,6 +1441,7 @@ async function queryLightTask(id) {
 async function stopRobot(deviceSn, stopTime) {
   if (MOCK) return { ok: true, msg: '模拟驻停成功' }
   if (!deviceSn) return { ok: false, msg: '缺少设备编号' }
+  const vb = virtualBlocked(deviceSn, '设备驻停'); if (vb) return vb
   try {
     const r = await requestPlatform('POST', '/open-api/v1/deviceCtrl/stop', { deviceSn, stopTime: Number(stopTime) || 30 })
     return r && r.code === 'COMM_200' ? { ok: true } : { ok: false, msg: (r && r.msg) || '驻停失败' }
@@ -1428,6 +1457,7 @@ async function stopRobot(deviceSn, stopTime) {
 async function queryDeviceTasks(deviceSn) {
   if (MOCK) return { ok: true, tasks: [], mock: true }
   if (!deviceSn) return { ok: false, msg: '缺少设备编号' }
+  const vb = virtualBlocked(deviceSn, '查询设备任务'); if (vb) return vb
   try {
     const r = await requestPlatform('GET', '/open-api/v1/deviceCtrl/queryDeviceTasks?deviceSN=' + encodeURIComponent(deviceSn))
     if (!r || r.code !== 'COMM_200') return { ok: false, msg: (r && r.msg) || '查询设备任务失败' }

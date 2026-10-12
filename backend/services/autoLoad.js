@@ -59,16 +59,19 @@ async function evaluate(store, deps, batch) {
 
   const list = await deps.platform.getDeviceList()
   if (!list.ok || !list.robots || !list.robots.length) return
+  // 排除虚拟机器人（VIRTUAL_ROBOT 联调用）：它是接口层模拟数据，不能被真实召唤派车
+  const robots = list.robots.filter((x) => x && !x.virtual)
+  if (!robots.length) return
 
   // 选择目标车：
   //   已指派批次的车 → 只在它「在线且空闲」时才召唤（忙/在送则跳过，等它送完由完成路径带回上货点）
   //   未指派批次    → 挑一台在线的空闲车
   let robot = null
   if (b.device_sn) {
-    const mr = list.robots.find((x) => x.online && x.device_sn === b.device_sn)
+    const mr = robots.find((x) => x.online && x.device_sn === b.device_sn)
     if (mr && SUMMONABLE.includes(mr.machine_status)) robot = mr
   } else {
-    robot = list.robots.find((x) => x.online && SUMMONABLE.includes(x.machine_status))
+    robot = robots.find((x) => x.online && SUMMONABLE.includes(x.machine_status))
   }
   if (!robot) {
     console.log('[autoLoad] 目标车在配送/离线，跳过召唤（送完由完成路径自动回上货点）')

@@ -119,7 +119,7 @@ module.exports = (store, deps) => {
     const robots = []
     let msg = ''
     try {
-      const devList = await deps.platform.getDeviceList()
+      const devList = await deps.platform.getDeviceList({ withVirtual: true })
       if (devList && devList.ok && Array.isArray(devList.robots)) {
         for (const dev of devList.robots) {
           if (!dev.online || !dev.device_sn) continue

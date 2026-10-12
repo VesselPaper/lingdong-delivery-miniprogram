@@ -19,7 +19,7 @@ const ADMIN_TASK_STATUS = {
 async function buildAdminState(store, deps) {
   const out = { server_time: new Date().toLocaleString('zh-CN', { hour12: false }) }
   // 设备状态
-  const dev = await deps.platform.getDeviceList()
+  const dev = await deps.platform.getDeviceList({ withVirtual: true })
   out.robot = dev.ok && dev.robots && dev.robots.length ? dev.robots[0] : null
   out.robot_error = dev.ok ? '' : dev.msg
   // 平台任务（全部，页面自行过滤展示）
@@ -92,10 +92,13 @@ async function buildDashboard(store, deps) {
     const m = await deps.platform.getMapOverview(store)
     if (m && m.ok) {
       map = {
-        // 前端用 Leaflet + 高德瓦片实时渲染，不再读取 map_url；
-        // 这里仍下发平台位图代理地址，供 API 消费方（如小程序监控页）或未来回退使用。
+        // 前端 3D 地图用本地标定几何渲染，不读 map_url；这里仍下发平台位图代理地址，供 API 消费方或回退使用。
         map_url: '/api/dashboard/map-image',
         barrier_url: m.barrier_url, bbox: m.bbox,
+        // meta = 平台 ROS 栅格地图元数据（origin/resolution/width/height）。
+        // 它是「平台世界坐标 → 地图像素」的**权威映射**（2026-10-05 用 50 个点位/路径节点验证全部零距离命中），
+        // 前端必须用它而不是 bbox 拉伸（拉伸有 ~4.3m 均值 / p90 14m 误差）。
+        meta: m.meta,
         landmarks: m.landmarks, graph: m.graph, robots: m.robots, routes: m.routes
       }
     } else mapError = (m && m.msg) || '获取地图失败'
@@ -105,7 +108,7 @@ async function buildDashboard(store, deps) {
   let robots = []
   let robotsError = ''
   try {
-    const r = await deps.platform.getDeviceList()
+    const r = await deps.platform.getDeviceList({ withVirtual: true })
     if (r && r.ok) robots = r.robots || []
     else robotsError = (r && r.msg) || '获取车辆列表失败'
   } catch (e) { robotsError = e.message || '获取车辆列表异常' }
@@ -120,6 +123,8 @@ async function buildDashboard(store, deps) {
     map_error: mapError,
     robots,
     robots_error: robotsError,
+    // 虚拟机器人（接口层模拟，VIRTUAL_ROBOT=1）诊断：确认它在跑哪条路线、是否就绪
+    virtual_robot: deps.platform.virtualRobotStatus ? deps.platform.virtualRobotStatus() : { enabled: false },
     batches: q.activeBatchesOverview(store),
     pickup_alerts: q.pickupAlerts(store)
   }

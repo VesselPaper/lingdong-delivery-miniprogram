@@ -37,13 +37,20 @@ function createQueueTask(store, order) {
 }
 
 // 自动挑选一台可用机器人（在线且空闲/待机/充电中），供批次派车时指派
+// ⚠️ 虚拟机器人（VIRTUAL_ROBOT=1 联调用）带 virtual:true，**一律排除** ——
+//    它只是接口层的模拟数据，对它下发真实平台指令必然失败。
+function dispatchableRobots(list) {
+  return (list || []).filter((x) => x && x.online && !x.virtual)
+}
 async function pickAvailableRobot() {
   if (MOCK || !httpApi.platformReady()) return null
   try {
     const r = await httpApi.getDeviceList()
     if (!r.ok || !r.robots || !r.robots.length) return null
-    const free = r.robots.find((x) => x.online && ['idle', 'standby', 'charging', 'returnChargingPile', 'returnStandby', 'lightTask'].includes(x.machine_status))
-    return free || r.robots.find((x) => x.online) || null
+    const cand = dispatchableRobots(r.robots)
+    if (!cand.length) return null
+    const free = cand.find((x) => ['idle', 'standby', 'charging', 'returnChargingPile', 'returnStandby', 'lightTask'].includes(x.machine_status))
+    return free || cand[0] || null
   } catch (e) {
     return null
   }
@@ -299,9 +306,11 @@ async function summonToLoadingPoint(store, preferredSn, optExpireMin) {
   if (!r.ok || !r.robots || !r.robots.length) return { ok: false, msg: '无机器人可召唤' }
   // 优先指定设备（已定型批次指派的车），其次空闲/充电/待机/返程/召唤中的车，最后任意在线车
   let robot = null
-  if (preferredSn) robot = r.robots.find((x) => x.online && x.device_sn === preferredSn)
-  if (!robot) robot = r.robots.find((x) => x.online && ['idle', 'standby', 'charging', 'returnChargingPile', 'returnStandby', 'lightTask'].includes(x.machine_status))
-  robot = robot || r.robots.find((x) => x.online) || null
+  const cand1 = dispatchableRobots(r.robots)
+  if (!cand1.length) return { ok: false, msg: '无机器人可召唤' }
+  if (preferredSn) robot = cand1.find((x) => x.device_sn === preferredSn)
+  if (!robot) robot = cand1.find((x) => ['idle', 'standby', 'charging', 'returnChargingPile', 'returnStandby', 'lightTask'].includes(x.machine_status))
+  robot = robot || cand1[0] || null
   if (!robot) return { ok: false, msg: '无在线机器人可召唤' }
   try {
     const body = {
@@ -386,13 +395,15 @@ async function summonToPoint(store, deviceSn, landmarkId, optExpireMin) {
     }
   }
   if (!lm || !lm.platform_landmark_id) return { ok: false, msg: '目标点位不存在' }
-  // 选择设备：指定设备优先，其次空闲/充电/待机/返程/召唤中的车，最后任意在线车
+  // 选择设备：指定设备优先，其次空闲/充电/待机/返程/召唤中的车，最后任意在线车（均排除虚拟机器人）
   const r = await httpApi.getDeviceList()
   if (!r.ok || !r.robots || !r.robots.length) return { ok: false, msg: '无机器人可召唤' }
+  const cand2 = dispatchableRobots(r.robots)
+  if (!cand2.length) return { ok: false, msg: '无机器人可召唤' }
   let robot = null
-  if (deviceSn) robot = r.robots.find((x) => x.online && x.device_sn === deviceSn)
-  if (!robot) robot = r.robots.find((x) => x.online && ['idle', 'standby', 'charging', 'returnChargingPile', 'returnStandby', 'lightTask'].includes(x.machine_status))
-  robot = robot || r.robots.find((x) => x.online) || null
+  if (deviceSn) robot = cand2.find((x) => x.device_sn === deviceSn)
+  if (!robot) robot = cand2.find((x) => ['idle', 'standby', 'charging', 'returnChargingPile', 'returnStandby', 'lightTask'].includes(x.machine_status))
+  robot = robot || cand2[0] || null
   if (!robot) return { ok: false, msg: '无在线机器人可召唤' }
   try {
     const body = {
@@ -633,6 +644,7 @@ module.exports = {
   // 基础层/回调层/模拟层（原导出，转发）
   getTaskStatus: httpApi.getTaskStatus,
   getDevicePosition: httpApi.getDevicePosition, getDevicePositionBySn: httpApi.getDevicePositionBySn,
+  virtualRobotStatus: httpApi.virtualRobotStatus, ensureVirtualRoute: httpApi.ensureVirtualRoute,
   getRobotRadar: httpApi.getRobotRadar, getDeviceList: httpApi.getDeviceList,
   grantControl: httpApi.grantControl, releaseControl: httpApi.releaseControl,
   loadingVerify: httpApi.loadingVerify, drawerCtrl: httpApi.drawerCtrl,

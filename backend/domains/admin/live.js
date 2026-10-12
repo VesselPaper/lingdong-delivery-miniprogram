@@ -26,7 +26,7 @@ async function run(store, deps) {
   let robot = null
   const robots = []
   try {
-    const devList = await deps.platform.getDeviceList()
+    const devList = await deps.platform.getDeviceList({ withVirtual: true })
     if (devList && devList.ok && Array.isArray(devList.robots)) {
       if (devList.robots.length) robot = devList.robots[0]
       for (const dev of devList.robots) {

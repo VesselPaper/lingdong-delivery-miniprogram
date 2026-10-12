@@ -585,7 +585,7 @@ module.exports = (store, deps) => {
   // ---------- 机器人设备列表（真实模式：调平台 runtimeStatusList） ----------
   // 平台未配置/调用失败时返回明确错误，前端展示错误卡
   router.get('/merchant/robots', merchantGuard, async (req, res) => {
-    const r = await deps.platform.getDeviceList()
+    const r = await deps.platform.getDeviceList({ withVirtual: true })
     if (!r.ok) {
       return res.status(502).json({ code: 502, msg: r.msg || '获取机器人失败' })
     }
