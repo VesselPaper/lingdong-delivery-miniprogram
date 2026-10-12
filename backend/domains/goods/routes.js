@@ -214,6 +214,53 @@ module.exports = (store, deps) => {
     ok(res)
   })
 
+  // ---------- 删除商品（店主专属，真删行 / 2026-10-12 新增） ----------
+  // 为什么要有它：此前只能「下架」（status=0）。下架商品在商家端列表里仍占一行、批量录入还会按条码
+  // 把它当成「已存在」而跳过；门店 Excel 里删掉的旧商品、离线演示种子商品因此永远清不掉，
+  // 用户端也就一直挂着「门店清单之外的测试商品」。真删才是这类商品的正确出口。
+  // 删除语义（与 order / delivery 的「删除」不同，这里不做任何落账）：
+  //   · 只删 goods 行：order_items 是下单快照（名称/图/价格都在行内），历史订单照样显示明细；
+  //   · cart 残留行不动：用户端购物车按 g.status=1 过滤（LEFT JOIN 后为 NULL），既不显示也进不了结算。
+  // 单次上限与批量录入一致（BATCH_MAX），避免一个请求把整张商品表删掉。
+  function removeGoods(ids) {
+    const uniq = [...new Set((ids || []).map(Number).filter((n) => Number.isInteger(n) && n > 0))]
+    const hit = uniq.map((id) => q.findById(store, id)).filter(Boolean)
+    if (hit.length) {
+      store.exec('BEGIN')
+      try {
+        for (const g of hit) q.deleteById(store, g.id)
+        store.exec('COMMIT')
+      } catch (e) {
+        store.exec('ROLLBACK')
+        throw e
+      }
+    }
+    const hitIds = hit.map((g) => g.id)
+    return { hit, ids: hitIds, missing: uniq.filter((id) => hitIds.indexOf(id) < 0) }
+  }
+
+  router.delete('/merchant/goods', ownerGuard, (req, res) => {
+    // id 允许放 body 或查询串：小程序 wx.request 的 DELETE 带 body 是可行的（活动删除同款写法），
+    // 但个别客户端/网关会把 DELETE 的 body 丢掉，多认一个查询串成本极低。
+    const id = (req.body || {}).id || req.query.id
+    if (!id) return res.status(400).json({ code: 400, msg: '缺少商品 id' })
+    const r = removeGoods([id])
+    if (!r.hit.length) return res.status(404).json({ code: 404, msg: '商品不存在' })
+    audit(req, 'goods/delete', 'goods#' + r.ids.join(','), 'name=' + r.hit.map((g) => g.name).join('、').slice(0, 200) + ' 删除 ' + r.hit.length + ' 条')
+    ok(res, { deleted: r.hit.length, ids: r.ids })
+  })
+
+  // 批量删除（清理演示种子 / 测试商品用）：ids 数组，逐条独立 —— 库里没有的 id 只计入 missing，
+  // 不算失败（清理脚本会按名称列出整批 id，其中有些可能已经被删过了）。
+  router.post('/merchant/goods/batch-delete', ownerGuard, (req, res) => {
+    const ids = (req.body || {}).ids
+    if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ code: 400, msg: '缺少 ids 数组' })
+    if (ids.length > BATCH_MAX) return res.status(400).json({ code: 400, msg: '一次最多删除 ' + BATCH_MAX + ' 个商品' })
+    const r = removeGoods(ids)
+    audit(req, 'goods/batch-delete', 'goods+' + r.hit.length, '删除=' + r.hit.length + ' 不存在=' + r.missing.length + ' ids=' + r.ids.join(',').slice(0, 150))
+    ok(res, { deleted: r.hit.length, ids: r.ids, missing: r.missing })
+  })
+
   // ---------- 批量录入：Excel 粘贴 / 连续扫码 ----------
   // 语义：逐条独立处理，一条不合法不影响其余（部分成功）；每条的结果都回给前端，
   // 前端只把失败那几行标红让商家改，不必整批重来。

@@ -17,6 +17,9 @@ const api = {
   goodsStatus: '/merchant/goods/status',
   goodsCategories: '/merchant/goods/categories',
   goodsStock: '/merchant/goods/stock',
+  // 删除商品（店主专属真删行，2026-10-12 成员新增）：只删 goods 行，历史订单快照/购物车引用不动
+  goodsDelete: '/merchant/goods',
+  goodsBatchDelete: '/merchant/goods/batch-delete',
   // 批量录入：一次提交多条新增 / 按条码查商品（扫码识别用）
   goodsBatch: '/merchant/goods/batch',
   goodsByBarcode: '/merchant/goods/by-barcode',

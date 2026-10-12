@@ -35,6 +35,12 @@ module.exports = {
     .run(f.name, Number(f.price), Number(f.original_price || 0), f.image || '', f.category || '其他', f.stock, f.description || '', f.status, String(f.barcode !== undefined ? f.barcode : '').trim(), String(f.unit !== undefined ? f.unit : '').trim(), Number(id)),
   updateStatus: (store, id, status) => store.prepare('UPDATE goods SET status=? WHERE id=?').run(Number(status), Number(id)),
 
+  // 真删一行商品（商家端「删除商品」/运维清理用）。
+  // 只删 goods：order_items 存的是下单时的快照（goods_name/goods_image/price 都在行内），历史订单
+  // 照样显示明细；cart 的残留行不动 —— 用户端购物车按 g.status=1 过滤（LEFT JOIN 后为 NULL），
+  // 残留行不会显示成空白条目，也进不了结算（下单前会再查商品是否存在）。
+  deleteById: (store, id) => store.prepare('DELETE FROM goods WHERE id=?').run(Number(id)),
+
   // ---------- shops ----------
   getShop: (store) => store.prepare('SELECT * FROM shops WHERE id=1').get() || {},
   updateShop: (store, business_status, auto_accept, delivery_fee) => store.prepare(
