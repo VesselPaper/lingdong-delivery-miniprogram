@@ -4,9 +4,41 @@
 // 邀请码机制退役（merchantInvite.js 已删除）；密码哈希复用 adminAuth 的 scrypt 方案。
 
 const crypto = require('crypto')
+const fs = require('fs')
+const path = require('path')
 const q = require('./queries')
 const adminAuth = require('../../services/adminAuth')
 const promotion = require('../../services/promotion')
+
+// 头像只接受位图；上限 2MB（微信 chooseAvatar 返回的是已裁剪的小图，正常远小于此）
+const AVATAR_EXT = ['.jpg', '.jpeg', '.png', '.webp']
+const AVATAR_MAX = 2 * 1024 * 1024
+function uploadDir() { return path.join(__dirname, '..', '..', 'uploads') }
+
+// 保存头像（登录随微信资料带入 / 资料页上传共用）：base64 → uploads/avatar_<uid>_xxx。
+// 返回可用的 /uploads/ 相对 URL；非法（空/扩展名不对/超 2MB）返回 null。
+// 换图时删掉本人上一张（三重校验：必须本人前缀、必须解析在 uploads 内、必须是普通文件，绝不误删他人）。
+function saveAvatar(store, userId, name, data) {
+  const raw = String(data || '').trim()
+  if (!raw) return null
+  const ext = (String(name || 'avatar.jpg').match(/\.[A-Za-z0-9]+$/) || ['.jpg'])[0].toLowerCase()
+  if (!AVATAR_EXT.includes(ext)) return null
+  const buf = Buffer.from(raw.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+  if (!buf.length || buf.length > AVATAR_MAX) return null
+  const dir = uploadDir()
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  const prefix = 'avatar_' + userId + '_'
+  const fname = prefix + Date.now() + '_' + Math.random().toString(36).slice(2, 6) + ext
+  fs.writeFileSync(path.join(dir, fname), buf)
+  const old = String((q.findById(store, userId) || {}).avatar || '')
+  if (old.indexOf('/uploads/' + prefix) === 0) {
+    const oldPath = path.resolve(dir, path.basename(old))
+    if (oldPath.indexOf(path.resolve(dir) + path.sep) === 0 && fs.existsSync(oldPath) && fs.statSync(oldPath).isFile()) {
+      try { fs.unlinkSync(oldPath) } catch (e) { /* 删不掉不影响换头像成功 */ }
+    }
+  }
+  return '/uploads/' + fname
+}
 
 // 登录限流（按来源 IP）：防止暴力试密码。
 // 内存级、单进程足够；多副本需换 Redis。
@@ -61,7 +93,7 @@ function sanitizeUser(u) {
 //   - 用户端(client=user)：微信登录（openid 即 token），与商家账号体系互不相干；
 //   - 邀请码机制已退役：任何入口都不再校验 merchant_code，学生也不再能凭码升级为商家。
 async function login(store, deps, body, ip) {
-  const { code, nickname = '', username = '', password = '', client = 'user' } = body || {}
+  const { code, nickname = '', username = '', password = '', client = 'user', avatarName = '', avatarData = '' } = body || {}
   const clientKey = client === 'merchant' ? 'merchant' : 'user'
 
   // 限流：失败累计过多则暂时拒绝（防暴力试密码/试码）
@@ -152,12 +184,25 @@ async function login(store, deps, body, ip) {
   }
 
   let user = q.findByOpenid(store, openid)
+  const wechatNick = String(nickname || '').trim()
   if (!user) {
-    // 新用户一律学生（邀请码机制退役后不再存在「凭码升级商家」路径）
-    const id = q.create(store, openid, nickname || '微信用户', 'student')
+    // 新用户一律学生（邀请码机制退役后不再存在「凭码升级商家」路径）。
+    // 用户名/头像默认取微信资料（2026-10-12 负责人要求）：微信昵称 + chooseAvatar 带上的微信头像。
+    const id = q.create(store, openid, wechatNick || '微信用户', 'student')
+    if (avatarData) {
+      const url = saveAvatar(store, id, avatarName, avatarData)
+      if (url) q.updateProfile(store, id, undefined, undefined, url)
+    }
     user = q.findById(store, id)
   } else {
-    if (nickname) q.updateNickname(store, user.id, nickname)
+    // 已有用户：微信名/头像只在「还没设过、或还是默认占位」时补一次（默认值），
+    // 绝不覆盖用户后来自定义的昵称/头像（否则每次登录都会把人家的昵称改回微信名）。
+    const curNick = String(user.nickname || '').trim()
+    if (wechatNick && (!curNick || curNick === '微信用户')) q.updateNickname(store, user.id, wechatNick)
+    if (avatarData && !String(user.avatar || '').trim()) {
+      const url = saveAvatar(store, user.id, avatarName, avatarData)
+      if (url) q.updateProfile(store, user.id, undefined, undefined, url)
+    }
     user = q.findById(store, user.id)
   }
   loginFail.ok(ip)
@@ -194,4 +239,4 @@ function removeCartItems(store, userId, goodsIds) {
   q.removeCartItems(store, userId, goodsIds)
 }
 
-module.exports = { login, clientIp, cartListWithPrice, removeCartItems, sanitizeUser }
+module.exports = { login, clientIp, cartListWithPrice, removeCartItems, sanitizeUser, saveAvatar }

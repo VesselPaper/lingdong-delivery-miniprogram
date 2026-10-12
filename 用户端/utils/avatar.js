@@ -11,27 +11,26 @@ const request = require('./request')
 
 const EXT_OK = ['.jpg', '.jpeg', '.png', '.webp']
 
-// 上传本地临时头像，成功返回后端保存后的用户对象（avatar 已是可直接用的完整 URL）
-function upload(tempFilePath) {
+// 把 chooseAvatar 的本地临时文件读成 base64（不上传），登录页随微信资料一起带给后端建档用。
+// 返回 { name, data }；失败 reject。
+function readBase64(tempFilePath) {
   return new Promise((resolve, reject) => {
-    if (!tempFilePath) {
-      reject(new Error('没有取到头像文件'))
-      return
-    }
+    if (!tempFilePath) { reject(new Error('没有取到头像文件')); return }
     const raw = String(tempFilePath)
     const matched = (raw.match(/\.[A-Za-z0-9]+$/) || ['.jpg'])[0].toLowerCase()
     const name = 'avatar' + (EXT_OK.includes(matched) ? matched : '.jpg')
     wx.getFileSystemManager().readFile({
       filePath: raw,
       encoding: 'base64',
-      success(res) {
-        request.post(api.userAvatar, { name, data: res.data }).then(resolve).catch(reject)
-      },
-      fail() {
-        reject(new Error('读取头像失败，请重试'))
-      }
+      success(res) { resolve({ name, data: res.data }) },
+      fail() { reject(new Error('读取头像失败，请重试')) }
     })
   })
+}
+
+// 上传本地临时头像，成功返回后端保存后的用户对象（avatar 已是可直接用的完整 URL）
+function upload(tempFilePath) {
+  return readBase64(tempFilePath).then(({ name, data }) => request.post(api.userAvatar, { name, data }))
 }
 
 // 统一的「选头像 → 上传 → 回填」流程，页面只需要给出上传成功后怎么刷新自己
@@ -59,4 +58,4 @@ function chooseAndSave(onDone) {
   }
 }
 
-module.exports = { upload, chooseAndSave }
+module.exports = { upload, chooseAndSave, readBase64 }

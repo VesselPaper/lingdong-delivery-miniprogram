@@ -1,8 +1,11 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
+const avatar = require('../../utils/avatar')
 
 // 用户端登录（2026-10-11 起两条路，都指向同一张 users 表）：
 //   1) 微信一键登录（默认，生产用）：wx.login 的 code 换 openid，用户不需要账号；
+//      2026-10-12 起登录页带「微信资料」：头像点一下=微信头像、昵称框点一下=微信昵称，
+//      随 code 一起发给后端建档（新用户默认微信名/头像；老用户只补默认值，不覆盖自设昵称头像）。
 //   2) 账号密码登录（联调/演示用）：账号由管理员网页「商家管理」创建，或由后端首次启动自举生成
 //      （见 backend/services/bootstrap.js）。加它的原因：成员本机没配 WX_APPID/WX_SECRET 时
 //      只有"模拟登录"，且必须先能连上后端；有账号密码后不依赖微信凭据也能进。
@@ -12,7 +15,11 @@ Page({
     loginDemo: false,   // 运行时标注：后端未配用户端微信凭据时按钮显示「模拟登录（演示）」
     username: '',
     password: '',
-    showAccount: false  // 账号密码表单默认收起；后端处于 demo 登录时自动展开（见 onShow）
+    showAccount: false,  // 账号密码表单默认收起；后端处于 demo 登录时自动展开（见 onShow）
+    wechatNickname: '',  // 微信昵称（type=nickname，点一下即微信昵称）
+    avatarPath: '',      // 选中的微信头像临时路径（预览用）
+    avatarName: '',      // 头像文件名（带扩展名）
+    avatarData: ''       // 头像 base64（登录时随微信资料建档）
   },
 
   onShow() {
@@ -43,6 +50,24 @@ Page({
   onUsernameInput(e) { this.setData({ username: e.detail.value }) },
   onPasswordInput(e) { this.setData({ password: e.detail.value }) },
 
+  // ---------- 微信资料（默认取微信昵称/头像） ----------
+  // chooseAvatar：微信弹出的选择器默认就是用户当前微信头像，点一下即带出。
+  // 这里只读成 base64 暂存，登录请求里随 code 一起建档；不单独走 /user/avatar（未登录没有 token）。
+  async onChooseAvatar(e) {
+    const url = e && e.detail && e.detail.avatarUrl
+    if (!url) return
+    this.setData({ avatarPath: url })
+    try {
+      const { name, data } = await avatar.readBase64(url)
+      this.setData({ avatarName: name, avatarData: data })
+    } catch (err) {
+      wx.showToast({ title: '读取头像失败，可稍后重试', icon: 'none' })
+    }
+  },
+
+  onNicknameInput(e) { this.setData({ wechatNickname: e.detail.value }) },
+  onNicknameBlur(e) { this.setData({ wechatNickname: e.detail.value }) },
+
   // 登录成功后的统一后续动作（两条登录路径共用）
   afterLogin(res) {
     wx.setStorageSync('token', res.token)
@@ -72,7 +97,13 @@ Page({
         wx.login({ success: (r) => resolve(r.code), fail: reject })
       })
       // client 标明用户端：后端用它选「零栋GO」的 appid/secret 走真实 code2session
-      const res = await request.post(api.login, { code, client: 'user', nickname: '' }, { needAuth: false }) // 登录接口免鉴权
+      // 带上微信资料（昵称/头像 base64）：新用户建档默认微信名/头像；老用户只补默认值不覆盖自设。
+      const res = await request.post(api.login, {
+        code, client: 'user',
+        nickname: this.data.wechatNickname,
+        avatarName: this.data.avatarName,
+        avatarData: this.data.avatarData
+      }, { needAuth: false }) // 登录接口免鉴权
       this.afterLogin(res)
     } catch (e) {
       wx.showToast({ title: (e && e.message) || '登录失败，请稍后重试', icon: 'none' })

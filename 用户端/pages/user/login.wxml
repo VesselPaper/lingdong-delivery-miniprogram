@@ -8,6 +8,17 @@
   </view>
 
   <view class="login-actions">
+    <!-- 微信资料（2026-10-12 起默认取微信昵称/头像）：微信平台规则不允许静默读取，
+         必须用户主动点一次 —— 头像按钮点一下=微信头像，昵称框点一下=微信昵称。登录时随 code 一起建档。 -->
+    <view class="wechat-profile" wx:if="{{!showAccount}}">
+      <button class="avatar-btn" open-type="chooseAvatar" bind:chooseavatar="onChooseAvatar" hover-class="none">
+        <image wx:if="{{avatarPath}}" class="avatar-img" src="{{avatarPath}}" mode="aspectFill" />
+        <view wx:else class="avatar-placeholder"><t-icon name="user" size="24" color="#C0C0C0" /></view>
+      </button>
+      <input class="nickname-input" type="nickname" placeholder="点击填写微信昵称（默认）" placeholder-class="login-ph"
+        value="{{wechatNickname}}" bindinput="onNicknameInput" bindblur="onNicknameBlur" />
+    </view>
+
     <view class="btn btn-block {{logging ? 'btn-disabled' : ''}}" bindtap="wechatLogin">{{loginDemo ? '模拟登录（演示）' : '微信一键登录'}}</view>
     <view class="login-tip text-weak text-sm">登录即同意《用户协议》与《隐私政策》</view>
 

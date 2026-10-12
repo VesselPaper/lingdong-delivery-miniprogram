@@ -63,3 +63,56 @@
 .login-ph {
   color: #999999;
 }
+
+/* 微信资料（2026-10-12 起：登录时默认取微信昵称/头像）：
+   头像按钮点一下=微信头像；昵称框点一下=微信昵称。两段并排一行。 */
+.wechat-profile {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  margin-bottom: 40rpx;
+}
+
+.avatar-btn {
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: 50%;
+  padding: 0;
+  margin: 0;
+  background: #FFFFFF;
+  border: 2rpx dashed #C0C0C0;
+  overflow: hidden;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar-btn::after {
+  border: none;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+.avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nickname-input {
+  flex: 1;
+  height: 96rpx;
+  line-height: 96rpx;
+  padding: 0 32rpx;
+  background: #FFFFFF;
+  border: 2rpx solid #E0E0E0;
+  border-radius: 12rpx;
+  font-size: 30rpx;
+  color: #111111;
+  box-sizing: border-box;
+}
