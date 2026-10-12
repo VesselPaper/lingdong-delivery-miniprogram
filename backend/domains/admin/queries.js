@@ -4,6 +4,8 @@
 const seqSvc = require('../../services/seq')
 
 module.exports = {
+  // 上货点召唤连续失败告警（delivery/timers.js 熔断时写进 meta；这里读出来给管理页亮红字）
+  summonKeepAlerts: (store) => store.prepare("SELECT key, value FROM meta WHERE key LIKE 'summon_keep_alert:%'").all(),
   // ---------- 状态总览聚合（只读，跨表例外） ----------
   activeBatches: (store) => store.prepare('SELECT id,batch_no,daily_seq,seq_date,status,status_text,device_sn,ctrl_id,total_orders,picked_orders,total_items,delivery_mode,current_stop,route,created_at,dispatched_at FROM delivery_batches WHERE status IN (0,1,2) ORDER BY id DESC LIMIT 50').all(),
   historyBatches: (store) => store.prepare('SELECT id,batch_no,daily_seq,seq_date,status,status_text,device_sn,ctrl_id,total_orders,picked_orders,total_items,delivery_mode,current_stop,route,created_at,dispatched_at FROM delivery_batches WHERE status NOT IN (0,1,2) ORDER BY id DESC LIMIT 100').all(),

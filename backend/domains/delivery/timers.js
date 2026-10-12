@@ -16,8 +16,37 @@ const healAt = new Map()
 const autoRetryAt = new Map()
 // 上货点「有单就守着」：车最后一次成功召唤上货点的时间(device_sn->ts)，到点前续一次，车物理不离开。
 const keepAt = new Map()
-// 召唤节流(device_sn->ts)：机器人离线/召唤失败时至少 30s 再试，避免刷爆平台。
+// 召唤节流(device_sn->ts)：机器人离线/召唤失败时至少 N 秒再试，避免刷爆平台（默认 30s，可用
+// SUMMON_LOADING_KEEP_TRY_MS 调小；测试里调成 0 以便连续调用）。
 const keepTryAt = new Map()
+// 上货点守候「连续失败」计数(device_sn->{n,at,taskId})：平台把召唤任务判失败(50)/未到达就终态(40/60)时 +1。
+// 连续失败达到 SUMMON_LOADING_KEEP_MAX_FAILS（默认 3）就停止重发并落一条告警 —— 避免出现
+// 「叫一次→任务失败→车回充电桩→30 秒后再叫」的死循环：真车会一直在两点间来回跑、白耗电，
+// 而且真问题（车停在充电桩/禁行区、或点位不可达）会被这个循环掩盖（2026-10-12 实测踩到）。
+const keepFail = new Map()
+// 观测到过 status=30（到达）的召唤任务 id：这一轮算「健康周期」，不计数失败。
+const keepArrived = new Set()
+const KEEP_ALERT_PREFIX = 'summon_keep_alert:'
+
+function keepTryMs() { return Number(process.env.SUMMON_LOADING_KEEP_TRY_MS || 30 * 1000) }
+function keepMaxFails() { return Number(process.env.SUMMON_LOADING_KEEP_MAX_FAILS || 3) }
+
+// 熔断告警落 meta（管理页读取展示）：跨阈值那一刻写一次，到达/收工后清掉。
+function setKeepAlert(store, sn, info) {
+  try {
+    const v = JSON.stringify({
+      device_sn: String(sn), fails: info.n, last_task: String(info.taskId || ''),
+      batch_no: String(info.batchNo || ''), at: new Date().toLocaleString('zh-CN', { hour12: false })
+    })
+    store.prepare('INSERT INTO meta (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+      .run(KEEP_ALERT_PREFIX + sn, v)
+  } catch (e) { /* meta 不存在（极简测试库）时忽略 */ }
+}
+function clearKeepAlert(store, sn) {
+  try { store.prepare('DELETE FROM meta WHERE key=?').run(KEEP_ALERT_PREFIX + sn) } catch (e) { /* 同上 */ }
+}
+// 供管理页/测试读取当前熔断状态
+function keepFailOf(sn) { return keepFail.get(String(sn)) || null }
 
 
 // 空闲可派的车有几台（v2 时机层用）。
@@ -181,44 +210,8 @@ function start(store, deps) {
         //    无待上货批次 → 本轮不续（由「释放事件」settleRobot 走 3 分钟释放返程）。
         //    商家点「立即配送」后批次转配送中(2)，本循环不再续，车由新召唤正常出发送货。
         //    注意：这不是"轮询是否有新单来派车"，而是"守住已指派/该待的上货点"，与「不轮询查单来释放」并存。
-        const keepMs = Number(process.env.SUMMON_LOADING_KEEP_MS || 4 * 60 * 1000)
-        const loadables = store.prepare(`
-          SELECT id, device_sn, light_task_id FROM delivery_batches
-          WHERE status IN (0,1) AND total_orders>0 AND device_sn!='' ORDER BY id ASC`).all()
-        const byDev = new Map()
-        for (const lb of loadables) {
-          if (!byDev.has(lb.device_sn)) byDev.set(lb.device_sn, [])
-          byDev.get(lb.device_sn).push(lb)
-        }
-        for (const [sn, batches] of byDev) {
-          try {
-            const delivering = store.prepare("SELECT id FROM delivery_batches WHERE device_sn=? AND delivery_mode='summon' AND status=2 LIMIT 1").get(sn)
-            if (delivering) continue
-            let lid = ''
-            for (const b of batches) if (b.light_task_id) lid = b.light_task_id
-            const lastTs = keepAt.get(sn) || 0
-            let need = false
-            if (!lid) need = true
-            else {
-              const qr = await deps.platform.queryLightTask(lid)
-              if (!qr.ok) need = true
-              else if ([40, 50, 60].includes(qr.status)) need = true
-              else if (!lastTs) keepAt.set(sn, Date.now()) // 任务活着且首次见到→采纳为新鲜
-              else if (Date.now() - lastTs >= keepMs) need = true // 到点前续一次
-            }
-            if (need) {
-              if (Date.now() - (keepTryAt.get(sn) || 0) < 30 * 1000) continue
-              keepTryAt.set(sn, Date.now())
-              const r2 = await deps.platform.summonToLoadingPoint(store, sn)
-              if (r2.ok) {
-                keepAt.set(sn, Date.now())
-                const newest = batches[batches.length - 1]
-                if (r2.light_task_id && newest) store.prepare("UPDATE delivery_batches SET light_task_id=?, updated_at=datetime('now','localtime') WHERE id=?").run(r2.light_task_id, newest.id)
-                console.log('[summon] 车 ' + sn + ' 保持在上货点（有待上货批次#' + (newest && newest.id) + '，续一次）')
-              }
-            }
-          } catch (e) { /* 单台不影响 */ }
-        }
+        //    连续失败熔断（keepFail）见 keepLoadingSummon 内注释。
+        await keepLoadingSummon(store, deps)
         // ① 正常推进：当前站全取走 → 推下一站/召回完成
         const rows = store.prepare("SELECT id FROM delivery_batches WHERE delivery_mode='summon' AND status=2").all()
         for (const r of rows) {
@@ -240,4 +233,95 @@ function start(store, deps) {
   }
 }
 
-module.exports = { start, BATCH_SCAN_MS, carState }
+// ---------- 上货点守候（从 ⑤ 里抽出，便于单测） ----------
+// 对「组单中/待上货且有单、已指派车」的批次，保持它的召唤上货点任务活着，车就物理停在上货点。
+// 判定与动作：
+//   · 没有 light_task_id            → 召唤一次（首次）
+//   · 查询失败                        → 保守重发（沿用旧行为）
+//   · status=30（到达）               → 健康：清熔断/告警，不重发
+//   · status=0/10/20（活着）          → 不重发；距上次召唤超过 SUMMON_LOADING_KEEP_MS 才在到期前续一次
+//   · 40/50/60（终态）                → 这一轮结束了：到过 30 算正常结束（续一次维持守候）；
+//                                      没到过 30 就是「叫不过去」→ 计一次连续失败，达到上限（默认 3）后停止重发并告警
+async function keepLoadingSummon(store, deps) {
+  const keepMs = Number(process.env.SUMMON_LOADING_KEEP_MS || 4 * 60 * 1000)
+  const maxFails = keepMaxFails()
+  const loadables = store.prepare(`
+    SELECT id, batch_no, device_sn, light_task_id FROM delivery_batches
+    WHERE status IN (0,1) AND total_orders>0 AND device_sn!='' ORDER BY id ASC`).all()
+  const byDev = new Map()
+  for (const lb of loadables) {
+    if (!byDev.has(lb.device_sn)) byDev.set(lb.device_sn, [])
+    byDev.get(lb.device_sn).push(lb)
+  }
+
+  for (const [sn, batches] of byDev) {
+    try {
+      // 该车正在做召唤配送 → 不打断（送完由完成路径回上货点）
+      const delivering = store.prepare("SELECT id FROM delivery_batches WHERE device_sn=? AND delivery_mode='summon' AND status=2 LIMIT 1").get(sn)
+      if (delivering) continue
+      let lid = ''
+      for (const b of batches) if (b.light_task_id) lid = b.light_task_id
+      const newest = batches[batches.length - 1]
+      const lastTs = keepAt.get(sn) || 0
+      let need = false
+      let notArrived = false // 这一轮是「没到就终态」= 叫不过去
+      if (!lid) {
+        need = true
+      } else {
+        const qr = await deps.platform.queryLightTask(lid)
+        const st = qr.ok ? Number(qr.status) : null
+        if (!qr.ok) {
+          need = true
+        } else if (st === 30) {
+          // 到达：健康信号 —— 清熔断与告警（车到位了），任务还活着，不重发
+          keepFail.delete(sn)
+          clearKeepAlert(store, sn)
+          if (keepArrived.size > 500) keepArrived.clear()
+          keepArrived.add(String(lid))
+          if (!lastTs) keepAt.set(sn, Date.now())
+        } else if ([40, 50, 60].includes(st)) {
+          need = true
+          notArrived = !keepArrived.has(String(lid))
+        } else if (!lastTs) {
+          keepAt.set(sn, Date.now()) // 任务活着且首次见到 → 采纳为新鲜
+        } else if (Date.now() - lastTs >= keepMs) {
+          need = true // 到期前续一次
+        }
+      }
+
+      if (notArrived) {
+        const cur = keepFail.get(sn) || { n: 0, at: 0, taskId: '' }
+        cur.n += 1
+        cur.at = Date.now()
+        cur.taskId = String(lid || cur.taskId)
+        keepFail.set(sn, cur)
+        if (maxFails > 0 && cur.n >= maxFails) {
+          need = false
+          if (cur.n === maxFails) {
+            console.warn('[summon] 上货点召唤连续失败 ' + cur.n + ' 次，已停止自动重发（车 ' + sn + '，批次 ' + (newest && newest.batch_no || '') + '）：' +
+              '平台把召唤任务判为失败/未到达，请检查车是否停在充电桩或禁行区、上货点是否可达（可用 SUMMON_LOADING_KEEP_MAX_FAILS 调整阈值）')
+            setKeepAlert(store, sn, { n: cur.n, taskId: cur.taskId, batchNo: newest && newest.batch_no })
+          }
+        }
+      }
+
+      if (!need) continue
+      if (Date.now() - (keepTryAt.get(sn) || 0) < keepTryMs()) continue
+      keepTryAt.set(sn, Date.now())
+      const r2 = await deps.platform.summonToLoadingPoint(store, sn)
+      if (r2.ok) {
+        keepAt.set(sn, Date.now())
+        if (r2.light_task_id && newest) store.prepare("UPDATE delivery_batches SET light_task_id=?, updated_at=datetime('now','localtime') WHERE id=?").run(r2.light_task_id, newest.id)
+        if (keepFail.has(sn)) console.log('[summon] 车 ' + sn + ' 保持在上货点（有待上货批次#' + (newest && newest.id) + '，第 ' + keepFail.get(sn).n + ' 次失败后续一次）')
+        else console.log('[summon] 车 ' + sn + ' 保持在上货点（有待上货批次#' + (newest && newest.id) + '，续一次）')
+      }
+    } catch (e) { /* 单台不影响 */ }
+  }
+
+  // 没有车在等上货了（批次配送中/完成/取消）→ 清熔断状态与告警
+  for (const sn of Array.from(keepFail.keys())) {
+    if (!byDev.has(sn)) { keepFail.delete(sn); clearKeepAlert(store, sn) }
+  }
+}
+
+module.exports = { start, BATCH_SCAN_MS, carState, keepLoadingSummon, keepFailOf }
