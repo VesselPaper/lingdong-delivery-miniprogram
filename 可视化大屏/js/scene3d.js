@@ -658,18 +658,33 @@
   }
 
   // 点位"定位针"（billboard 图元，2026-10-12）：局部坐标 +Y 为高、底在 y=0，
-  // 针身三角 + 针头八边形，按顶点色直出（配 shaders.js 的 VS_PIN/FS_PIN 无光照着色器）。
+  // 针身三角 + 针头大八边形 + 中心深色孔 + 外圈半透明光晕，按顶点色直出
+  // （配 shaders.js 的 VS_PIN/FS_PIN 无光照着色器）。
   // 画的时候乘"面向相机的 billboard 矩阵"（见 map3d-gl.js sitePinMatrix），
   // 并参与深度测试 → 被楼（屋顶）真正遮挡。
   function buildPin(col) {
     var m = newMesh()
-    var H = 20, W = 5, R = 7
+    var H = 30, W = 8, R = 11, RH = 5
     var c = [col[0], col[1], col[2], 1]
-    pushTri(m, [0, H, 0], [-W, 0, 0], [W, 0, 0], c)
-    var seg = 8, cy = H + 1
+    var dark = [0.04, 0.12, 0.20, 0.92]
+    var halo = [col[0], col[1], col[2], 0.22]
+    var seg = 8, cy = H + 2
+    // 光晕：大八边形（半透明，先画，让图标有"发光"感）
     for (var i = 0; i < seg; i++) {
       var a0 = i / seg * 6.2832, a1 = (i + 1) / seg * 6.2832
-      pushTri(m, [0, cy, 0], [Math.cos(a0) * R, cy, Math.sin(a0) * R], [Math.cos(a1) * R, cy, Math.sin(a1) * R], c)
+      pushTri(m, [0, cy, 0], [Math.cos(a0) * (R + 6), cy, Math.sin(a0) * (R + 6)], [Math.cos(a1) * (R + 6), cy, Math.sin(a1) * (R + 6)], halo)
+    }
+    // 针身：一个三角（底边贴地、尖朝上）
+    pushTri(m, [0, H, 0], [-W, 0, 0], [W, 0, 0], c)
+    // 针头：大八边形（实色）
+    for (var j = 0; j < seg; j++) {
+      var b0 = j / seg * 6.2832, b1 = (j + 1) / seg * 6.2832
+      pushTri(m, [0, cy, 0], [Math.cos(b0) * R, cy, Math.sin(b0) * R], [Math.cos(b1) * R, cy, Math.sin(b1) * R], c)
+    }
+    // 中心小孔：深色小八边形（画在实色头上层，同平面用 LEQUAL 覆盖 → 看起来像圆环头）
+    for (var k = 0; k < seg; k++) {
+      var d0 = k / seg * 6.2832, d1 = (k + 1) / seg * 6.2832
+      pushTri(m, [0, cy, 0], [Math.cos(d0) * RH, cy, Math.sin(d0) * RH], [Math.cos(d1) * RH, cy, Math.sin(d1) * RH], dark)
     }
     return finalize(m)
   }

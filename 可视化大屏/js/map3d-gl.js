@@ -1692,7 +1692,8 @@ window.Map3DGL = (function () {
     // 墙（玻璃层）不写深度，与车/路线同一套遮挡口径。名称仍在叠加层画。
     if (opts.sites && _sitePins.length) {
       pinMeshes()
-      var kzP = 1 / Math.max(0.01, view.zoom)
+      // 图标比上一版放大 1.4 倍（负责人反馈"点位图标像小三角形、看不清"，2026-10-12 修）
+      var kzP = 1.4 / Math.max(0.01, view.zoom)
       gl.depthMask(false)
       for (var pi = 0; pi < _sitePins.length; pi++) {
         var pp = _sitePins[pi]
