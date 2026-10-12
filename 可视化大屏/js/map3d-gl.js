@@ -1552,8 +1552,12 @@ window.Map3DGL = (function () {
       for (var cgx = 0; cgx < cluCtr.length; cgx++) {
         if (Math.hypot(pxx - cluCtr[cgx].x, pyy - cluCtr[cgx].y) < CAR_CLUSTER_PX) { cg = cgx; break }
       }
-      if (cg < 0) { cg = cluCtr.length; cluCtr.push({ x: 0, y: 0, n: 0, sx: 0, sy: 0, first: cli }) }
+      if (cg < 0) { cg = cluCtr.length; cluCtr.push({ x: pxx, y: pyy, n: 0, sx: 0, sy: 0, first: cli }) }
       cluCtr[cg].n++; cluCtr[cg].sx += pxx; cluCtr[cg].sy += pyy
+      // 每加入一台就增量更新质心 —— 比较时用"当前已合入成员的平均位置"，
+      // 而不是初始 0,0（否则第二台车永远比不到第一台，簇合不拢，2026-10-12 踩到）
+      cluCtr[cg].x = cluCtr[cg].sx / cluCtr[cg].n
+      cluCtr[cg].y = cluCtr[cg].sy / cluCtr[cg].n
       cluRep[cli] = cg
     }
     for (var cgz = 0; cgz < cluCtr.length; cgz++) {
