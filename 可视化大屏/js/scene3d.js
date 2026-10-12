@@ -657,6 +657,23 @@
     return [Math.min(1, col[0] * k), Math.min(1, col[1] * k), Math.min(1, col[2] * k), al]
   }
 
+  // 点位"定位针"（billboard 图元，2026-10-12）：局部坐标 +Y 为高、底在 y=0，
+  // 针身三角 + 针头八边形，按顶点色直出（配 shaders.js 的 VS_PIN/FS_PIN 无光照着色器）。
+  // 画的时候乘"面向相机的 billboard 矩阵"（见 map3d-gl.js sitePinMatrix），
+  // 并参与深度测试 → 被楼（屋顶）真正遮挡。
+  function buildPin(col) {
+    var m = newMesh()
+    var H = 20, W = 5, R = 7
+    var c = [col[0], col[1], col[2], 1]
+    pushTri(m, [0, H, 0], [-W, 0, 0], [W, 0, 0], c)
+    var seg = 8, cy = H + 1
+    for (var i = 0; i < seg; i++) {
+      var a0 = i / seg * 6.2832, a1 = (i + 1) / seg * 6.2832
+      pushTri(m, [0, cy, 0], [Math.cos(a0) * R, cy, Math.sin(a0) * R], [Math.cos(a1) * R, cy, Math.sin(a1) * R], c)
+    }
+    return finalize(m)
+  }
+
   function carMatrix(x, z, theta, y) {
     return mat4.mul(mat4.translation(x, y || 0, z), mat4.rotY(-theta))
   }
@@ -667,7 +684,7 @@
     triangulate: triangulate, ringArea: ringArea,
     newMesh: newMesh, pushTri: pushTri, pushQuad: pushQuad, finalize: finalize, linePts: linePts,
     ribbon: ribbon, column: column, octa: octa, addBuilding: addBuilding,
-    buildStatic: buildStatic, buildCar: buildCar, buildRing: buildRing, buildBeam: buildBeam,
+    buildStatic: buildStatic, buildCar: buildCar, buildRing: buildRing, buildBeam: buildBeam, buildPin: buildPin,
     buildRouteMesh: buildRouteMesh, demoRoutePaths: demoRoutePaths,
     buildRoadGraph: buildRoadGraph, routeOnRoads: routeOnRoads, simplifyPath: simplifyPath,
     nearestNode: nearestNode,

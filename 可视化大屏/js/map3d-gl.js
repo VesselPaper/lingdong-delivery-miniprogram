@@ -535,6 +535,8 @@ window.Map3DGL = (function () {
   // 只保留**有宽度的可通行区**，背景透明 → 不再出现"一块正方形地面"；
   // 同时去掉原先的程序化蓝色网格（地面网格已按负责人要求移除）。
   var FS_GROUND = window.GL3DShaders.FS_GROUND
+  var VS_PIN = window.GL3DShaders.VS_PIN
+  var FS_PIN = window.GL3DShaders.FS_PIN
 
   function compile(src, type) {
     var s = gl.createShader(type)
@@ -580,6 +582,7 @@ window.Map3DGL = (function () {
       progs.mesh = program(VS_MESH, FS_MESH, ['uViewProj', 'uModel', 'uLight', 'uAmbient', 'uDiffuse', 'uAlphaMul', 'uFlowAmp', 'uFlowScale', 'uTime'])
       progs.ground = program(VS_GROUND, FS_GROUND,
         ['uViewProj', 'uTex', 'uFade', 'uFadeSoft', 'uOpacity'])
+      progs.pin = program(VS_PIN, FS_PIN, ['uViewProj', 'uModel'])
     } catch (e) { return fail('WebGL 着色器编译失败：' + e.message) }
     gl.enable(gl.DEPTH_TEST)
     gl.depthFunc(gl.LEQUAL)
@@ -1218,6 +1221,74 @@ window.Map3DGL = (function () {
   // 屏幕距离 < CAR_CLUSTER_PX 的多台车合成一组，叠加层只画一台代表车的标记 + "N台"徽标，
   // 其余车保留 3D 车模但不再重复画光环/光柱/名字；放大后彼此分开会各自显示。
   var CAR_CLUSTER_PX = 40
+  // 点位图标 3D 化（2026-10-12，负责人要求"图标物理遮挡"）：
+  // 图标从叠加层搬进 3D 场景（billboard + 深度测试），被楼（屋顶）挡住时真的被挡住；
+  // 名称仍在叠加层画。collectSitePins() 每帧产出 _sitePins（含优先级去重，供两处共用）。
+  var _sitePins = []
+  var pinBufGreen = null, pinBufYellow = null
+  function pinMeshes() {
+    // 先 buildPin 出网格，再 uploadMesh 上传成 GPU buffer（drawSitePin 绑定的是 WebGLBuffer）
+    if (!pinBufGreen) { pinBufGreen = uploadMesh(S.buildPin([0.18, 0.83, 0.36, 1])); pinBufYellow = uploadMesh(S.buildPin([1.0, 0.82, 0.29, 1])) }
+  }
+  function collectSitePins() {
+    _sitePins = []
+    if (!opts.sites || !live.bbox || !scene || !live.landmarks || !live.landmarks.length) return
+    var lmP2r = S.makePlatformToRadar(live.bbox, scene.radarW, scene.radarH, live.meta)
+    if (!lmP2r) return
+    var seenLm2 = {}
+    var cands = []
+    for (var L0 = 0; L0 < live.landmarks.length; L0++) {
+      var LM = live.landmarks[L0]
+      if (!LM || !isFinite(num(LM.x)) || !isFinite(num(LM.y))) continue
+      var nm3 = String(LM.name || '').replace(/\s+/g, '')
+      if (/固定路径|排队/.test(nm3)) continue
+      var pt3 = lmP2r(LM.x, LM.y)
+      if (!pt3 || !isFinite(pt3[0]) || !isFinite(pt3[1])) continue
+      var lmKey = nm3 + '|' + Math.round(pt3[0] * 10) + '|' + Math.round(pt3[1] * 10)
+      if (seenLm2[lmKey]) continue
+      seenLm2[lmKey] = 1
+      var isCharge = String(LM.type || '') === 'chargePoint' || /充电/.test(nm3)
+      var isLoad = String(LM.type || '') === 'loadingPoint' || /上货/.test(nm3)
+      var tier = (isCharge || isLoad) ? 2 : 3
+      var pri = isLoad ? 3 : (isCharge ? 2 : 1)
+      var col3 = isCharge ? '#2fd45c' : (isLoad ? '#ffd24a' : '#2fd45c')
+      var col4 = isLoad ? [1.0, 0.82, 0.29, 1] : [0.18, 0.83, 0.36, 1]
+      var scb3 = S.projectPoint(cam, W, H, [pt3[0], 0.4, pt3[1]])
+      if (!scb3) continue
+      cands.push({ nm3: nm3, tier: tier, pri: pri, col3: col3, col4: col4, wx: pt3[0], wz: pt3[1], sx: scb3[0], sy: scb3[1] })
+    }
+    cands.sort(function (a, b) { return b.pri - a.pri })
+    var kept = []
+    for (var ci = 0; ci < cands.length; ci++) {
+      var sc = cands[ci]
+      var tooClose = false
+      for (var kj = 0; kj < kept.length; kj++) {
+        if (Math.hypot(sc.sx - kept[kj].sx, sc.sy - kept[kj].sy) < SITE_CULL_PX) { tooClose = true; break }
+      }
+      if (!tooClose) kept.push(sc)
+    }
+    _sitePins = kept
+  }
+  // 面向相机的 billboard 矩阵（列主序）：本地 +Y → 屏幕向上、+X → 屏幕向右、+Z → 朝向相机
+  function sitePinMatrix(px, py, pz, s) {
+    var e = cam.eye
+    var z = [e[0] - px, e[1] - py, e[2] - pz]; var zl = Math.hypot(z[0], z[1], z[2]) || 1
+    z[0] /= zl; z[1] /= zl; z[2] /= zl
+    var x = [z[2], 0, -z[0]]                                  // cross(up=(0,1,0), z)
+    var xl = Math.hypot(x[0], x[1], x[2]) || 1
+    x[0] /= xl; x[1] /= xl; x[2] /= xl
+    var y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]]  // cross(z, x)
+    return [x[0] * s, x[1] * s, x[2] * s, 0, y[0] * s, y[1] * s, y[2] * s, 0, z[0] * s, z[1] * s, z[2] * s, 0, px, py, pz, 1]
+  }
+  function drawSitePin(mesh, mtx) {
+    var pr = progs.pin, p = pr.p
+    gl.useProgram(p)
+    bindAttr(p, 'aPos', mesh.pos, 3)
+    bindAttr(p, 'aCol', mesh.col, 4)
+    gl.uniformMatrix4fv(pr.u.uViewProj, false, cam.vpF32)
+    gl.uniformMatrix4fv(pr.u.uModel, false, new Float32Array(mtx))
+    gl.drawArrays(gl.TRIANGLES, 0, mesh.count)
+  }
   var snapNet = null
   function buildSnapNet() {
     snapNet = null
@@ -1574,6 +1645,8 @@ window.Map3DGL = (function () {
       }
     }
     _carClu = { rep: cluRep, size: cluSize, repIdx: cluRepIdx, ctr: cluCtr }
+    // 点位收集 + 优先级去重（图标在 3D 画、名称在叠加层画，两处共用这份结果）
+    collectSitePins()
     // 拖尾 3D 地面带（每帧重建 → 复用 buffer）。车辆拖尾在下方，车体遮挡它。
     var tm = buildTrailMesh(cars)
     if (tm) { tm.aux = null; trailBuf = uploadMeshInto(trailBuf, tm) }   // 拖尾不需要 aux（省一次上传）
@@ -1614,6 +1687,19 @@ window.Map3DGL = (function () {
     gl.depthMask(true)
 
     drawGlass()
+
+    // 点位图标（3D billboard，2026-10-12）：参与深度测试 → 被楼（屋顶）真正遮挡；
+    // 墙（玻璃层）不写深度，与车/路线同一套遮挡口径。名称仍在叠加层画。
+    if (opts.sites && _sitePins.length) {
+      pinMeshes()
+      var kzP = 1 / Math.max(0.01, view.zoom)
+      gl.depthMask(false)
+      for (var pi = 0; pi < _sitePins.length; pi++) {
+        var pp = _sitePins[pi]
+        drawSitePin(pp.pri === 3 ? pinBufYellow : pinBufGreen, sitePinMatrix(pp.wx, 0.5, pp.wz, kzP))
+      }
+      gl.depthMask(true)
+    }
 
     // 路线：**正常参与深度测试**（所以它永远贴在地面道路上，不会压在楼上）。
     // 流光（按弧长在着色器里算）默认关闭 —— opts.routeFlow 打开才有动态效果。
@@ -1813,89 +1899,25 @@ window.Map3DGL = (function () {
       g.restore()
     }
 
-    // ---- 点位标记（取货点/上货点/充电点）：来自平台 landmarks，世界坐标→场景雷达像素 ----
-    // 与 2.5D 回退版（map3d-core.js）同色系：取货点绿 / 上货点橙 / 充电点黄；
-    // 图标是"定位针"；文字统一收集到 siteLabels，最后和楼名一起做避让排布。
+    // ---- 点位名称（取货点/上货点/充电点）：图标已在 3D 场景画（collectSitePins + 深度测试 → 物理遮挡），
+    // 叠加层只负责名称；文字统一收集到 siteLabels，最后和楼名一起做避让排布。 ----
     var siteLabels = []
-    var seenLm = {}                   // 兜底去重：同名 + 同雷达坐标只画一个 pin / 收集一次文字
-    // 注意：**不要**要求 live.meta —— 后端 overview 的 map 只下发 bbox（不下发 ROS meta），
-    // 而 makePlatformToRadar 在没有 meta 时会退回 bbox 归一化（与后端算 px/py 用的是同一套映射，
-    // 2.5D 回退版 map3d-core.js 也是这么画的）。之前这里多写了 `&& live.meta`，
-    // 导致 3D 模式下 13 个配送点一个都不画（用户反馈"配送点消失了"）。
-    if (opts.sites && live.bbox && live.landmarks && live.landmarks.length) {
-      var lmP2r = S.makePlatformToRadar(live.bbox, scene.radarW, scene.radarH, live.meta)
-      if (lmP2r) {
-        // 先收集所有候选点位（含屏幕坐标与优先级），再按"上货点>充电点>取货点"做屏幕距离去重，
-        // 解决"商铺上货/零栋库房/充电点"这类贴在一起的点位挤成一团的问题（2026-10-12）。
-        var siteCands = []
-        for (var L0 = 0; L0 < live.landmarks.length; L0++) {
-          var LM = live.landmarks[L0]
-          if (!LM || !isFinite(num(LM.x)) || !isFinite(num(LM.y))) continue
-          var nm3 = String(LM.name || '').replace(/\s+/g, '')
-          if (/固定路径|排队/.test(nm3)) continue          // 路网/排队点不是站点
-          var pt3 = lmP2r(LM.x, LM.y)
-          if (!pt3 || !isFinite(pt3[0]) || !isFinite(pt3[1])) continue
-          var lmKey = nm3 + '|' + Math.round(pt3[0] * 10) + '|' + Math.round(pt3[1] * 10)
-          if (seenLm[lmKey]) continue                     // 同一点重复上报：只画一次
-          seenLm[lmKey] = 1
-          // 分层：充电点/上货点 = 第二层（小图标+小字）；取货点 = 第三层（更小）
-          var isCharge = String(LM.type || '') === 'chargePoint' || /充电/.test(nm3)
-          var isLoad = String(LM.type || '') === 'loadingPoint' || /上货/.test(nm3)
-          var tier = (isCharge || isLoad) ? 2 : 3
-          // 去重优先级：上货点(3) > 充电点(2) > 取货点/其他(1)；同优先级保留先遇到的（稳定排序）
-          var pri = isLoad ? 3 : (isCharge ? 2 : 1)
-          // 颜色：充电点=绿、上货点=黄、取货点=绿（沿用原色）
-          var col3 = isCharge ? '#2fd45c' : (isLoad ? '#ffd24a' : '#2fd45c')
-          var kz = 1 / Math.max(0.01, view.zoom)
-          var scb3 = S.projectPoint(cam, W, H, [pt3[0], 0.4, pt3[1]])
-          if (!scb3) continue
-          siteCands.push({ nm3: nm3, tier: tier, pri: pri, col3: col3, kz: kz, tipX: scb3[0], tipY: scb3[1], wx: pt3[0], wz: pt3[1] })
-        }
-        // 高优先级先占位（Array.sort 稳定 → 同优先级保持原顺序）
-        siteCands.sort(function (a, b) { return b.pri - a.pri })
-        var keptSites = []
-        for (var ci = 0; ci < siteCands.length; ci++) {
-          var sc = siteCands[ci]
-          var tooClose = false
-          for (var kj = 0; kj < keptSites.length; kj++) {
-            if (Math.hypot(sc.tipX - keptSites[kj].tipX, sc.tipY - keptSites[kj].tipY) < SITE_CULL_PX) { tooClose = true; break }
-          }
-          if (!tooClose) keptSites.push(sc)
-        }
-        // 只画留下来的点位（图标 + 名称；被去重掉的整组不画）
-        for (var di = 0; di < keptSites.length; di++) {
-          var K = keptSites[di]
-          var headR = (SITE_HEAD_BASE[K.tier] || 4) * K.kz
-          var headY = K.tipY - headR * 2.6
-          g.save()
-          // 地面落点：淡色描边小圆环（只示意位置，不做实心球）
-          g.strokeStyle = K.col3
-          g.globalAlpha = 0.5
-          g.lineWidth = Math.max(0.8, 1.4 * K.kz)
-          g.beginPath(); g.arc(K.tipX, K.tipY, headR * 0.63, 0, 6.2832); g.stroke()
-          g.globalAlpha = 1
-          // 针身 + 圆头
-          g.fillStyle = K.col3
-          g.shadowColor = K.col3; g.shadowBlur = 8 * K.kz
-          g.beginPath()
-          g.moveTo(K.tipX, K.tipY)
-          g.lineTo(K.tipX - headR * 0.72, headY + headR * 0.5)
-          g.lineTo(K.tipX + headR * 0.72, headY + headR * 0.5)
-          g.closePath(); g.fill()
-          g.beginPath(); g.arc(K.tipX, headY, headR, 0, 6.2832); g.fill()
-          g.shadowBlur = 0
-          // 中心小孔（深色），让图标更像"站点"而不是实心球
-          g.fillStyle = 'rgba(6,20,34,0.9)'
-          g.beginPath(); g.arc(K.tipX, headY, headR * 0.4, 0, 6.2832); g.fill()
-          // 名称标签：按**本层自己的缩放区间**决定是否显示（图标始终画，便于定位）
-          var tierShown = (K.tier === 2) ? (view.zoom <= TIER_T2_ZOOM) : (view.zoom <= TIER_T3_ZOOM)
-          if (opts.labels && K.nm3 && tierShown) {
-            siteLabels.push({
-              text: K.nm3, x: K.tipX + headR + 4, y: headY + 4, kind: 'site', color: K.col3,
-              pr: K.tier, tier: K.tier, wx: K.wx, wy: 0.4, wz: K.wz
-            })
-          }
-          g.restore()
+    if (opts.sites && _sitePins.length) {
+      var kzS = 1 / Math.max(0.01, view.zoom)
+      for (var si = 0; si < _sitePins.length; si++) {
+        var sp = _sitePins[si]
+        var scb3 = S.projectPoint(cam, W, H, [sp.wx, 0.4, sp.wz])
+        if (!scb3) continue
+        var tipX = scb3[0], tipY = scb3[1]
+        var headR = (SITE_HEAD_BASE[sp.tier] || 4) * kzS
+        var headY = tipY - headR * 2.6
+        // 名称标签：按**本层自己的缩放区间**决定是否显示（图标在 3D，始终参与遮挡）
+        var tierShown = (sp.tier === 2) ? (view.zoom <= TIER_T2_ZOOM) : (view.zoom <= TIER_T3_ZOOM)
+        if (opts.labels && sp.nm3 && tierShown) {
+          siteLabels.push({
+            text: sp.nm3, x: tipX + headR + 4, y: headY + 4, kind: 'site', color: sp.col3,
+            pr: sp.tier, tier: sp.tier, wx: sp.wx, wy: 0.4, wz: sp.wz
+          })
         }
       }
     }
