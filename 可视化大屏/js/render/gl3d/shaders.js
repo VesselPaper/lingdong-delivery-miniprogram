@@ -66,19 +66,5 @@ window.GL3DShaders = (function () {
     '}'
   ].join('\n')
 
-  // 点位图标（billboard 定位针）：不受光照、按顶点色直出。
-  // 配深度测试 → 楼（屋顶）在前时图标被真正遮挡（物理遮挡，2026-10-12 负责人要求）。
-  var VS_PIN = [
-    'attribute vec3 aPos; attribute vec4 aCol;',
-    'uniform mat4 uViewProj; uniform mat4 uModel;',
-    'varying vec4 vCol;',
-    'void main() { vCol = aCol; gl_Position = uViewProj * uModel * vec4(aPos, 1.0); }'
-  ].join('\n')
-  var FS_PIN = [
-    'precision mediump float;',
-    'varying vec4 vCol;',
-    'void main() { gl_FragColor = vCol; }'
-  ].join('\n')
-
-  return { VS_MESH: VS_MESH, FS_MESH: FS_MESH, VS_GROUND: VS_GROUND, FS_GROUND: FS_GROUND, VS_PIN: VS_PIN, FS_PIN: FS_PIN }
+  return { VS_MESH: VS_MESH, FS_MESH: FS_MESH, VS_GROUND: VS_GROUND, FS_GROUND: FS_GROUND }
 })()
