@@ -1705,7 +1705,7 @@ window.Map3DGL = (function () {
       var inClu = cc2 && ccg >= 0 && cc2.size[ccg] >= 2
       if (inClu) {
         if (cc2.repIdx[ccg] === ci) {
-          drawCarCluster(g, cc2.ctr[ccg].x, cc2.ctr[ccg].y, cc2.size[ccg], !!(selectedSn && c.sn === selectedSn))
+          drawCarCluster(g, cc2.ctr[ccg].x, cc2.ctr[ccg].y, cc2.size[ccg], !!(selectedSn && c.sn === selectedSn), c.x, c.z)
         }
       } else {
         drawCarMarker(g, c)
@@ -2071,16 +2071,28 @@ window.Map3DGL = (function () {
     return any ? S.finalize(m) : null
   }
   // 车辆簇标记：多台车在充电点等同一处堆积时（屏幕距离 < CAR_CLUSTER_PX），
-  // 只画一台代表车的"簇"：光环（更大）+ 光柱 + 数量徽标"N台"；放大分开后各自显示。
-  function drawCarCluster(g, x, y, n, sel) {
-    var rr = 26 + Math.min(10, n * 2)
-    g.save()
-    g.shadowColor = sel ? 'rgba(255,200,40,0.85)' : 'rgba(80,220,255,0.9)'
-    g.shadowBlur = 14
-    g.strokeStyle = sel ? 'rgba(255,213,61,0.95)' : 'rgba(120,235,255,0.92)'
-    g.lineWidth = 2.4
-    g.beginPath(); g.arc(x, y, rr, 0, 6.2832); g.stroke()
-    g.restore()
+  // 只画一台代表车的"簇"：贴地光环（更大）+ 光柱 + 数量徽标"N台"；放大分开后各自显示。
+  // 2026-10-12 修：光环投影成贴地椭圆（原来画屏幕正圆 = 立着的圆，负责人不要）。
+  function drawCarCluster(g, x, y, n, sel, wx, wz) {
+    var pxm = scene ? scene.pxPerM : 19.45
+    var rc = CAR_LEN_M * 1.25 * pxm * (1 + 0.05 * n)
+    var rng = []
+    for (var kk = 0; kk <= 40; kk++) {
+      var aa = kk / 40 * 2 * Math.PI
+      var sp = S.projectPoint(cam, W, H, [wx + Math.cos(aa) * rc, 0.8, wz + Math.sin(aa) * rc])
+      if (sp) rng.push(sp)
+    }
+    if (rng.length > 3) {
+      g.save()
+      g.shadowColor = sel ? 'rgba(255,200,40,0.85)' : 'rgba(80,220,255,0.9)'
+      g.shadowBlur = 14
+      g.strokeStyle = sel ? 'rgba(255,213,61,0.95)' : 'rgba(120,235,255,0.92)'
+      g.lineWidth = 2.4
+      g.beginPath(); g.moveTo(rng[0][0], rng[0][1])
+      for (var k = 1; k < rng.length; k++) g.lineTo(rng[k][0], rng[k][1])
+      g.closePath(); g.stroke()
+      g.restore()
+    }
     // 光柱（屏幕长度固定 72px，保证任何缩放下都醒目）
     var topY = y - 72
     var grd = g.createLinearGradient(x, topY, x, y)
@@ -2115,11 +2127,9 @@ window.Map3DGL = (function () {
     g.lineTo(x, y + r); g.arcTo(x, y, x + r, y, r)
     g.closePath()
   }
-  // 车辆定位标记：地面光环 + 呼吸圈 + 垂直光柱 + 顶端定位泡。
-  // 2026-10-12 加强（负责人反馈"库房那片车被楼挡住、看不清"）：
-  //   ① 光环有**屏幕像素下限**（26px）—— 校园尺度 + 缩远后原来会小到看不见；
-  //   ② 光柱保证屏幕长度 ≥ 64px 并加顶端定位泡 —— 车被楼完全盖住时靠柱子定位；
-  //   ③ 呼吸圈 —— 帮眼睛在大屏上更快锁定（选中车更亮、更大）。
+  // 车辆定位标记：贴地光环 + 垂直光柱（2026-10-12 简化）：
+  //   ① 光环 / 选中虚线圈 / 簇光环一律投影成**贴地椭圆**（不画"立着的圆"）；
+  //   ② 光柱保证屏幕长度 ≥ 64px —— 车被楼完全盖住时靠柱子定位。
   function drawCarMarker(g, c) {
     var ap = (c.appear == null ? 1 : c.appear)
     var isSel = !!(selectedSn && c.sn === selectedSn)
@@ -2127,52 +2137,48 @@ window.Map3DGL = (function () {
     var r = CAR_LEN_M * 0.92 * pxm * ap
     var ctr = S.projectPoint(cam, W, H, [c.x, 0.8, c.z])
     if (!ctr) return
-    // 投影出地面圆环，并量出它在屏幕上的平均半径
+    // 地面光环：按世界半径投影成贴地椭圆（始终躺在地面上，不立起来）。
+    // 2026-10-12 修：去掉"屏幕正圆兜底"和"呼吸圈"—— 那些是立着的圆，负责人不要。
     var seg = 28, ring = []
     for (var i = 0; i <= seg; i++) {
       var a = i / seg * 2 * Math.PI
       var sp = S.projectPoint(cam, W, H, [c.x + Math.cos(a) * r, 0.8, c.z + Math.sin(a) * r])
       if (sp) ring.push(sp)
     }
-    var rs = 0
     if (ring.length > 3) {
-      var dsum = 0
-      for (var q = 0; q < ring.length; q++) dsum += Math.hypot(ring[q][0] - ctr[0], ring[q][1] - ctr[1])
-      rs = dsum / ring.length
-    }
-    var MIN_R = 26
-    var rr = Math.max(rs, MIN_R)
-    g.save()
-    g.shadowColor = isSel ? 'rgba(255,200,40,0.85)' : 'rgba(80,220,255,0.9)'
-    g.shadowBlur = isSel ? 16 : 10
-    g.strokeStyle = isSel ? 'rgba(255,213,61,0.95)' : 'rgba(120,235,255,0.92)'
-    g.lineWidth = isSel ? 2.6 : 1.9
-    if (rs >= MIN_R && ring.length > 3) {
-      // 够大：按真实投影画，保留"贴地椭圆"的立体感
+      g.save()
+      g.shadowColor = isSel ? 'rgba(255,200,40,0.85)' : 'rgba(80,220,255,0.9)'
+      g.shadowBlur = isSel ? 16 : 10
+      g.strokeStyle = isSel ? 'rgba(255,213,61,0.95)' : 'rgba(120,235,255,0.92)'
+      g.lineWidth = isSel ? 2.6 : 1.9
       g.beginPath()
       g.moveTo(ring[0][0], ring[0][1])
       for (var k = 1; k < ring.length; k++) g.lineTo(ring[k][0], ring[k][1])
       g.closePath()
       g.stroke()
-    } else {
-      // 太小：改画屏幕正圆，保证任何缩放下都看得见
-      g.beginPath(); g.arc(ctr[0], ctr[1], rr, 0, 6.2832); g.stroke()
-    }
-    // 呼吸圈：向外扩散 + 淡出（相位取渲染时钟 _now[秒]，不新增定时器）
-    var ph = (typeof _now === 'number' ? _now : Date.now() / 1000) % 1
-    g.globalAlpha = ap * (1 - ph) * (isSel ? 0.8 : 0.5)
-    g.lineWidth = 2
-    g.beginPath(); g.arc(ctr[0], ctr[1], rr * (1 + 0.5 * ph) + 3, 0, 6.2832); g.stroke()
-    g.restore()
-    if (isSel) {
-      // 选中车：金色虚线外圈（原行为保留；半径按屏幕半径算，缩远后不会飘到天上）
-      g.save()
-      g.setLineDash([6, 5])
-      g.strokeStyle = 'rgba(255,213,61,0.95)'
-      g.lineWidth = 2
-      g.shadowColor = 'rgba(255,200,40,0.8)'; g.shadowBlur = 8
-      g.beginPath(); g.arc(ctr[0], ctr[1], rr * 1.45 + 6, 0, 6.2832); g.stroke()
       g.restore()
+    }
+    // 选中车：金色虚线外圈 —— 同样投影成贴地椭圆（半径大 1.45 倍）。
+    // 2026-10-12 负责人要求：虚线圈必须在地面上，不能是"立起来的圆"。
+    if (isSel) {
+      var r2 = r * 1.45
+      var rng2 = []
+      for (var kk = 0; kk <= 40; kk++) {
+        var aa = kk / 40 * 2 * Math.PI
+        var sp2 = S.projectPoint(cam, W, H, [c.x + Math.cos(aa) * r2, 0.8, c.z + Math.sin(aa) * r2])
+        if (sp2) rng2.push(sp2)
+      }
+      if (rng2.length > 3) {
+        g.save()
+        g.setLineDash([6, 5])
+        g.strokeStyle = 'rgba(255,213,61,0.95)'
+        g.lineWidth = 2
+        g.shadowColor = 'rgba(255,200,40,0.8)'; g.shadowBlur = 8
+        g.beginPath(); g.moveTo(rng2[0][0], rng2[0][1])
+        for (var kk2 = 1; kk2 < rng2.length; kk2++) g.lineTo(rng2[kk2][0], rng2[kk2][1])
+        g.closePath(); g.stroke()
+        g.restore()
+      }
     }
     // 光柱：地面 → 车顶上方。高度取"车高 1.9 倍"与"7 米"的较大者，
     // 再保证屏幕长度 ≥ 64px（缩远时柱子不会短到看不见）
