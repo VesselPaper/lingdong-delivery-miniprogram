@@ -96,6 +96,7 @@
           <button id="m3Spin" title="自动环绕旋转">环绕</button>
           <button id="m3Follow" title="镜头跟随无人车（点击地图上的车辆即可切换跟随目标）">跟随</button>
           <button id="m3Fade" title="楼体半透明：俯视时看清被楼压住的道路（默认关闭，楼体实心可见）">楼体透明</button>
+          <button id="m3Grid" class="on" title="地面坐标网格（淡青细线，默认开；觉得乱可随时关）">地面网格</button>
           <button id="m3Ground" title="雷达底图：机器人激光测绘的**可通行区（有真实路宽）**，默认关闭；调试对齐时打开可对照">雷达图</button>
           <button id="m3Label" class="on" title="楼栋名称">标注</button>
           <button id="m3Site" class="on" title="配送点标记（平台点位：取货点/上货点/充电点；放大后显示点位名称）">配送点</button>
@@ -251,7 +252,7 @@
 <script src="js/scene3d/math.js?v=3d42"></script>
 <script src="js/scene3d/triangulate.js?v=3d66"></script>
 <script src="js/scene3d/camera.js?v=3d42"></script>
-<script src="js/scene3d.js?v=3d68"></script>
+<script src="js/scene3d.js?v=3d69"></script>
 <script src="js/map3d-core.js?v=3d42"></script>
 <script src="js/map3d.js?v=3d42"></script>
 <script>window.MAP_ASSET_VER='3d39'</script>
@@ -261,7 +262,7 @@
 <script src="assets/map-recon-default.js?v=3d60"></script>
 <!-- WebGL 着色器定义（纯 GLSL，不依赖 gl 实例，可在 map3d-gl.js 之前加载） -->
 <script src="js/render/gl3d/shaders.js?v=3d42"></script>
-<script src="js/map3d-gl.js?v=3d87"></script>
+<script src="js/map3d-gl.js?v=3d88"></script>
 <script src="js/map3d-entry.js?v=3d43"></script>
 <!-- 大屏骨架（分件）：共享上下文 → 数据源 → 界面渲染 → 地图 → 编排者/启动 -->
 <script src="js/dashboard/shared.js?v=3d62"></script>

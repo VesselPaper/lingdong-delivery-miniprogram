@@ -39,6 +39,15 @@
     pushQuad(m, [p[0] - h, y, p[1] - h], [p[0] + h, y, p[1] - h], [p[0] + h, y, p[1] + h], [p[0] - h, y, p[1] + h],
       col, [0, 1, 0], aux == null ? null : [aux, aux, aux, aux])
   }
+  // 两点直线（用于地面坐标网格：每段 2 顶点，配 gl.LINES 绘制）。
+  // 法线取光照方向 → 片元光照系数恒为 1，按顶点色原样输出，颜色可精确控制。
+  function pushLine(m, a, b, col, n) {
+    var al = col.length > 3 ? col[3] : 1
+    m.pos.push(a[0], a[1], a[2], b[0], b[1], b[2])
+    m.nrm.push(n[0], n[1], n[2], n[0], n[1], n[2])
+    m.col.push(col[0], col[1], col[2], al, col[0], col[1], col[2], al)
+    if (m.aux) m.aux.push(0, 0)
+  }
   // 扁带（贴地）：cum 为该折线各点的累计弧长（供流光使用），传了才会写 aux
   function ribbon(m, pts2, width, y, col, cum) {
     var w2 = width / 2
@@ -291,7 +300,17 @@
       [bounds.minX - pad, -22, bounds.minZ - pad], [bounds.maxX + pad, -22, bounds.minZ - pad],
       [bounds.maxX + pad, -22, bounds.maxZ + pad], [bounds.minX - pad, -22, bounds.maxZ + pad],
       THEME.baseBoard, [0, 1, 0])
-    // 注：底板网格（淡青网格线）已按负责人要求移除 —— 地面不再有蓝色网格。
+    // 地面坐标网格（淡青细线，2026-10-12 应负责人要求重新加回）：只覆盖雷达图范围
+    // （地图区域），不延伸到外圈"桌面"；间距 10m —— 缩远约 30 条淡线不喧宾夺主，
+    // 放大是干净的坐标参考。绘制时关深度测试、不写深度（见 map3d-gl.js），
+    // 楼/车/路线在其后绘制会正常盖住它。opts.grid 默认开，工具栏「地面网格」可关。
+    var grid = newMesh()
+    var GP = Math.max(2, Math.round(10 * pxPerM))
+    var GC = THEME.gridMinor
+    var gln = norm(LIGHT)
+    for (var gx = 0; gx <= radarW; gx += GP) pushLine(grid, [gx, 0.5, 0], [gx, 0.5, radarH], [GC[0], GC[1], GC[2], 0.35], gln)
+    for (var gz = 0; gz <= radarH; gz += GP) pushLine(grid, [0, 0.5, gz], [radarW, 0.5, gz], [GC[0], GC[1], GC[2], 0.35], gln)
+    var gridF = finalize(grid)
 
     var solid = finalize(opaque)
     var roofsF = finalize(roofs)
@@ -305,6 +324,7 @@
       opaque: solid,
       roofs: roofsF,
       glass: glassF,
+      grid: gridF,
       glassRanges: ranges,
       moved: moved,
       labels: labels,

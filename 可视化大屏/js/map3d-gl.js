@@ -50,6 +50,8 @@ window.Map3DGL = (function () {
     // 车体"穿透幽灵"：被楼/屋顶挡住时，同色再画一遍（35% 混合）→ 看得见车的轮廓与朝向；
     // 车清晰可见时"同色叠同色"= 像素不变，对画面零影响。2026-10-12 加（库房窄、车被楼吃掉）。
     carXray: true,
+    // 地面坐标网格（淡青细线，默认开）：只盖地图区域、低透明度，保证画面不杂乱（2026-10-12 加）
+    grid: true,
     carNames: true,        // 车辆简洁名称（默认一行文字；选中车才展开完整数据牌）
     // 大屏左侧车辆卡面 ↔ 地图车辆 双向同步的回调（大屏在 setOpts 里注入）：
     //   onCarSelect(sn)     地图上点中某台车 → 大屏高亮左侧对应卡面（**不自动开启跟随**）
@@ -693,6 +695,7 @@ window.Map3DGL = (function () {
     dropMesh(bufs.opaque); bufs.opaque = uploadMesh(scene.opaque)
     dropMesh(bufs.roofs); bufs.roofs = uploadMesh(scene.roofs)
     dropMesh(bufs.glass); bufs.glass = uploadMesh(scene.glass)
+    if (scene.grid && scene.grid.count) { dropMesh(bufs.grid); bufs.grid = uploadMesh(scene.grid) }
     carMesh = S.buildCar(scene.pxPerM, CAR_SCALE); dropMesh(bufs.car); bufs.car = uploadMesh(carMesh)
     ringMesh = S.buildRing(scene.pxPerM, CAR_LEN_M * 0.92); dropMesh(bufs.ring); bufs.ring = uploadMesh(ringMesh)
     beamMesh = S.buildBeam(scene.pxPerM, CAR_LEN_M * 2.2, 0.24 * CAR_SCALE); dropMesh(bufs.beam); bufs.beam = uploadMesh(beamMesh)
@@ -1053,6 +1056,8 @@ window.Map3DGL = (function () {
     if (fo) fo.addEventListener('click', function () { setFollow(!opts.follow) })
     var fd = document.getElementById('m3Fade')
     if (fd) fd.addEventListener('click', function () { opts.roofFade = !opts.roofFade; fd.classList.toggle('on', opts.roofFade) })
+    var gd = document.getElementById('m3Grid')
+    if (gd) gd.addEventListener('click', function () { opts.grid = !opts.grid; gd.classList.toggle('on', opts.grid) })
     var rst = document.getElementById('mapReset')
     if (rst) { rst.hidden = false; rst.onclick = resetView }
     // 重构面板控制器已拆到独立文件 gl3d/recon.js（经 host/recon 桥，低耦合）
@@ -1073,7 +1078,7 @@ window.Map3DGL = (function () {
   function identF32() { if (!_ident) _ident = new Float32Array(S.mat4.identity()); return _ident }
   function lightF32() { if (!_light) _light = new Float32Array(S.LIGHT); return _light }
 
-  function drawMesh(buf, model, alphaMul, flowAmp) {
+  function drawMesh(buf, model, alphaMul, flowAmp, mode) {
     if (!buf) return
     var pr = progs.mesh, p = pr.p
     gl.useProgram(p)
@@ -1100,7 +1105,7 @@ window.Map3DGL = (function () {
     gl.uniform1f(pr.u.uTime, _now)
     gl.uniform1f(pr.u.uFlowAmp, flowAmp == null ? 0 : flowAmp)
     gl.uniform1f(pr.u.uFlowScale, flowScale)
-    gl.drawArrays(gl.TRIANGLES, 0, buf.count)
+    gl.drawArrays(mode || gl.TRIANGLES, 0, buf.count)
   }
   var flowScale = 0
   // 雷达底图参数：uFade = 背景亮度阈值（真机底图实测：背景 41/255≈0.161，走廊 86/255≈0.337），
@@ -1555,6 +1560,16 @@ window.Map3DGL = (function () {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
     drawMesh(bufs.opaque, null)
     if (opts.ground) drawGround()
+
+    // 地面坐标网格：画在底板/道路之上、楼体之下（关深度测试、不写深度），
+    // 只盖地图范围、淡青低透明度 —— 缩远不喧宾夺主、放大是干净的坐标参考。
+    if (opts.grid && bufs.grid && bufs.grid.count) {
+      gl.depthMask(false)
+      gl.disable(gl.DEPTH_TEST)
+      drawMesh(bufs.grid, null, 1, 0, gl.LINES)
+      gl.enable(gl.DEPTH_TEST)
+      gl.depthMask(true)
+    }
 
     // 屋顶默认**实心可见**（楼必须看得见）；只有打开「楼体透明」时才随俯角淡出，
     // 用于临时看清被楼压住的道路。淡出时关闭 depthMask，让楼后的车也能透出来。
