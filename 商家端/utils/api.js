@@ -23,6 +23,9 @@ const api = {
   activities: '/merchant/activities',
   // 活动上下线：action='publish'（发布到用户端）/ 'offline'（下线）
   activityStatus: '/merchant/activities/status',
+  // 优惠券模板管理（店主专属）
+  coupons: '/merchant/coupons',
+  couponStatus: '/merchant/coupons/status',
   deviceScan: '/merchant/device/scan',
   deviceWxacode: '/merchant/device/wxacode',
   devicePending: '/merchant/device/pending',

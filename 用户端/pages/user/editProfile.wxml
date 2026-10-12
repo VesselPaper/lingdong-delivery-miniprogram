@@ -38,8 +38,6 @@
     </view>
   </view>
 
-  <view class="tip text-weak text-sm">昵称与手机号将展示给商家，用于配送联系；保存后立即生效。头像点击即可更换（默认取你的微信头像）；昵称框点一下可直接选用微信昵称。</view>
-
   <view class="foot-actions">
     <view class="btn btn-block {{saving ? 'btn-disabled' : ''}}" bindtap="save">保存</view>
   </view>

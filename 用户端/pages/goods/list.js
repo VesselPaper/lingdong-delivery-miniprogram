@@ -27,6 +27,7 @@ Page({
     groups: [],
     cartCount: 0,
     cartTotal: '0.00',
+    cartPanelShow: false,   // 「已加购商品」底部弹层
     mainTo: '',
     shopClosed: false,
     deliveryFee: '1.00',
@@ -305,8 +306,57 @@ Page({
     wx.navigateTo({ url: '/pages/goods/detail?id=' + e.currentTarget.dataset.id })
   },
 
+  // 进入完整购物车页（保留入口，供后续或其它页面调用）
   goCart() {
     wx.navigateTo({ url: '/pages/cart/cart' })
+  },
+
+  // 底部购物车栏 → 弹出「已加购商品」面板（美团式：先看再决定，不再直接跳页）
+  openCartPanel() {
+    this.setData({ cartPanelShow: true })
+  },
+
+  onCartPanelClose() {
+    this.setData({ cartPanelShow: false })
+  },
+
+  // 面板内改了勾选/数量 → 刷新底部栏角标与金额
+  // 口径与 loadGoods 保持一致：都按「全部已加购商品」算，不区分勾选
+  async onCartPanelChanged() {
+    try {
+      const cart = await request.get(api.cartList).catch(() => [])
+      const count = cart.reduce((s, it) => s + it.quantity, 0)
+      const total = cart.reduce((s, it) => s + (it.price_now !== undefined ? it.price_now : it.price) * it.quantity, 0)
+      this.setData({ cartCount: count, cartTotal: total.toFixed(2) })
+    } catch (e) { /* handled */ }
+  },
+
+  // 面板点「去结算」：用面板给的勾选商品直接进结算
+  onCartCheckout(e) {
+    const items = (e.detail && e.detail.items) || []
+    if (!items.length) return
+    this.setData({ cartPanelShow: false })
+    wx.setStorageSync('checkout_items', items)
+    wx.navigateTo({ url: '/pages/order/confirm' })
+  },
+
+  // 底部栏右侧「去结算」：不进面板，直接结算当前勾选商品
+  async goCheckoutNow() {
+    try {
+      const list = await request.get(api.cartList)
+      const selected = (list || []).filter((it) => it.selected && it.goods_status === 1)
+      if (!selected.length) {
+        wx.showToast({ title: '请先选择商品', icon: 'none' })
+        return
+      }
+      const soldOut = selected.find((it) => Number(it.goods_stock) <= 0)
+      if (soldOut) {
+        wx.showToast({ title: '「' + soldOut.name + '」已售罄，请先移除', icon: 'none' })
+        return
+      }
+      wx.setStorageSync('checkout_items', selected.map((it) => ({ goods_id: it.goods_id, quantity: it.quantity })))
+      wx.navigateTo({ url: '/pages/order/confirm' })
+    } catch (err) { /* handled */ }
   },
 
   async onStep(e) {

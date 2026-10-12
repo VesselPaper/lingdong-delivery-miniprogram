@@ -207,6 +207,120 @@
   margin-bottom: 0;
 }
 
+/* ===== 领券弹窗 ===== */
+/* 居中弹窗 + 遮罩：券不再占首页图片位，改成进页面弹一次 */
+.cp-pop-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.55);
+  /* 高于购物车弹层(300)与楼栋选择(100)：进页面时弹窗必须是最上层 */
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 56rpx;
+  box-sizing: border-box;
+}
+
+.cp-pop {
+  position: relative;
+  width: 100%;
+  max-height: 76vh;
+  background: #ffffff;
+  border-radius: 20rpx;
+  display: flex;
+  flex-direction: column;
+  /* × 要露在卡片圆角之外，所以这里不能裁 */
+  overflow: visible;
+}
+
+/* 券列表：高度由 JS 按内容算好写在内联 style 上（scroll-view 必须有确定高度才会滚动，
+   只写 max-height 是不滚的）。这里只管内边距 */
+.cp-pop-body {
+  flex: 0 0 auto;
+  padding: 20rpx 20rpx 0;
+  box-sizing: border-box;
+}
+
+.cp-pop-item {
+  border-radius: 14rpx;
+  overflow: hidden;
+  margin-bottom: 20rpx;
+  background: #FDEEEE;
+}
+
+.cp-pop-item:last-child {
+  margin-bottom: 0;
+}
+
+/* 按原图比例完整展示：图里就是商家设计好的优惠信息，弹窗里更不能裁 */
+.cp-pop-img {
+  width: 100%;
+  display: block;
+}
+
+.cp-pop-item-btn {
+  height: 76rpx;
+  line-height: 76rpx;
+  text-align: center;
+  background: #E64340;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+/* 底部：暂不领取 / 立即领取（一次全领） */
+.cp-pop-foot {
+  display: flex;
+  gap: 20rpx;
+  padding: 20rpx;
+  flex: 0 0 auto;
+  border-top: 1rpx solid #F0F0F0;
+}
+
+.cp-pop-cancel {
+  flex: 1;
+  height: 80rpx;
+  line-height: 76rpx;
+  text-align: center;
+  border-radius: 999rpx;
+  border: 2rpx solid #E0E0E0;
+  color: #666666;
+  font-size: 28rpx;
+  box-sizing: border-box;
+}
+
+.cp-pop-all {
+  flex: 1.4;
+  height: 80rpx;
+  line-height: 80rpx;
+  text-align: center;
+  border-radius: 999rpx;
+  background: #E64340;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+/* 右上角关闭：贴在卡片角上，只压住很小一块，尽量不挡券图内容 */
+.cp-pop-close {
+  position: absolute;
+  right: -14rpx;
+  top: -14rpx;
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  border: 2rpx solid rgba(255, 255, 255, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
 /* 米色福利卡 */
 .coupon-card {
   margin: 8rpx 32rpx 24rpx;

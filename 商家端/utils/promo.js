@@ -44,4 +44,64 @@ function parseConfig(raw) {
   }
 }
 
-module.exports = { summarize, zheText, parseConfig }
+// ---------- 优惠券文案（商家端列表卡片、编辑页预览共用一套口径） ----------
+// 与后端 services/coupon.js 的 describe() 保持同一说法：同一张券在商家端和用户端看到的规则必须一致，
+// 否则会出现「商家以为满30减5、用户看到的是满30减3」这种对不上账的投诉。
+
+// 金额去掉多余的两位小数：5.00 → 5
+function money(v) {
+  return Number(Number(v) || 0).toFixed(2).replace(/\.00$/, '')
+}
+
+// 券的一句话规则文案
+function couponRule(c) {
+  const o = c || {}
+  const t = o.type || 'full_reduce'
+  if (t === 'discount') {
+    const zhe = zheText(o.discount)
+    if (!zhe) return '折扣未设置'
+    return zhe + '折' + (Number(o.max_reduce) > 0 ? '（最高减¥' + money(o.max_reduce) + '）' : '')
+  }
+  if (t === 'no_threshold') {
+    return Number(o.reduce) > 0 ? '无门槛减¥' + money(o.reduce) : '抵扣金额未设置'
+  }
+  return Number(o.reduce) > 0 ? '满¥' + money(o.threshold) + '减¥' + money(o.reduce) : '满减未设置'
+}
+
+// 适用范围：scope_ids 在库里是 JSON 字符串（商家端接口回原始行），也可能已被解析成数组
+function parseIds(raw) {
+  if (Array.isArray(raw)) return raw.map(String)
+  if (!raw) return []
+  try {
+    const v = JSON.parse(String(raw))
+    return Array.isArray(v) ? v.map(String) : []
+  } catch (e) {
+    return []
+  }
+}
+
+function couponScope(c) {
+  const o = c || {}
+  const n = parseIds(o.scope_ids).length
+  if (o.scope === 'goods') return '指定 ' + n + ' 件商品'
+  if (o.scope === 'category') return '指定 ' + n + ' 个分类'
+  return '全场通用'
+}
+
+// 有效期：相对有效期按「领取后 N 天」算，绝对有效期给日期区间
+function couponValid(c) {
+  const o = c || {}
+  if (o.valid_type === 'relative') {
+    const d = Number(o.relative_days) || 0
+    return d > 0 ? '领取后 ' + d + ' 天内有效' : '有效期未设置'
+  }
+  const s = o.start_at ? String(o.start_at).slice(0, 10) : ''
+  const e = o.end_at ? String(o.end_at).slice(0, 10) : ''
+  if (!s && !e) return '长期有效'
+  return (s || '不限') + ' ~ ' + (e || '不限')
+}
+
+module.exports = {
+  summarize, zheText, parseConfig,
+  money, couponRule, couponScope, couponValid, parseIds
+}

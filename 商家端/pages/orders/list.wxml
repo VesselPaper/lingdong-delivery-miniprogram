@@ -11,10 +11,6 @@
     </view>
   </view>
 
-  <view class="shop-notice" wx:if="{{!shopOpen}}">
-    店铺当前歇业中，暂不接收新订单（已接订单正常配送）
-  </view>
-
   <!-- 扁平订单（待接单 / 异常） -->
   <view class="list" wx:if="{{active === 'accept' || statusFilter !== ''}}">
     <block wx:for="{{orders}}" wx:key="id">

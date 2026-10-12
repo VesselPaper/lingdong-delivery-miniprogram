@@ -17,9 +17,9 @@ module.exports = {
   // 原 COUNT(*)-based 的 dailySeqCount 已删除，避免被误用造成重号。
   insert: (store, f) => {
     const info = store.prepare(`INSERT INTO orders
-      (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, original_amount, discount_amount, activity_id, delivery_fee, status, remark, pickup_code, daily_seq, seq_date)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)`)
-      .run(f.orderNo, f.userId, f.landmarkId, f.landmarkName, f.contactName, f.contactPhone, f.totalAmount, f.originalAmount, f.discountAmount, f.activityId, f.deliveryFee, f.remark, f.pickupCode, f.seq, f.seqDate)
+      (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, original_amount, discount_amount, activity_id, delivery_fee, status, remark, pickup_code, daily_seq, seq_date, user_coupon_id, coupon_amount)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?)`)
+      .run(f.orderNo, f.userId, f.landmarkId, f.landmarkName, f.contactName, f.contactPhone, f.totalAmount, f.originalAmount, f.discountAmount, f.activityId, f.deliveryFee, f.remark, f.pickupCode, f.seq, f.seqDate, f.userCouponId || null, Number(f.couponAmount || 0))
     return Number(info.lastInsertRowid)
   },
   // 模拟支付：直接置待接单(1)。安全审计 L2：带 CAS（AND status=0），
@@ -42,8 +42,10 @@ module.exports = {
   countToday: (store) => { const r = store.prepare("SELECT COUNT(*) c FROM orders WHERE date(created_at)=date('now','localtime')").get(); return Number(r.c || 0) },
 
   // ---------- order_items ----------
-  insertItem: (store, f) => store.prepare('INSERT INTO order_items (order_id, goods_id, goods_name, goods_image, price, quantity) VALUES (?,?,?,?,?,?)')
-    .run(f.orderId, f.goodsId, f.goodsName, f.goodsImage, f.price, f.quantity),
+  // coupon_share：这件商品分摊到的券优惠（元）。
+  // 落库的意义：部分退款时能直接算出「这件商品实际付了多少」，不用回头重算历史活动折扣
+  insertItem: (store, f) => store.prepare('INSERT INTO order_items (order_id, goods_id, goods_name, goods_image, price, quantity, coupon_share) VALUES (?,?,?,?,?,?,?)')
+    .run(f.orderId, f.goodsId, f.goodsName, f.goodsImage, f.price, f.quantity, Number(f.couponShare || 0)),
   itemsByOrder: (store, orderId) => store.prepare('SELECT * FROM order_items WHERE order_id=?').all(Number(orderId)),
   itemsBriefByOrder: (store, orderId) => store.prepare('SELECT id, goods_id, goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?').all(Number(orderId)),
 

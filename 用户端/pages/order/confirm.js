@@ -14,7 +14,13 @@ Page({
     promoPayable: '0.00',
     promoCandidates: [],     // 可选优惠活动候选 [{id,type,title,desc,reduce,payable,selected}]
     selectedActivityId: null, // 用户选中的活动 id（null=未选/回退最优）
-    couponShow: false,       // 优惠选择面板
+    promoShow: false,        // 活动优惠选择面板
+    couponUsable: [],        // 可用券（结算页算出来的）
+    couponUnusable: [],      // 不可用券：置灰展示 + 写明原因（未达门槛 / 商品不适用 / 已过期…）
+    selectedCoupon: null,    // 当前选中的券；null = 不使用优惠券
+    couponBestId: null,      // 最优推荐券的 user_coupon_id（打「推荐」角标）
+    couponReduce: '0.00',    // 券抵扣金额（作用在「活动后金额」上）
+    couponShow: false,       // 优惠券选择面板
     points: [],
     selectedPoint: null,
     showPicker: false,
@@ -32,7 +38,7 @@ Page({
     shopClosed: false,
     payMock: false,                // 运行时标注：结算按钮显示「模拟支付」
     deliveryFee: '1.00',           // 配送费（商家端可配置，默认 1 元）
-    goodsPayable: '0.00',          // 商品实付（原价合计 - 活动优惠）
+    goodsPayable: '0.00',          // 商品实付（活动后金额 - 券抵扣）
     origTotal: '0.00',             // 原价合计 + 配送费（用于划线的「原价」对照）
     payableTotal: '0.00'           // 最终应付 = 商品实付 + 配送费
   },
@@ -132,28 +138,98 @@ Page({
         }
       }
       // 无任何可用的优惠时：仅标记折扣差异展示
-      if (!candidates.length) { this.derivePromo(); return }
-      // 按优惠额降序，自动推荐第一个（最大）
-      candidates.sort((x, y) => y.reduce - x.reduce)
-      const best = candidates[0]
+      if (candidates.length) {
+        // 按优惠额降序，自动推荐第一个（最大）
+        candidates.sort((x, y) => y.reduce - x.reduce)
+        const best = candidates[0]
+        this.setData({
+          // 面额大字：折扣显示「X折」、满减显示「-¥X」；recommend=系统推荐最优；selected=当前选中
+          promoCandidates: candidates.map((c) => Object.assign({}, c, {
+            reduceTxt: c.reduce.toFixed(2),
+            payable: (subtotal - c.reduce).toFixed(2),
+            amountText: c.type === 'discount' ? (c.zhe || '') + '折' : '-¥' + c.reduce.toFixed(2),
+            selected: c.id === best.id,
+            recommend: c.id === best.id
+          })),
+          selectedActivityId: best.id
+        })
+        this.pickPromo(best.id, subtotal)
+      } else {
+        this.derivePromo()
+      }
+    } catch (e) { /* handled */ }
+    // 券作用在「活动后」金额上，所以活动定下来后才可以算券
+    await this.loadCoupons()
+  },
+
+  // 结算页算券：把当前勾选商品交给后端 → 可用券 / 不可用券（带原因） / 最优推荐
+  // 默认自动选中抵扣最多的那张（美团/淘宝行为：进结算页就帮你选好最省的）；
+  // 用户一旦自己点过（含「不使用优惠券」），后续重算只尊重用户的选择，只有券失效才回落
+  async loadCoupons() {
+    if (!this.checkoutItems || !this.checkoutItems.length) return
+    try {
+      const res = await request.post(api.couponUsable, { items: this.checkoutItems })
+      const list = (res && res.usable) || []
+      const cur = this.data.selectedCoupon
+      // 用户手动选过：仍可用就沿用，失效则回到「不使用」；没动过：自动选最优
+      const keep = this.couponManual && cur ? list.find((c) => Number(c.user_coupon_id) === Number(cur.user_coupon_id)) : null
+      const pick = keep || (this.couponManual ? null : (res && res.best))
       this.setData({
-        // 面额大字：折扣显示「X折」、满减显示「-¥X」；recommend=系统推荐最优；selected=当前选中
-        promoCandidates: candidates.map((c) => Object.assign({}, c, {
-          reduceTxt: c.reduce.toFixed(2),
-          payable: (subtotal - c.reduce).toFixed(2),
-          amountText: c.type === 'discount' ? (c.zhe || '') + '折' : '-¥' + c.reduce.toFixed(2),
-          selected: c.id === best.id,
-          recommend: c.id === best.id
-        })),
-        selectedActivityId: best.id
+        couponUsable: list.map((c) => this.decorateCoupon(c)),
+        couponUnusable: (((res && res.unusable) || []).map((c) => this.decorateCoupon(c))),
+        couponBestId: res && res.best ? res.best.user_coupon_id : null
       })
-      this.pickPromo(best.id, subtotal)
+      if (pick) this.applyCoupon(pick)
+      else this.clearCoupon()
     } catch (e) { /* handled */ }
   },
 
-  // 勾选/取消勾选优惠：点已选中的优惠再点一次 = 取消勾选（回到无优惠）；点其它 = 切换选中
+  // 券面额块文案：满减/无门槛显示「-¥X」、折扣显示「X折」（取券模板面额，与订单无关）；
+  // 副标题另给券型名称与「本单可省」，不可用的券也能正确显示面额
+  decorateCoupon(c) {
+    const zhe = c.type === 'discount' ? Number((Number(c.discount) * 10).toFixed(1)) : 0
+    // 去掉尾零，与后端 describe() 的口径一致（否则券名写「减¥5」、面额块写「-¥5.00」）
+    const trim = (v) => String(v == null ? '0' : v).replace(/\.00$/, '')
+    return Object.assign({}, c, {
+      faceText: c.type === 'discount' ? zhe + '折' : '-¥' + trim(c.face_reduce),
+      faceZhe: c.type === 'discount',
+      typeLabel: c.type === 'discount' ? '折扣券' : (c.type === 'no_threshold' ? '无门槛' : '满减券'),
+      expireText: c.expire_at ? String(c.expire_at).slice(0, 10) : '',
+      saveText: Number(c.reduce) > 0 ? '可省 ¥' + trim(c.reduce) : ''
+    })
+  },
+
+  // 优惠券面板
+  showCouponSheet() { this.setData({ couponShow: true }) },
+  hideCouponSheet() { this.setData({ couponShow: false }) },
+
+  // 选券（点已选中的再点一次 = 不使用）；选完即收面板，符合「选完就走」的习惯
+  chooseUserCoupon(e) {
+    const id = Number(e.currentTarget.dataset.id)
+    this.couponManual = true
+    const cur = this.data.selectedCoupon
+    if (cur && Number(cur.user_coupon_id) === id) { this.useNoCoupon(); return }
+    const hit = this.data.couponUsable.find((c) => Number(c.user_coupon_id) === id)
+    if (hit) { this.applyCoupon(hit); this.setData({ couponShow: false }) }
+  },
+
+  useNoCoupon() {
+    this.couponManual = true
+    this.setData({ couponShow: false })
+    this.clearCoupon()
+  },
+
+  applyCoupon(c) {
+    this.setData({ selectedCoupon: c, couponReduce: (c && c.reduce) || '0.00' }, () => this.recomputeTotal())
+  },
+
+  clearCoupon() {
+    this.setData({ selectedCoupon: null, couponReduce: '0.00' }, () => this.recomputeTotal())
+  },
+
+  // 勾选/取消勾选活动优惠：点已选中的再点一次 = 取消勾选（回到无活动优惠）；点其它 = 切换选中
   // 面板不自动关闭，用户可反复勾选/取消，点遮罩或右上角关闭
-  chooseCoupon(e) {
+  choosePromo(e) {
     const id = Number(e.currentTarget.dataset.id)
     const subtotal = Number(this.data.subtotal || 0)
     if (this.data.selectedActivityId === id) {
@@ -163,6 +239,7 @@ Page({
         selectedActivityId: null
       })
       this.clearPromo(subtotal)
+      this.loadCoupons()
       return
     }
     this.setData({
@@ -170,10 +247,12 @@ Page({
       selectedActivityId: id
     })
     this.pickPromo(id, subtotal)
+    // 活动变了 → 活动后金额变了 → 券的可用性与抵扣额都要重算
+    this.loadCoupons()
   },
 
-  showCoupons() { this.setData({ couponShow: true }) },
-  hideCoupons() { this.setData({ couponShow: false }) },
+  showPromos() { this.setData({ promoShow: true }) },
+  hidePromos() { this.setData({ promoShow: false }) },
 
   // 根据选中的候选活动算出横幅 / 应付
   pickPromo(id, subtotal) {
@@ -225,11 +304,13 @@ Page({
     } catch (e) { this.recomputeTotal() }
   },
 
-  // 统一重算「商品实付 / 原价对照 / 最终应付」：配送费只在最后加一次，不参与活动折扣
+  // 统一重算「商品实付 / 原价对照 / 最终应付」：配送费只在最后加一次，不参与活动折扣与券抵扣
+  // 顺序与后端一致：先扣活动优惠得到「活动后金额」，再用券抵扣，最后加配送费
   recomputeTotal() {
     const fee = Number(this.data.deliveryFee || 0)
     const subtotal = Number(this.data.subtotal || 0)
-    const goodsPayable = this.data.promoBanner ? Number(this.data.promoBanner.payable) : Number(this.data.total || 0)
+    const afterActivity = this.data.promoBanner ? Number(this.data.promoBanner.payable) : Number(this.data.total || 0)
+    const goodsPayable = Math.max(0, afterActivity - Number(this.data.couponReduce || 0))
     this.setData({
       goodsPayable: goodsPayable.toFixed(2),
       origTotal: (subtotal + fee).toFixed(2),
@@ -411,6 +492,8 @@ Page({
         address_id: selectedAddress ? selectedAddress.id : undefined,
         // 0 = 不使用优惠；null（无候选）也按 0 处理，后端不再自动套用活动
         activity_id: this.data.selectedActivityId || 0,
+        // 0 = 不使用优惠券。券作用在活动后金额上，后端会按同一口径再算一遍（前端算的只用于展示）
+        user_coupon_id: this.data.selectedCoupon ? this.data.selectedCoupon.user_coupon_id : 0,
         items: items.map((it) => ({ goods_id: it.goods_id, quantity: it.quantity }))
       })
       wx.removeStorageSync('checkout_items')

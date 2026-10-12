@@ -44,3 +44,19 @@
   width: 100%;
   display: block;
 }
+
+/* 券图卡：与活动图同一外形，只在图下多一条「立即领取」。
+   图片本身不留白边，按钮贴在图的正下方，和首页券图位保持同一套长相。 */
+.cp-card {
+  background: #ffffff;
+}
+
+.cp-receive {
+  height: 76rpx;
+  line-height: 76rpx;
+  text-align: center;
+  background: #E64340;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 600;
+}

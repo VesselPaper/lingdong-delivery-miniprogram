@@ -307,7 +307,7 @@ function createOrder(store, deps, body, userId) {
   const deliveryFee = feeRaw === undefined || feeRaw === null || isNaN(Number(feeRaw))
     ? 1
     : Math.max(0, Math.round(Number(feeRaw) * 100) / 100)
-  const { landmark_id, landmark_name, remark = '', items = [], contact_name = '', contact_phone = '', address_id, activity_id } = body || {}
+  const { landmark_id, landmark_name, remark = '', items = [], contact_name = '', contact_phone = '', address_id, activity_id, user_coupon_id } = body || {}
   if (!Array.isArray(items) || !items.length) return { error: { status: 400, msg: '订单不能为空' } }
   // 安全审计 L6：限制单笔订单商品行数，防超大请求空耗（每行数量另有 1~99 校验）
   if (items.length > 30) return { error: { status: 400, msg: '单笔订单商品行数不能超过 30' } }
@@ -341,6 +341,27 @@ function createOrder(store, deps, body, userId) {
   }
   const chunks = totalItems > deps.batch.BATCH_MAX_ITEMS ? splitOrderChunks(lineItems, deps.batch.BATCH_MAX_ITEMS) : [lineItems]
   const created = []
+
+  // ---------- 优惠券：先算总抵扣 +「按商品原价比例」的分摊 ----------
+  // 券作用于**活动后**金额（先折扣、后用券，与美团一致，也避免券把活动价再打一遍折）。
+  // 分摊结果挂到 lineItems 上：下面的 chunk 循环按子订单汇总，并逐件写入 order_items.coupon_share，
+  // 这样部分退款时能直接算出「这件商品实际付了多少」，不用回头重算历史活动。
+  let couponUsedId = null
+  if (user_coupon_id) {
+    if (!deps.coupon) return { error: { status: 500, msg: '优惠券服务不可用' } }
+    const noPromoPick = activity_id === 0 || activity_id === '0' || activity_id === 'none'
+    const activeActs = promotion.loadActive(store)
+    const couponRows = lineItems.map((it) => {
+      const base = noPromoPick
+        ? Number(it.goods.price) * it.quantity
+        : Number(promotion.resolve([{ goods: it.goods, quantity: it.quantity }], activeActs).payable)
+      return { goods: it.goods, quantity: it.quantity, amount: Math.round(base * 100) }
+    })
+    const cr = deps.coupon.consume(store, userId, user_coupon_id, couponRows)
+    if (cr.error) return { error: { status: 400, msg: cr.error } }
+    couponUsedId = cr.user_coupon_id
+    lineItems.forEach((li, i) => { li.couponShareFen = cr.shares.get(i) || 0 })
+  }
   // 取餐码：4 位随机，在「未结束订单(0待支付/1待接单/2配送中/3待取货)」范围内查重，撞了重摇；
   // 极端情况下兜底用当日序号派生（当日序号唯一 → 兜底码也唯一）。它是平台 loading/unloading 校验码与开舱凭据，必须唯一。
   const pickupCodeNew = (seq) => {
@@ -368,8 +389,11 @@ function createOrder(store, deps, body, userId) {
           : promotion.resolve(chunk.map((it) => ({ goods: it.goods, quantity: it.quantity })), ordersActivePromos))
     const chunkFee = feeAssigned ? 0 : deliveryFee
     feeAssigned = true
-    // 实付 = 商品活动后金额 + 配送费（配送费不参与活动折扣，也不进 discount_amount）
-    const chunkTotal = Math.round((Number(promo.payable) + chunkFee) * 100) / 100
+    // 本子订单分摊到的券优惠（元）：按行汇总（分摊已按商品原价比例算好）
+    const chunkCouponFen = chunk.reduce((s, it) => s + (it.couponShareFen || 0), 0)
+    const chunkCoupon = Math.round(chunkCouponFen) / 100
+    // 实付 = 商品活动后金额 − 券抵扣 + 配送费（配送费不参与任何优惠）
+    const chunkTotal = Math.round((Number(promo.payable) - chunkCoupon + chunkFee) * 100) / 100
     const discountAmount = promo.discount
     // 编号：日期 + 当日序号（原子取号）。拆单时每个子单各占一个连号。
     const { day: seqDay, seq } = seqSvc.nextSeq(store, 'order')
@@ -381,14 +405,20 @@ function createOrder(store, deps, body, userId) {
       originalAmount: Number(originalTotal).toFixed(2), discountAmount: Number(discountAmount).toFixed(2),
       activityId: promo.activity ? promo.activity.id : null,
       deliveryFee: Number(chunkFee).toFixed(2),
-      remark: cleanRemark, pickupCode, seq, seqDate: seqDay
+      remark: cleanRemark, pickupCode, seq, seqDate: seqDay,
+      userCouponId: chunkCouponFen > 0 ? couponUsedId : null,
+      couponAmount: Number(chunkCoupon).toFixed(2)
     })
-    for (const { goods, quantity } of chunk) {
-      q.insertItem(store, { orderId, goodsId: goods.id, goodsName: goods.name, goodsImage: goods.image, price: goods.price, quantity })
+    for (const { goods, quantity, couponShareFen } of chunk) {
+      q.insertItem(store, { orderId, goodsId: goods.id, goodsName: goods.name, goodsImage: goods.image, price: goods.price, quantity, couponShare: Math.round(couponShareFen || 0) / 100 })
       // 条件更新扣库存（P1-5）：校验与扣减原子，扣不到即超卖
       if (!deps.goods.deductStock(store, goods.id, quantity)) throw new Error('「' + goods.name + '」库存不足')
     }
     created.push({ order_id: orderId, order_no: orderNo, total_amount: chunkTotal, pickup_code: pickupCode, items: chunk.length })
+  }
+  // 券标记为已使用：放在订单全部落库之后，避免下单中途失败却把券烧掉
+  if (couponUsedId && created.length && deps.coupon && deps.coupon.markUsed) {
+    deps.coupon.markUsed(store, couponUsedId, created[0].order_id)
   }
   // 购物车只删本次订单实际包含的商品（P1-6）：不再无条件清空整张购物车
   const cartGids = [...new Set(lineItems.map((it) => it.goods.id))]

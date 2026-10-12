@@ -5,16 +5,43 @@ const session = require('../../utils/session')
 
 Page({
   data: {
-    activities: []
+    activities: [],
+    // 券与折扣/满减活动并排展示：同样是「一张图 = 一个优惠」，所以过滤口径也一致 ——
+    // 只展示「可领取 + 有图」的券；已领/抢光/过期的券留在券页，不在这里占位
+    coupons: []
   },
 
   onShow() {
     // 未登录强制回登录页（与首页同一套兜底）
     if (session.ensureLogin()) return
     this.load()
+    this.loadCoupons()
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 2 })
     }
+  },
+
+  // 券图：与活动图同列，只有「可领取」的才出现
+  async loadCoupons() {
+    try {
+      const list = await request.get(api.couponList, {}, { silent: true })
+      this.setData({ coupons: (list || []).filter((c) => c.state === 'ok' && c.image) })
+    } catch (e) {
+      this.setData({ coupons: [] })
+    }
+  },
+
+  // 领券：领完这张图从活动页消失（已进「我的券」）
+  async receiveCoupon(e) {
+    const id = Number(e.currentTarget.dataset.id)
+    try {
+      const r = await request.post(api.couponReceive, { coupon_id: id })
+      wx.showToast({
+        title: r && r.expire_at ? '已领取，' + String(r.expire_at).slice(0, 10) + ' 到期' : '领取成功',
+        icon: 'none'
+      })
+      this.loadCoupons()
+    } catch (err) { /* handled */ }
   },
 
   async load() {

@@ -146,17 +146,24 @@
     </view>
   </view>
 
-  <view class="cart-bar" wx:if="{{cartCount}}" bindtap="goCart">
-    <view class="cart-bar-icon {{cartBounceCls}}" id="cart-bar-icon">
+  <view class="cart-bar" wx:if="{{cartCount}}">
+    <!-- 点图标或金额区 → 弹出「已加购商品」面板；右侧「去结算」才进结算页 -->
+    <view class="cart-bar-icon {{cartBounceCls}}" id="cart-bar-icon" bindtap="openCartPanel">
       <t-icon name="robot-1" size="24" color="#3078C0" />
       <view class="cart-bar-badge {{cartBadgeCls}}">{{cartCount}}</view>
     </view>
-    <view class="cart-bar-info">
+    <view class="cart-bar-info" bindtap="openCartPanel">
       <view class="cart-bar-price">¥{{cartTotal}}</view>
       <view class="cart-bar-fee">配送费 ¥{{deliveryFee}} · 明细</view>
     </view>
-    <view class="go-cart">去结算</view>
+    <view class="go-cart" catchtap="goCheckoutNow">去结算</view>
   </view>
+
+  <!-- 已加购商品底部弹层（与首页同一个组件） -->
+  <cart-panel visible="{{cartPanelShow}}"
+    bind:close="onCartPanelClose"
+    bind:changed="onCartPanelChanged"
+    bind:checkout="onCartCheckout" />
 
   <!-- 加购飞入的小球（与首页同一套样式和时长，见 app.wxss / utils/flyCart.js） -->
   <view class="fly-layer" wx:if="{{flyBall.show}}">

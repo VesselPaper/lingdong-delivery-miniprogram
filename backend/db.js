@@ -154,6 +154,43 @@ function init() {
       end_at TEXT,                     -- 失效时间（空=不设限）
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
+    -- 优惠券模板（券的「定义」）：满减 / 折扣 / 无门槛，可限定适用范围与有效期
+    --   valid_type=absolute 用 start_at/end_at；relative 用 relative_days（领取后 N 天，过期时间写在 user_coupons.expire_at）
+    --   scope=all 全场 / category 指定分类 / goods 指定商品（scope_ids 存 JSON 数组）
+    --   image：券在用户端的呈现形态。用户端首页与活动页都是「图片列表」，
+    --          券和折扣/满减活动一样必须配图才能上架（图片本身就是优惠信息的载体）
+    CREATE TABLE IF NOT EXISTS coupons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT,
+      type TEXT DEFAULT 'full_reduce',      -- full_reduce 满减 / discount 折扣 / no_threshold 无门槛
+      threshold REAL DEFAULT 0,             -- 满减门槛（元）；无门槛为 0
+      reduce REAL DEFAULT 0,                -- 抵扣金额（元）；折扣券为 0
+      discount REAL DEFAULT 0,              -- 折扣率（0.85 = 85 折）；满减/无门槛为 0
+      max_reduce REAL DEFAULT 0,            -- 折扣券最高抵扣（0 = 不限）
+      image TEXT DEFAULT '',                -- 券图（/uploads/xxx），用户端按原图比例展示
+      valid_type TEXT DEFAULT 'absolute',   -- absolute 绝对时间 / relative 领取后 N 天
+      start_at TEXT,
+      end_at TEXT,
+      relative_days INTEGER DEFAULT 0,
+      scope TEXT DEFAULT 'all',             -- all 全场 / category 指定分类 / goods 指定商品
+      scope_ids TEXT DEFAULT '[]',          -- 适用范围 id 列表（JSON）
+      total_qty INTEGER DEFAULT 0,          -- 发放总量（0 = 不限）
+      issued INTEGER DEFAULT 0,             -- 已发放数量
+      per_user_limit INTEGER DEFAULT 1,     -- 每人限领（0 = 不限）
+      status INTEGER DEFAULT 1,             -- 1 启用 / 0 停用
+      created_at TEXT DEFAULT (datetime('now','localtime'))
+    );
+    -- 用户领券记录：状态 0 未使用 / 1 已使用 / 2 已过期
+    CREATE TABLE IF NOT EXISTS user_coupons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      coupon_id INTEGER,
+      status INTEGER DEFAULT 0,
+      received_at TEXT DEFAULT (datetime('now','localtime')),
+      expire_at TEXT,                       -- 本券到期时间（相对有效期按领取时间推算，便于按人不同）
+      used_at TEXT,
+      order_id INTEGER
+    );
     CREATE TABLE IF NOT EXISTS refunds (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER,
@@ -209,6 +246,17 @@ function migrate(db) {
   if (!orderCols.includes('daily_seq')) db.exec("ALTER TABLE orders ADD COLUMN daily_seq INTEGER")
   // orders：配送异常处理标记（'' 未处理 / 'retry 时间' 已重新配送 / 'refund 时间' 已退款）
   if (!orderCols.includes('exception_handled')) db.exec("ALTER TABLE orders ADD COLUMN exception_handled TEXT DEFAULT ''")
+  // orders：优惠券（用了哪张领券记录 + 券实际抵扣金额）。
+  // 与 discount_amount（活动优惠）分开存：券与活动可同时享受，部分退款时要能分别追溯
+  if (!orderCols.includes('user_coupon_id')) db.exec("ALTER TABLE orders ADD COLUMN user_coupon_id INTEGER DEFAULT NULL")
+  if (!orderCols.includes('coupon_amount')) db.exec("ALTER TABLE orders ADD COLUMN coupon_amount REAL DEFAULT 0")
+  // order_items：券优惠分摊到该商品的金额（按原价比例分摊）。
+  // 落库的意义：部分退款时能直接算出「这件商品实际付了多少」，不必回头重算历史活动折扣
+  const itemCols = db.prepare('PRAGMA table_info(order_items)').all().map((c) => c.name)
+  if (!itemCols.includes('coupon_share')) db.exec("ALTER TABLE order_items ADD COLUMN coupon_share REAL DEFAULT 0")
+  // coupons：券图（老库没有这一列，用户端图片列表要用）。空值表示还没配图，这类券不上架
+  const couponCols = db.prepare('PRAGMA table_info(coupons)').all().map((c) => c.name)
+  if (!couponCols.includes('image')) db.exec("ALTER TABLE coupons ADD COLUMN image TEXT DEFAULT ''")
   // delivery_batches：当日序号（商家端卡面展示「批次 N」）
   const batchCols = db.prepare('PRAGMA table_info(delivery_batches)').all().map((c) => c.name)
   if (!batchCols.includes('daily_seq')) db.exec("ALTER TABLE delivery_batches ADD COLUMN daily_seq INTEGER")

@@ -1,0 +1,89 @@
+<view class="cp-root {{visible ? 'show' : ''}}">
+  <!-- 遮罩：点击收起，继续挑商品 -->
+  <view class="cp-mask" bindtap="onClose"></view>
+
+  <view class="cp-sheet {{dragging ? 'no-anim' : ''}}" style="height: {{sheetHeight}}px; transform: translateY({{visible ? dragY + 'px' : '100%'}});">
+    <!-- 把手：向下拖动即收起（美团式下滑关闭） -->
+    <view class="cp-handle"
+      bindtouchstart="onDragStart"
+      catchtouchmove="onDragMove"
+      bindtouchend="onDragEnd"
+      bindtouchcancel="onDragEnd">
+      <view class="cp-handle-bar"></view>
+    </view>
+
+    <!-- 优惠预估：勾选的商品里有优惠才出现 -->
+    <view class="cp-promo" wx:if="{{saveTotal > 0}}">
+      <text class="cp-promo-tag">省</text>
+      <text class="cp-promo-text">现在下单预估可立享 <text class="cp-promo-num">{{saveTotal}}</text> 元优惠</text>
+    </view>
+
+    <view class="cp-head">
+      <text class="cp-title">已加购商品（{{items.length}}件）</text>
+      <view class="cp-clear" wx:if="{{items.length}}" bindtap="clearAll">
+        <t-icon name="delete" size="14" color="#999999" />
+        <text class="cp-clear-text">清空</text>
+      </view>
+    </view>
+
+    <scroll-view class="cp-body" scroll-y>
+      <view class="cp-item" wx:for="{{items}}" wx:key="id">
+        <view class="cp-check {{item.selected ? 'on' : ''}}" bindtap="toggleSelect" data-id="{{item.id}}">
+          <t-icon wx:if="{{item.selected}}" name="check" size="12" color="#ffffff" />
+        </view>
+        <view class="cp-img">
+          <image wx:if="{{item.image}}" class="fill-img" src="{{item.image}}" mode="aspectFill" />
+          <t-icon wx:else name="app" size="20" color="#BFBFBF" />
+        </view>
+        <view class="cp-info">
+          <view class="cp-name-row">
+            <text class="cp-name ellipsis">{{item.name}}</text>
+            <text class="cp-soldout" wx:if="{{item.sold_out}}">售罄</text>
+          </view>
+          <view class="cp-spec" wx:if="{{item.unit}}">{{item.unit}}</view>
+          <view class="cp-price">
+            <text class="cp-price-label" wx:if="{{item.has_promo}}">优惠后</text>
+            <text class="cp-price-now">¥{{item.price_now}}</text>
+            <text class="cp-price-orig" wx:if="{{item.has_promo}}">¥{{item.price}}</text>
+          </view>
+        </view>
+        <view class="cp-stepper">
+          <view class="cp-step" bindtap="onQuantity" data-id="{{item.id}}" data-delta="-1">-</view>
+          <text class="cp-num">{{item.quantity}}</text>
+          <view class="cp-step plus {{item.sold_out ? 'disabled' : ''}}" bindtap="onQuantity" data-id="{{item.id}}" data-delta="1">+</view>
+        </view>
+      </view>
+
+      <view class="cp-empty" wx:if="{{!items.length}}">
+        <t-icon name="cart" size="40" color="#D8D8D8" />
+        <text class="cp-empty-text">还没有加购商品</text>
+      </view>
+
+      <view class="cp-fee" wx:if="{{items.length}}">
+        <t-icon name="info-circle" size="12" color="#C0C0C0" />
+        <text class="cp-fee-text">另需配送费 ¥{{deliveryFee}}</text>
+      </view>
+    </scroll-view>
+
+    <view class="cp-foot" wx:if="{{items.length}}">
+      <view class="cp-all" bindtap="toggleAll">
+        <view class="cp-check {{allSelected ? 'on' : ''}}">
+          <t-icon wx:if="{{allSelected}}" name="check" size="12" color="#ffffff" />
+        </view>
+        <text>全选</text>
+      </view>
+      <view class="cp-total">
+        <view class="cp-total-line">
+          <text class="cp-total-label">合计</text>
+          <text class="cp-symbol">¥</text><text class="cp-total-num">{{total}}</text>
+        </view>
+        <text class="cp-total-save" wx:if="{{saveTotal > 0}}">已优惠 ¥{{saveTotal}}</text>
+      </view>
+      <view class="cp-go" bindtap="onCheckout">去结算({{selectCount}})</view>
+    </view>
+
+    <view class="cp-foot cp-foot-empty" wx:else>
+      <view class="cp-go-ghost" bindtap="onClose">继续挑选商品</view>
+    </view>
+  </view>
+</view>

@@ -26,6 +26,8 @@
     "pages/goods/batch",
     "pages/activity/list",
     "pages/activity/edit",
+    "pages/coupon/list",
+    "pages/coupon/edit",
     "pages/delivery/monitor",
     "pages/shop/settings",
     "pages/user/profile"

@@ -13,7 +13,15 @@
         <image class="act-poster-full" src="{{item.image}}" mode="widthFix" lazy-load />
       </view>
     </block>
-    <view wx:else class="empty">
+
+    <!-- 优惠券与折扣/满减活动并排呈现：同样是「一张图 = 一个优惠」，
+         区别只在券图下面多一个「领取」按钮（活动图点了是去挑商品，券图点了是领券）。 -->
+    <view class="act-card cp-card" wx:for="{{coupons}}" wx:key="id">
+      <image class="act-poster-full" src="{{item.image}}" mode="widthFix" lazy-load bindtap="receiveCoupon" data-id="{{item.id}}" />
+      <view class="cp-receive" bindtap="receiveCoupon" data-id="{{item.id}}">立即领取</view>
+    </view>
+
+    <view wx:if="{{!activities.length && !coupons.length}}" class="empty">
       <view class="empty-icon"><t-icon name="activity" size="40" color="#D8D8D8" /></view>
       <view class="empty-text">暂无进行中的活动</view>
     </view>

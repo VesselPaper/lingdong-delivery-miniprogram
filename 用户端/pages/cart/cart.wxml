@@ -1,17 +1,30 @@
 <view class="cart-page">
+  <!-- 优惠预估横幅：勾选的商品里有优惠才出现，金额随勾选实时变 -->
+  <view class="promo-banner" wx:if="{{items.length && saveTotal > 0}}">
+    <text class="promo-tag">省</text>
+    <text class="promo-text">现在下单预估可立享 <text class="promo-num">{{saveTotal}}</text> 元优惠</text>
+  </view>
+
   <view wx:if="{{items.length}}">
     <view class="cart-head">
-      <text class="cart-head-title">已选购商品（{{items.length}}件）</text>
+      <text class="cart-head-title">已加购商品（{{items.length}}件）</text>
+      <view class="cart-clear" bindtap="clearAll">
+        <t-icon name="delete" size="14" color="#999999" />
+        <text class="cart-clear-text">清空</text>
+      </view>
     </view>
+
     <view class="card">
       <view class="shop-row">
         <t-icon name="shop" size="18" color="#3078C0" />
         <text class="shop-name">零栋铺子</text>
         <text class="text-weak text-sm">无人车配送</text>
       </view>
+
       <view class="cart-list">
         <view class="cart-item" wx:for="{{items}}" wx:key="id">
-          <view class="check {{item.selected ? 'check-on' : ''}}" bindtap="toggleSelect" data-id="{{item.id}}" data-selected="{{item.selected}}">
+          <!-- 取消勾选：底部合计与优惠实时跟着变 -->
+          <view class="check {{item.selected ? 'check-on' : ''}}" bindtap="toggleSelect" data-id="{{item.id}}">
             <t-icon wx:if="{{item.selected}}" name="check" size="12" color="#ffffff" />
           </view>
           <view class="item-img">
@@ -23,9 +36,11 @@
               <view class="item-name ellipsis">{{item.name}}</view>
               <text class="item-soldout" wx:if="{{item.sold_out}}">售罄</text>
             </view>
+            <view class="item-spec" wx:if="{{item.unit}}">{{item.unit}}</view>
             <view class="item-price">
+              <text class="price-label" wx:if="{{item.has_promo}}">优惠后</text>
               <text class="price-now">¥{{item.price_now}}</text>
-              <text wx:if="{{item.price_now < item.price}}" class="price-orig">¥{{item.price}}</text>
+              <text class="price-orig" wx:if="{{item.has_promo}}">¥{{item.price}}</text>
             </view>
           </view>
           <view class="stepper">
@@ -35,8 +50,15 @@
           </view>
         </view>
       </view>
+
+      <!-- 费用说明：让用户知道合计之外还有什么，避免结算页突然多出配送费 -->
+      <view class="fee-tip">
+        <t-icon name="info-circle" size="12" color="#C0C0C0" />
+        <text class="fee-tip-text">另需配送费 ¥{{deliveryFee}}</text>
+      </view>
     </view>
   </view>
+
   <view wx:else class="empty">
     <view class="empty-icon"><t-icon name="cart" size="40" color="#D8D8D8" /></view>
     <view class="empty-text">购物车还是空的</view>
@@ -50,8 +72,11 @@
       <text>全选</text>
     </view>
     <view class="total">
-      <text class="text-sub">商品合计</text>
-      <view class="price"><text class="price-symbol">¥</text><text class="price-num">{{total}}</text></view>
+      <view class="total-line">
+        <text class="total-label">合计</text>
+        <view class="price"><text class="price-symbol">¥</text><text class="price-num">{{total}}</text></view>
+      </view>
+      <view class="total-save" wx:if="{{saveTotal > 0}}">已优惠 ¥{{saveTotal}}</view>
     </view>
     <view class="go-btn" bindtap="checkout">去结算({{selectCount}})</view>
   </view>

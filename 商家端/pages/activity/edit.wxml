@@ -2,7 +2,6 @@
   <!-- 当前状态（仅编辑已存在的活动时显示）：让商家一眼看出这个活动是否已经在用户端上线 -->
   <view class="status-bar" wx:if="{{id}}">
     <view class="tag {{status === 1 ? 'tag-green' : (status === 2 ? 'tag-orange' : 'tag-gray')}}">{{statusText}}</view>
-    <text class="status-hint text-weak text-sm">{{status === 1 ? '该活动已在用户端生效' : '该活动尚未在用户端展示'}}</text>
   </view>
 
   <!-- 历史数据没有配图：用户端是纯图片列表，没图等于用户看不到。
@@ -16,7 +15,7 @@
   <view class="preview-card">
     <view class="preview-head" bindtap="togglePreview">
       <text class="preview-title">用户端预览</text>
-      <text class="preview-toggle text-weak text-sm">{{previewOpen ? '收起' : '展开'}}</text>
+      <text class="preview-toggle">{{previewOpen ? '收起' : '展开'}}</text>
     </view>
     <view class="preview-body" wx:if="{{previewOpen}}">
       <view class="preview-poster">
@@ -29,7 +28,7 @@
       <view class="preview-info">
         <view class="preview-act-title">{{form.title || '（未填活动标题）'}}</view>
         <view class="preview-promo">{{previewPromo}}</view>
-        <view class="preview-time text-weak text-sm">{{form.start_at || form.end_at ? (form.start_at || '未设置') + ' ~ ' + (form.end_at || '未设置') : '长期有效'}}</view>
+        <view class="preview-time">{{form.start_at || form.end_at ? (form.start_at || '未设置') + ' ~ ' + (form.end_at || '未设置') : '长期有效'}}</view>
       </view>
     </view>
   </view>
@@ -42,7 +41,6 @@
         class="type-item {{type === item.value ? 'type-on' : ''}}"
         bindtap="chooseType" data-type="{{item.value}}">
         <view class="type-name">{{item.label}}</view>
-        <view class="type-desc">{{item.desc}}</view>
       </view>
     </view>
   </view>
@@ -51,7 +49,7 @@
   <view class="card form-card" wx:if="{{type === 'discount'}}">
     <view class="field-label big">优惠设置</view>
     <view class="field">
-      <view class="field-label">折扣（0-10 之间，8.5 表示 85 折）</view>
+      <view class="field-label">折扣</view>
       <input class="field-input" type="digit" placeholder="例如：8.5" value="{{discount}}" bindinput="onDiscountInput" />
     </view>
     <view class="calc-hint" wx:if="{{discountCalcHint}}">
@@ -91,9 +89,6 @@
       </view>
       <view class="pick-btn">选择商品<t-icon name="chevron-right" size="14" color="#3078C0" /></view>
     </view>
-    <view class="pick-tip text-weak text-sm" wx:if="{{scope === 'goods'}}">
-      支持按分类筛选后批量勾选；用户端点击活动图后会跳到这些商品。
-    </view>
   </view>
 
   <!-- 活动外观：图片是贴在任意类型上的「外观」，纯展示活动则只靠它 -->
@@ -113,11 +108,6 @@
           <view class="poster-op danger" bindtap="removePoster">删除</view>
         </view>
       </block>
-    </view>
-    <view class="poster-tip text-weak text-sm">
-      <view wx:if="{{type === 'custom'}}">纯展示活动必须上传图片，发布后会出现在用户端首页。</view>
-      <view wx:else>选填。上传后会出现在用户端活动页与首页；不传则用户端看不到这个活动。</view>
-      <view class="poster-tip-sub">图片按原始比例完整显示、不会被裁剪。建议宽度 750px（小程序标准宽度），横向图视觉效果最好。</view>
     </view>
   </view>
 
@@ -148,19 +138,26 @@
   <!-- 生效时间 -->
   <view class="card form-card">
     <view class="field-label big">生效时间</view>
-    <view class="field">
-      <view class="field-label">开始日期</view>
-      <picker mode="date" value="{{form.start_at}}" start="2020-01-01" bindchange="onField" data-field="start_at">
-        <view class="picker-value">{{form.start_at || '不限制'}}</view>
-      </picker>
+    <!-- 长期活动：打开后不需要设起止日期，用户端显示「长期有效」。
+         放在最前面，因为大多数日常活动不需要精确到天。 -->
+    <view class="switch-row">
+      <text class="switch-label">长期</text>
+      <switch checked="{{longTerm}}" color="#3078C0" bindchange="onLongTerm" />
     </view>
-    <view class="field">
-      <view class="field-label">结束日期</view>
-      <picker mode="date" value="{{form.end_at}}" bindchange="onField" data-field="end_at">
-        <view class="picker-value">{{form.end_at || '不限制'}}</view>
-      </picker>
-    </view>
-    <view class="text-weak text-sm">不填表示长期有效。活动只在时间窗内参与折扣与满减计算。</view>
+    <block wx:if="{{!longTerm}}">
+      <view class="field">
+        <view class="field-label">开始日期</view>
+        <picker mode="date" value="{{form.start_at}}" start="2020-01-01" bindchange="onField" data-field="start_at">
+          <view class="picker-value">{{form.start_at || '选择开始日期'}}</view>
+        </picker>
+      </view>
+      <view class="field">
+        <view class="field-label">结束日期</view>
+        <picker mode="date" value="{{form.end_at}}" bindchange="onField" data-field="end_at">
+          <view class="picker-value">{{form.end_at || '选择结束日期'}}</view>
+        </picker>
+      </view>
+    </block>
   </view>
 
   <view class="foot-btns">
@@ -168,9 +165,6 @@
          不会改变上下架状态（防止改个文案就把线上活动下线）。 -->
     <view class="btn btn-block draft-btn" bindtap="saveDraft">{{status === 1 || status === 2 ? '仅保存' : '保存草稿'}}</view>
     <view class="btn btn-block publish-btn" bindtap="publish">{{status === 1 ? '保存并发布' : '发布'}}</view>
-  </view>
-  <view class="tip text-weak text-sm">
-    「保存草稿」只存在商家端，用户端看不到、也不参与折扣与满减计算；「发布」才会正式上架。
   </view>
 
   <!-- 商品选择面板（覆盖层）：分类筛选 + 全选当前分类 + 关键词搜索 -->
@@ -206,7 +200,7 @@
         </view>
         <view class="picker-item-body">
           <view class="picker-item-name ellipsis">{{item.name}}</view>
-          <view class="picker-item-cat text-weak text-sm">{{item.category || '其他'}}</view>
+          <view class="picker-item-cat">{{item.category || '其他'}}</view>
         </view>
         <text class="picker-item-price">¥{{item.price}}</text>
       </view>

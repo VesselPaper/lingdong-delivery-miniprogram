@@ -24,7 +24,6 @@
         <text class="fee-unit">/单</text>
       </view>
     </view>
-    <view class="settings-hint text-weak text-sm">歇业期间暂停接单，已接订单正常配送；自动接单开启后扫码将直接接单；配送费按整单收取一次，不随件数增加。</view>
   </view>
 
   <view class="card">

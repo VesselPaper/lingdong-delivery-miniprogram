@@ -1,0 +1,255 @@
+<view class="edit-page">
+  <!-- 实时预览：用户端首页/活动页都是图片列表，券就是这张图 + 下面一个「立即领取」 -->
+  <view class="preview-card">
+    <view class="preview-head"><text class="preview-title">用户端预览</text></view>
+    <view class="preview-body">
+      <image wx:if="{{image}}" class="preview-img" src="{{image}}" mode="widthFix" />
+      <view wx:else class="preview-ph">
+        <t-icon name="add" size="34" color="#C6D6E8" />
+        <text class="preview-ph-text">未上传优惠券图片</text>
+      </view>
+      <view class="preview-bar">
+        <view class="preview-rule">{{previewRule}}</view>
+        <view class="preview-btn">立即领取</view>
+      </view>
+      <view class="preview-sub">{{form.title || '（未填券名称）'}}</view>
+      <view class="preview-sub">{{previewScope}} · {{previewValid}}</view>
+      <view class="preview-sub">{{enabled ? '启用中' : '已停用（用户端不展示，领不到也用不了）'}}</view>
+    </view>
+  </view>
+
+  <!-- 券图：用户端以图片形式呈现优惠券，启用前必须上传 -->
+  <view class="card form-card">
+    <view class="field-label big">优惠券图片</view>
+    <view class="poster-row">
+      <view class="poster-add" wx:if="{{!image}}" bindtap="choosePoster">
+        <t-icon name="add" size="34" color="#A8B6C8" />
+        <text class="poster-add-text">上传优惠券图片</text>
+      </view>
+      <block wx:else>
+        <view class="poster-box" bindtap="previewPoster">
+          <image class="poster-img" src="{{image}}" mode="aspectFill" />
+        </view>
+        <view class="poster-ops">
+          <view class="poster-op" bindtap="choosePoster">更换</view>
+          <view class="poster-op danger" bindtap="removePoster">删除</view>
+        </view>
+      </block>
+    </view>
+  </view>
+
+  <!-- 券类型：三种类型互斥，决定了下面「优惠设置」填什么 -->
+  <view class="card form-card">
+    <view class="field-label big">券类型</view>
+    <view class="type-row">
+      <view wx:for="{{typeList}}" wx:key="value"
+        class="type-item {{type === item.value ? 'type-on' : ''}}"
+        bindtap="chooseType" data-type="{{item.value}}">
+        <view class="type-name">{{item.label}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 优惠设置：字段跟着类型变，避免把不适用的项也摆出来让商家填错 -->
+  <view class="card form-card">
+    <view class="field-label big">优惠设置</view>
+
+    <block wx:if="{{type === 'full_reduce'}}">
+      <view class="field">
+        <view class="field-label">满减门槛</view>
+        <view class="field-line">
+          <input class="field-input" type="digit" placeholder="例如：30" value="{{form.threshold}}" bindinput="onField" data-field="threshold" />
+          <text class="field-unit">元</text>
+        </view>
+      </view>
+      <view class="field">
+        <view class="field-label">抵扣金额</view>
+        <view class="field-line">
+          <input class="field-input" type="digit" placeholder="例如：5" value="{{form.reduce}}" bindinput="onField" data-field="reduce" />
+          <text class="field-unit">元</text>
+        </view>
+      </view>
+    </block>
+
+    <block wx:if="{{type === 'discount'}}">
+      <view class="field">
+        <view class="field-label">折扣</view>
+        <view class="field-line">
+          <input class="field-input" type="digit" placeholder="例如：8.5" value="{{form.discount}}" bindinput="onField" data-field="discount" />
+          <text class="field-unit">折</text>
+        </view>
+      </view>
+      <view class="field">
+        <view class="field-label">最高抵扣</view>
+        <view class="field-line">
+          <input class="field-input" type="digit" placeholder="不填则不封顶" value="{{form.max_reduce}}" bindinput="onField" data-field="max_reduce" />
+          <text class="field-unit">元</text>
+        </view>
+      </view>
+    </block>
+
+    <block wx:if="{{type === 'no_threshold'}}">
+      <view class="field">
+        <view class="field-label">抵扣金额</view>
+        <view class="field-line">
+          <input class="field-input" type="digit" placeholder="例如：2" value="{{form.reduce}}" bindinput="onField" data-field="reduce" />
+          <text class="field-unit">元</text>
+        </view>
+      </view>
+    </block>
+  </view>
+
+  <!-- 有效期：相对（领取后才开始算，因人而异）/ 绝对（固定日期区间） -->
+  <view class="card form-card">
+    <view class="field-label big">有效期</view>
+    <view class="scope-row">
+      <view class="scope-item {{form.valid_type === 'relative' ? 'scope-on' : ''}}" bindtap="setValidType" data-vt="relative">领取后有效</view>
+      <view class="scope-item {{form.valid_type === 'absolute' ? 'scope-on' : ''}}" bindtap="setValidType" data-vt="absolute">固定日期</view>
+    </view>
+
+    <view wx:if="{{form.valid_type === 'relative'}}" class="field">
+      <view class="field-label">领取后有效天数</view>
+      <view class="field-line">
+        <input class="field-input" type="number" placeholder="例如：7" value="{{form.relative_days}}" bindinput="onField" data-field="relative_days" />
+        <text class="field-unit">天</text>
+      </view>
+    </view>
+
+    <block wx:else>
+      <view class="field">
+        <view class="field-label">开始日期</view>
+        <picker mode="date" value="{{form.start_at}}" start="2020-01-01" bindchange="onField" data-field="start_at">
+          <view class="picker-value">{{form.start_at || '不限（留空即不设开始时间）'}}</view>
+        </picker>
+      </view>
+      <view class="field">
+        <view class="field-label">结束日期</view>
+        <picker mode="date" value="{{form.end_at}}" start="2020-01-01" bindchange="onField" data-field="end_at">
+          <view class="picker-value">{{form.end_at || '不限（留空即长期有效）'}}</view>
+        </picker>
+      </view>
+    </block>
+  </view>
+
+  <!-- 适用范围：全场 / 指定分类 / 指定商品 -->
+  <view class="card form-card">
+    <view class="field-label big">适用范围</view>
+    <view class="scope-row">
+      <view class="scope-item {{scope === 'all' ? 'scope-on' : ''}}" bindtap="setScope" data-scope="all">全场</view>
+      <view class="scope-item {{scope === 'category' ? 'scope-on' : ''}}" bindtap="setScope" data-scope="category">指定分类</view>
+      <view class="scope-item {{scope === 'goods' ? 'scope-on' : ''}}" bindtap="setScope" data-scope="goods">指定商品</view>
+    </view>
+
+    <view wx:if="{{scope === 'category'}}" class="pick-row" bindtap="openPicker" data-mode="category">
+      <view class="pick-left">
+        <view class="pick-label">已选分类</view>
+        <view class="pick-value {{selectedCats.length ? '' : 'text-weak'}}">{{selectedCats.length ? selectedCats.join('、') : '未选择'}}</view>
+      </view>
+      <view class="pick-btn">选择分类<t-icon name="chevron-right" size="14" color="#3078C0" /></view>
+    </view>
+
+    <view wx:if="{{scope === 'goods'}}" class="pick-row" bindtap="openPicker" data-mode="goods">
+      <view class="pick-left">
+        <view class="pick-label">已选商品</view>
+        <view class="pick-value {{selectedGoods.length ? '' : 'text-weak'}}">{{selectedGoods.length ? selectedGoods.length + ' 件' : '未选择'}}</view>
+      </view>
+      <view class="pick-btn">选择商品<t-icon name="chevron-right" size="14" color="#3078C0" /></view>
+    </view>
+  </view>
+
+  <!-- 发放设置：留空 = 不限 -->
+  <view class="card form-card">
+    <view class="field-label big">发放设置</view>
+    <view class="field">
+      <view class="field-label">发放总量</view>
+      <view class="field-line">
+        <input class="field-input" type="number" placeholder="不填即不限量" value="{{form.total_qty}}" bindinput="onField" data-field="total_qty" />
+        <text class="field-unit">张</text>
+      </view>
+    </view>
+    <view class="field">
+      <view class="field-label">每人限领</view>
+      <view class="field-line">
+        <input class="field-input" type="number" placeholder="不填即不限领" value="{{form.per_user_limit}}" bindinput="onField" data-field="per_user_limit" />
+        <text class="field-unit">张</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 基础信息 + 启停 -->
+  <view class="card form-card">
+    <view class="field-label big">基础信息</view>
+    <view class="field">
+      <view class="field-label">券名称</view>
+      <input class="field-input" placeholder="请输入券名称" value="{{form.title}}" bindinput="onField" data-field="title" />
+    </view>
+    <!-- 停用后用户领不到、结算时已领的券也判定为不可用（用于临时叫停活动） -->
+    <view class="switch-row">
+      <text class="switch-label">启用</text>
+      <switch checked="{{enabled}}" color="#3078C0" bindchange="onEnabled" />
+    </view>
+  </view>
+
+  <view class="foot-btns">
+    <view class="btn btn-block save-btn" bindtap="save">{{id ? '保存' : '创建优惠券'}}</view>
+  </view>
+
+  <!-- 选择面板（覆盖层）：scope=category 选分类，scope=goods 选商品 -->
+  <view class="picker-mask" wx:if="{{pickerOpen}}" bindtap="closePicker"></view>
+  <view class="picker-panel" wx:if="{{pickerOpen}}">
+    <view class="picker-head">
+      <view class="picker-title" wx:if="{{pickerMode === 'category'}}">选择分类（已选 {{selectedCats.length}} 个）</view>
+      <view class="picker-title" wx:else>选择商品（已选 {{selectedGoods.length}} 件）</view>
+      <view class="picker-close" bindtap="closePicker">完成</view>
+    </view>
+
+    <!-- 选分类：分类数量不多，直接平铺多选 -->
+    <scroll-view wx:if="{{pickerMode === 'category'}}" class="picker-list" scroll-y>
+      <view class="picker-item" wx:for="{{categories}}" wx:key="name" bindtap="toggleCat" data-name="{{item.name}}">
+        <view class="goods-check {{selectedCatMap[item.name] ? 'check-on' : ''}}">
+          <t-icon wx:if="{{selectedCatMap[item.name]}}" name="check" size="12" color="#ffffff" />
+        </view>
+        <view class="picker-item-body">
+          <view class="picker-item-name">{{item.name}}</view>
+        </view>
+        <text class="picker-item-count">{{item.count}} 件商品</text>
+      </view>
+      <view class="picker-empty" wx:if="{{!categories.length}}">暂无分类（商品都还没分类时请先给商品分类）</view>
+    </scroll-view>
+
+    <!-- 选商品：分类筛选 + 全选当前分类 + 关键词搜索 -->
+    <block wx:else>
+      <view class="picker-search">
+        <t-icon name="search" size="15" color="#999999" />
+        <input class="picker-search-input" placeholder="搜索商品名称" value="{{pickerKeyword}}" bindinput="onPickerSearch" />
+      </view>
+
+      <scroll-view class="picker-cats" scroll-x>
+        <view class="picker-cat {{pickerCategory === '' ? 'on' : ''}}" bindtap="onPickerCategory" data-name="">全部 {{goodsList.length}}</view>
+        <view class="picker-cat {{pickerCategory === item.name ? 'on' : ''}}"
+          wx:for="{{categories}}" wx:key="name"
+          bindtap="onPickerCategory" data-name="{{item.name}}">{{item.name}} {{item.count}}</view>
+      </scroll-view>
+
+      <view class="picker-bulk">
+        <view class="picker-bulk-btn" bindtap="selectAllVisible">全选当前 {{pickerGoods.length}} 件</view>
+        <view class="picker-bulk-btn" bindtap="unselectAllVisible">取消当前</view>
+        <view class="picker-bulk-btn danger" bindtap="clearSelected">清空</view>
+      </view>
+
+      <scroll-view class="picker-list" scroll-y>
+        <view class="picker-item" wx:for="{{pickerGoods}}" wx:key="id" bindtap="toggleGoods" data-id="{{item.id}}">
+          <view class="goods-check {{selectedMap[item.id] ? 'check-on' : ''}}">
+            <t-icon wx:if="{{selectedMap[item.id]}}" name="check" size="12" color="#ffffff" />
+          </view>
+          <view class="picker-item-body">
+            <view class="picker-item-name ellipsis">{{item.name}}</view>
+            <view class="picker-item-cat">{{item.category || '其他'}}</view>
+          </view>
+          <text class="picker-item-price">¥{{item.price}}</text>
+        </view>
+        <view class="picker-empty" wx:if="{{!pickerGoods.length}}">没有匹配的商品</view>
+      </scroll-view>
+    </block>
+  </view>
+</view>

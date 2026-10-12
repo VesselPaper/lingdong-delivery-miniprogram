@@ -87,7 +87,6 @@
     <view class="card" wx:elif="{{position && position.text}}">
       <view class="section-title">机器人位置</view>
       <view class="task-status text-sub">{{position.text}}</view>
-      <view class="text-weak text-sm">当前为演示模式，暂不显示实时地图位置</view>
     </view>
 
     <!-- P1-4：配送异常(6) —— 机器人故障/长时间无进展时，给用户明确的异常说明与退款/投诉出口 -->

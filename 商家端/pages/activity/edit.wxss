@@ -182,6 +182,20 @@
   gap: 10rpx;
 }
 
+/* 生效时间的「长期」开关：整行可读，开关靠右 */
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #F0F0F0;
+}
+
+.switch-label {
+  font-size: 28rpx;
+  color: #111111;
+}
+
 .tip {
   margin-top: 20rpx;
   text-align: center;
