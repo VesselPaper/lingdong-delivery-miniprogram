@@ -1922,7 +1922,8 @@ window.Map3DGL = (function () {
 
     // ---- 统一绘制 ----
     //   · 远的先画、近的后画 → 近处的名字自然压住远处的名字；
-    //   · 初始完全不透明(alpha=1)，越远越透明（被遮在后面的越淡），最近 1.00 → 最远 0.45；
+    //   · 2026-10-12 起透明度一律 1（不再按相机距离变亮变暗 —— 负责人反馈"11栋/7栋 和别的字不一样"，
+    //     其实是距离淡出让近的字更亮；统一后所有标注同亮度同字号）；
     //   · 同深度时按层级：楼栋(1)最后画、压在上层，然后第二层、第三层。
     //   · 字号随视角缩放：font = 基准 / view.zoom（视角放大文字同步放大、缩小同步缩小）。
     var eye = cam.eye
@@ -1936,9 +1937,12 @@ window.Map3DGL = (function () {
     for (var k0 = 0; k0 < items.length; k0++) {
       var it0 = items[k0]
       it0.bold = (it0.kind === 'bld')
-      it0.base = it0.bold ? LABEL_BASE_PX[1] : (it0.pr === 2 ? LABEL_BASE_PX[2] : LABEL_BASE_PX[3])
+      // 2026-10-12 负责人要求"点位字体样式统一"：
+      //  · 点位名（site）一律 10px（原来按层 9/10 分，不统一）；
+      //  · 透明度一律 1（原来按相机距离 0.45~1.0 变亮变暗，近的字显得不一样）。
+      it0.base = it0.bold ? LABEL_BASE_PX[1] : LABEL_BASE_PX[2]
       it0.font = (it0.bold ? 'bold ' : '') + (it0.base * kzText).toFixed(1) + 'px "Microsoft YaHei",sans-serif'
-      it0.alpha = 1.00 - 0.55 * ((it0.d - dMin) / dSpan)
+      it0.alpha = 1
       it0.tx = it0.x; it0.ty = it0.y      // 落笔位置＝锚点本身：文字一律不再挪位
     }
     // ---- 文字位置固定：不为了避让而挪位，重叠时按"被压住的程度"降低透明度 ----
