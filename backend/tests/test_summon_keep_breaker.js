@@ -157,6 +157,29 @@ function mkDeps(statusOf, calls) {
     db.close()
   }
 
+  console.log('[7] 服务重启后（内存为空）：残留的旧告警要能被清掉（2026-10-12 实测踩到）')
+  {
+    const db = mkStore() // 没有任何批次在等上货
+    db.prepare("INSERT INTO meta (key,value) VALUES ('summon_keep_alert:SN-G','{\"fails\":3,\"stopped\":false}')").run()
+    const calls = { n: 0 }
+    const deps = mkDeps(() => 50, calls)
+    await timers.keepLoadingSummon(db, deps)
+    ok(!db.prepare("SELECT 1 FROM meta WHERE key='summon_keep_alert:SN-G'").get(), '无等货批次的旧告警被清掉')
+    db.close()
+  }
+
+  console.log('[8] 有批次在等上货时：旧告警保留（不清错）')
+  {
+    const db = mkStore()
+    seedBatch(db, { id: 8, sn: 'SN-H', taskId: 'LT-H1' })
+    db.prepare("INSERT INTO meta (key,value) VALUES ('summon_keep_alert:SN-H','{\"fails\":3,\"stopped\":false}')").run()
+    const calls = { n: 0 }
+    const deps = mkDeps(() => 20, calls) // 任务还活着
+    await timers.keepLoadingSummon(db, deps)
+    ok(!!db.prepare("SELECT 1 FROM meta WHERE key='summon_keep_alert:SN-H'").get(), '仍在等货的车，告警保留')
+    db.close()
+  }
+
   console.log('\n' + (fail === 0 ? '🎉 全部通过' : '❌ 有失败项') + '（' + pass + ' 项通过' + (fail ? '，' + fail + ' 项失败' : '') + '）')
   process.exit(fail === 0 ? 0 : 1)
 })().catch((e) => { console.error('❌ 测试跑挂：' + e.message); process.exit(1) })

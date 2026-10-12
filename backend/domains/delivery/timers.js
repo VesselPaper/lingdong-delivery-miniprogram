@@ -333,10 +333,19 @@ async function keepLoadingSummon(store, deps) {
     } catch (e) { /* 单台不影响 */ }
   }
 
-  // 没有车在等上货了（批次配送中/完成/取消）→ 清熔断状态与告警
+  // 没有车在等上货了（批次配送中/完成/取消）→ 清连续失败计数与告警
   for (const sn of Array.from(keepFail.keys())) {
     if (!byDev.has(sn)) { keepFail.delete(sn); clearKeepAlert(store, sn) }
   }
+  // 再以 meta 里的告警行为准清一遍：服务重启后 keepFail 是空的，只按内存删会漏掉旧告警，
+  // 导致管理端一直亮着"召唤连续失败"的红字（2026-10-12 实测踩到：批次完成后旧告警残留）。
+  try {
+    const rows = store.prepare("SELECT key FROM meta WHERE key LIKE 'summon_keep_alert:%'").all()
+    for (const r of rows) {
+      const sn = String(r.key).slice(KEEP_ALERT_PREFIX.length)
+      if (!byDev.has(sn)) clearKeepAlert(store, sn)
+    }
+  } catch (e) { /* meta 不存在（极简测试库）时忽略 */ }
 }
 
 module.exports = { start, BATCH_SCAN_MS, carState, keepLoadingSummon, keepFailOf }
