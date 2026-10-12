@@ -301,10 +301,11 @@ main.grid.hideRight .colRight{ transform:translateX(110%); opacity:0; pointer-ev
 .legend{ flex:none; display:flex; align-items:center; gap:14px; font-size:12.5px; color:var(--txt-dim); }
 .legend span{ flex:none; display:inline-flex; align-items:center; white-space:nowrap; }
 .legend .lg{ width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:5px; flex:none; }
-/* 图例配色与 3D 场景实际元素一致：楼栋(玻璃蓝) / 配送点(橙) / 无人车(白) / 雷达路线(青绿) / 校园道路(灰) */
-.lgBld{ background:#8fb6dd; box-shadow:0 0 6px rgba(143,182,221,.85); }
-.lgLm{ background:var(--orange); box-shadow:0 0 6px rgba(250,140,22,.8); }
-.lgCar{ background:#eafcff; box-shadow:0 0 7px rgba(234,252,255,.95); }
+/* 图例配色与 3D 场景实际元素一致：楼栋(淡青名) / 上货点(黄针) / 充电·取货点(绿针) / 无人车(白名) / 雷达路线(青绿) / 校园道路(灰) */
+.lgBld{ background:#9ef2ff; box-shadow:0 0 6px rgba(158,242,255,.85); }
+.lgLoad{ background:#ffd24a; box-shadow:0 0 6px rgba(255,210,74,.85); border-radius:2px; transform:rotate(45deg); }
+.lgSite{ background:#2fd45c; box-shadow:0 0 6px rgba(47,212,92,.85); border-radius:2px; transform:rotate(45deg); }
+.lgCar{ background:#ffffff; box-shadow:0 0 7px rgba(127,240,255,.95); }
 .lgPath{ background:#61f2db; box-shadow:0 0 7px rgba(97,242,219,.9); }
 .lgRoad{ background:#b8c9d8; box-shadow:0 0 6px rgba(184,201,216,.85); }
 
