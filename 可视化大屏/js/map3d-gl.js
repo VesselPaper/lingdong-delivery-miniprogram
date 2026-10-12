@@ -1213,6 +1213,10 @@ window.Map3DGL = (function () {
   // 屏幕距离 < SITE_CULL_PX 的多个点位只留一个 —— 优先级 上货点(3) > 充电点(2) > 取货点(1)，
   // 其余点位**连同名称整组隐藏**；放大后点位分开会重新出现（密度自适应，不会永久消失）。
   var SITE_CULL_PX = 36
+  // 车辆聚类（2026-10-12，负责人反馈"无人车会在充电点堆积"）：
+  // 屏幕距离 < CAR_CLUSTER_PX 的多台车合成一组，叠加层只画一台代表车的标记 + "N台"徽标，
+  // 其余车保留 3D 车模但不再重复画光环/光柱/名字；放大后彼此分开会各自显示。
+  var CAR_CLUSTER_PX = 40
   var snapNet = null
   function buildSnapNet() {
     snapNet = null
@@ -1536,6 +1540,35 @@ window.Map3DGL = (function () {
       else cars = []
     }
     lastCars = cars
+
+    // 车辆聚类（2026-10-12，负责人反馈无人车会在充电点堆积）：
+    // 屏幕距离 < CAR_CLUSTER_PX 的车合成一组，叠加层只画一台代表车的标记 + "N台"徽标，
+    // 其余车保留 3D 车模但不重复画光环/光柱/名字；放大后彼此分开会各自显示。
+    var cluRep = [], cluSize = [], cluRepIdx = [], cluCtr = []
+    for (var cli = 0; cli < cars.length; cli++) {
+      var cpc = S.projectPoint(cam, W, H, [cars[cli].x, 0.8, cars[cli].z])
+      var pxx = cpc ? cpc[0] : -1e9, pyy = cpc ? cpc[1] : -1e9
+      var cg = -1
+      for (var cgx = 0; cgx < cluCtr.length; cgx++) {
+        if (Math.hypot(pxx - cluCtr[cgx].x, pyy - cluCtr[cgx].y) < CAR_CLUSTER_PX) { cg = cgx; break }
+      }
+      if (cg < 0) { cg = cluCtr.length; cluCtr.push({ x: 0, y: 0, n: 0, sx: 0, sy: 0, first: cli }) }
+      cluCtr[cg].n++; cluCtr[cg].sx += pxx; cluCtr[cg].sy += pyy
+      cluRep[cli] = cg
+    }
+    for (var cgz = 0; cgz < cluCtr.length; cgz++) {
+      var gc1 = cluCtr[cgz]
+      gc1.x = gc1.sx / gc1.n; gc1.y = gc1.sy / gc1.n
+      cluSize[cgz] = gc1.n
+      cluRepIdx[cgz] = gc1.first
+      // 簇内有选中车时让选中车当代表（数据牌/金色高亮不丢）
+      if (gc1.n > 1 && selectedSn) {
+        for (var cgm = 0; cgm < cars.length; cgm++) {
+          if (cluRep[cgm] === cgz && cars[cgm].sn === selectedSn) { cluRepIdx[cgz] = cgm; break }
+        }
+      }
+    }
+    _carClu = { rep: cluRep, size: cluSize, repIdx: cluRepIdx, ctr: cluCtr }
     // 拖尾 3D 地面带（每帧重建 → 复用 buffer）。车辆拖尾在下方，车体遮挡它。
     var tm = buildTrailMesh(cars)
     if (tm) { tm.aux = null; trailBuf = uploadMeshInto(trailBuf, tm) }   // 拖尾不需要 aux（省一次上传）
@@ -1596,12 +1629,17 @@ window.Map3DGL = (function () {
       if (c.appear != null && c.appear < 1) mtx = S.mat4.mul(mtx, S.mat4.scale(c.appear, c.appear, c.appear))
       // 光环/光柱是"标记"，不该被建筑裁切：原来只关 depthMask，深度**测试**仍生效，
       // 车一旦躲到楼后就连标记一起被裁掉 → 现在把测试也关掉（2026-10-12 修）。
-      gl.depthMask(false)
-      gl.disable(gl.DEPTH_TEST)
-      drawMesh(bufs.ring, mtx)
-      drawMesh(bufs.beam, mtx)
-      gl.enable(gl.DEPTH_TEST)
-      gl.depthMask(true)
+      // 堆积的车（同一簇）只让代表车画光环/光柱，其余车不重复画，避免糊成一团。
+      var mc = _carClu, mcg = mc ? mc.rep[m] : -1
+      var mInClu = mc && mcg >= 0 && mc.size[mcg] >= 2
+      if (!mInClu || mc.repIdx[mcg] === m) {
+        gl.depthMask(false)
+        gl.disable(gl.DEPTH_TEST)
+        drawMesh(bufs.ring, mtx)
+        drawMesh(bufs.beam, mtx)
+        gl.enable(gl.DEPTH_TEST)
+        gl.depthMask(true)
+      }
       drawMesh(bufs.car, mtx)
       // 车体穿透"幽灵"：同色再画一遍（关深度测试 + 35% 混合）。
       // 车清晰可见时：同色叠同色 = 像素不变（对画面零影响）；
@@ -1622,6 +1660,8 @@ window.Map3DGL = (function () {
   var _twCache = {}
   // 上一帧标注的落笔情况（文字/锚点/实际落笔点/透明度），供排查与回归验证用
   var _lastLabels = []
+  // 上一帧车辆聚类结果（每帧在 render 里重算；3D 车循环与叠加层共用，见 CAR_CLUSTER_PX）
+  var _carClu = null
   function textWidth(g, txt, font) {
     var k = font + '|' + txt
     var v = _twCache[k]
@@ -1655,7 +1695,16 @@ window.Map3DGL = (function () {
       // 入场淡入：与 3D 车体的"原地生长"同步，避免车还没长出来、叠层标记先蹦出来
       var cap = (c.appear == null ? 1 : c.appear)
       g.globalAlpha = cap
-      drawCarMarker(g, c)
+      // 堆积的车（同一簇）只画一台代表车的"簇标记 + N台徽标"，其余车不画单个标记/名字
+      var cc2 = _carClu, ccg = cc2 ? cc2.rep[ci] : -1
+      var inClu = cc2 && ccg >= 0 && cc2.size[ccg] >= 2
+      if (inClu) {
+        if (cc2.repIdx[ccg] === ci) {
+          drawCarCluster(g, cc2.ctr[ccg].x, cc2.ctr[ccg].y, cc2.size[ccg], !!(selectedSn && c.sn === selectedSn))
+        }
+      } else {
+        drawCarMarker(g, c)
+      }
       if (cap <= 0.999) { g.globalAlpha = 1; continue }   // 未长成前先不画数据牌
       var top = S.projectPoint(cam, W, H, [c.x, carMesh.height + 1.6 * scene.pxPerM, c.z])
       if (!top) { g.globalAlpha = 1; continue }
@@ -1670,7 +1719,7 @@ window.Map3DGL = (function () {
         // 抬升量随牌子大小一起变（牌子变高后不能压住车顶）；
         // 只入队不立即画 —— 整帧结束前最后补画，保证不被楼名/站点名遮挡。
         plates.push({ x: top[0], y: top[1] - (16 + 14 * plateScale()), lines: lines, color: '#7ff0ff' })
-      } else if (opts.carNames) {
+      } else if (opts.carNames && !inClu) {
         // 未选中车：只画一行简洁名称，不画底板/引线 —— 多台车同屏也不糊成一片卡片
         drawCarName(g, top[0], top[1] - 12, carLabel(c, info), !!c.demo)
       }
@@ -2013,6 +2062,51 @@ window.Map3DGL = (function () {
     }
     return any ? S.finalize(m) : null
   }
+  // 车辆簇标记：多台车在充电点等同一处堆积时（屏幕距离 < CAR_CLUSTER_PX），
+  // 只画一台代表车的"簇"：光环（更大）+ 光柱 + 数量徽标"N台"；放大分开后各自显示。
+  function drawCarCluster(g, x, y, n, sel) {
+    var rr = 26 + Math.min(10, n * 2)
+    g.save()
+    g.shadowColor = sel ? 'rgba(255,200,40,0.85)' : 'rgba(80,220,255,0.9)'
+    g.shadowBlur = 14
+    g.strokeStyle = sel ? 'rgba(255,213,61,0.95)' : 'rgba(120,235,255,0.92)'
+    g.lineWidth = 2.4
+    g.beginPath(); g.arc(x, y, rr, 0, 6.2832); g.stroke()
+    g.restore()
+    // 光柱（屏幕长度固定 72px，保证任何缩放下都醒目）
+    var topY = y - 72
+    var grd = g.createLinearGradient(x, topY, x, y)
+    grd.addColorStop(0, 'rgba(120,235,255,0.10)')
+    grd.addColorStop(1, 'rgba(120,235,255,0.60)')
+    g.save()
+    g.strokeStyle = grd; g.lineWidth = 3
+    g.beginPath(); g.moveTo(x, topY); g.lineTo(x, y); g.stroke()
+    g.restore()
+    // 数量徽标：圆角胶囊 "N台"
+    g.save()
+    g.font = 'bold 13px "Microsoft YaHei",sans-serif'
+    var tw = g.measureText(n + '台').width
+    var bw = tw + 14, bh = 20, bx = x - bw / 2, by = topY - bh - 6
+    g.fillStyle = 'rgba(6,20,34,0.92)'
+    g.strokeStyle = sel ? 'rgba(255,213,61,0.95)' : 'rgba(120,235,255,0.9)'
+    g.lineWidth = 1.4
+    roundRectPath(g, bx, by, bw, bh, 6)
+    g.fill(); g.stroke()
+    g.fillStyle = sel ? '#ffd53d' : '#7ff0ff'
+    g.textAlign = 'center'; g.textBaseline = 'middle'
+    g.fillText(n + '台', x, by + bh / 2 + 0.5)
+    g.textAlign = 'left'; g.textBaseline = 'middle'
+    g.restore()
+  }
+  function roundRectPath(g, x, y, w, h, r) {
+    g.beginPath()
+    g.moveTo(x + r, y)
+    g.lineTo(x + w - r, y); g.arcTo(x + w, y, x + w, y + r, r)
+    g.lineTo(x + w, y + h - r); g.arcTo(x + w, y + h, x + w - r, y + h, r)
+    g.lineTo(x + r, y + h); g.arcTo(x, y + h, x, y + h - r, r)
+    g.lineTo(x, y + r); g.arcTo(x, y, x + r, y, r)
+    g.closePath()
+  }
   // 车辆定位标记：地面光环 + 呼吸圈 + 垂直光柱 + 顶端定位泡。
   // 2026-10-12 加强（负责人反馈"库房那片车被楼挡住、看不清"）：
   //   ① 光环有**屏幕像素下限**（26px）—— 校园尺度 + 缩远后原来会小到看不见；
@@ -2239,6 +2333,8 @@ window.Map3DGL = (function () {
     // 只读：上一帧标注的落笔情况（锚点 x/y vs 实际落笔 tx/ty、透明度 alpha）。
     // 验证脚本用它断言"文字位置固定、重叠只降透明度"（勿删）。
     labelsDebug: function () { return _lastLabels },
+    // 只读：上一帧车辆聚类结果（验证脚本用：断言"充电点堆积时合成 N台 簇"）
+    carClusterDebug: function () { return _carClu },
     setCarScale: setCarScale,
     setRobots: setRobots,
     // 选中/跟随（大屏左侧车辆卡面用）：setSelected 由大屏调用（silent 同步，不回环）
