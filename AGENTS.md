@@ -33,14 +33,14 @@
 ```powershell
 # 1) 后端（端口 3000）
 cd backend
-node server.js          # 或直接双击仓库根的「启动服务器.bat」
+node server.js          # 本机开发用；仓库根的「打开*.bat」是打开【云端】页面，不会起本机后端
 
 # 2) 回归测试（改配送 / 订单后必跑）
 cd backend
 node tests\test_batch_flow.js     # 其余 test_*.js 同理
 
-# 3) 小程序：微信开发者工具分别导入 用户端\ 与 商家端\
-# 4) 管理员网页 http://localhost:3000/admin/    大屏 http://localhost:3000/dashboard/
+# 3) 小程序：微信开发者工具分别导入 用户端\ 与 商家端\（地址已内置云端，无需改）
+# 4) 云端页面 http://47.108.151.96:3000/admin/    大屏 http://47.108.151.96:3000/dashboard/
 ```
 
 - **Node 必须 ≥ 22.13**（建议 24 LTS）。后端用的是 Node 内置 `node:sqlite`（`backend/db.js`），低于该版本起不来。
