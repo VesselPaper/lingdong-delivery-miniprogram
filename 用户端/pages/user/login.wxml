@@ -11,5 +11,14 @@
     <view class="btn btn-block {{logging ? 'btn-disabled' : ''}}" bindtap="wechatLogin">{{loginDemo ? '模拟登录（演示）' : '微信一键登录'}}</view>
     <view class="login-tip text-weak text-sm" wx:if="{{loginDemo}}">当前后端未配置用户端微信凭据，登录为演示模式（不产生真实微信身份）</view>
     <view class="login-tip text-weak text-sm">登录即同意《用户协议》与《隐私政策》</view>
+
+    <!-- 账号密码登录（2026-10-11 新增）：不依赖微信凭据，成员本机联调/演示用；默认收起 -->
+    <view class="login-tip text-weak text-sm" wx:if="{{!showAccount}}" bindtap="toggleAccount">用账号密码登录</view>
+    <view class="login-account" wx:if="{{showAccount}}">
+      <input class="login-input" type="text" placeholder="账号" placeholder-class="login-ph" value="{{username}}" bindinput="onUsernameInput" />
+      <input class="login-input" password="{{true}}" placeholder="密码" placeholder-class="login-ph" value="{{password}}" bindinput="onPasswordInput" />
+      <view class="btn btn-block {{logging ? 'btn-disabled' : ''}}" bindtap="accountLogin">账号密码登录</view>
+      <view class="login-tip text-weak text-sm" bindtap="toggleAccount">收起，用微信登录</view>
+    </view>
   </view>
 </view>

@@ -11,6 +11,15 @@ Page({
     showPwd: false
   },
 
+  onShow() {
+    // 单点登录：被"别处登录"踢下线的原因由 utils/request.js 写进 login_notice，回到登录页时弹窗说明
+    const notice = wx.getStorageSync('login_notice')
+    if (notice) {
+      try { wx.removeStorageSync('login_notice') } catch (e) { /* 忽略 */ }
+      wx.showModal({ title: '登录已失效', content: String(notice), showCancel: false, confirmText: '重新登录' })
+    }
+  },
+
   onUsernameInput(e) {
     this.setData({ username: e.detail.value })
   },

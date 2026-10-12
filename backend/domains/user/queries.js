@@ -18,7 +18,9 @@ module.exports = {
   // users 表仍是单一用户表：openid 用户（微信登录）与 username 商家账号共存；
   // 商家账号 = username 非空 + role='merchant'，token 为登录签发的随机串（可吊销）。
   findByUsername: (store, username) => store.prepare('SELECT * FROM users WHERE username=?').get(String(username || '').trim()),
-  setToken: (store, id, token) => store.prepare('UPDATE users SET token=? WHERE id=?').run(String(token), Number(id)),
+  // 单点登录：签发新 token 时把**旧** token 记进 kicked_token（SQLite 的 SET 右侧读的是更新前的值），
+  // 旧设备下次请求就会拿到「已被踢下线」的明确提示，而不是含糊的"登录失效"。
+  setToken: (store, id, token) => store.prepare('UPDATE users SET kicked_token=token, token=? WHERE id=?').run(String(token), Number(id)),
   clearToken: (store, id) => store.prepare('UPDATE users SET token=NULL WHERE id=?').run(Number(id)),
   // 商家账号列表（管理员网页「商家管理」）：只出管理字段，绝不返回密码/token
   // 排序：店主在前、店员在后；同角色内启用在前、新创建在前

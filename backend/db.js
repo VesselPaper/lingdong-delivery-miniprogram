@@ -28,6 +28,7 @@ function init() {
       password_hash TEXT,            -- scrypt salt$hash（复用 adminAuth 方案）
       merchant_role TEXT DEFAULT '', -- 'owner'=店主 / 'staff'=店员 / ''=非商家账号
       token TEXT,                    -- 登录签发的随机 session token（可吊销；用户端微信登录仍用 openid 作 token）
+      kicked_token TEXT,             -- 被新登录顶掉的旧 token（单点登录提示用，见 domains/_shared.js 的 auth）
       status INTEGER DEFAULT 1       -- 1 启用 / 0 禁用（禁用后 token 失效无法登录）
     );
     CREATE TABLE IF NOT EXISTS addresses (
@@ -313,6 +314,14 @@ function migrate(db) {
     expires_at TEXT NOT NULL
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS ux_admin_sessions_user ON admin_sessions(admin_user_id)')
+  // admin_kicked_sessions（单点登录，2026-10-11）：被"新登录"顶掉的旧管理员会话。
+  // 旧页面下次请求据此收到「你的账号已在别处登录，已被踢下线」，而不是含糊的"登录已过期"。
+  // 只用于解释一次，超过会话有效期即清理，**不参与鉴权判定**。
+  db.exec(`CREATE TABLE IF NOT EXISTS admin_kicked_sessions (
+    token TEXT PRIMARY KEY,
+    admin_user_id INTEGER,
+    kicked_at TEXT DEFAULT (datetime('now','localtime'))
+  )`)
   // delivery_tasks：批次归属
   const taskCols = db.prepare('PRAGMA table_info(delivery_tasks)').all().map((c) => c.name)
   if (!taskCols.includes('batch_id')) db.exec("ALTER TABLE delivery_tasks ADD COLUMN batch_id INTEGER DEFAULT NULL")
@@ -484,6 +493,14 @@ function migrate(db) {
     }
     db.prepare("INSERT INTO meta (key, value) VALUES ('merchant_account_cols_at', datetime('now','localtime'))").run()
     console.log('[db] users 表已扩展商家账号列（username/password_hash/merchant_role/token/status）')
+  }
+
+  // 一次性迁移：users 表补「被新登录顶掉的旧 token」列（单点登录提示用）。
+  // 必须用**独立**的 meta 标记：老库上面那句 merchant_account_cols_at 早已置位，共用标记会导致这一列永远补不上。
+  const kickColAt = db.prepare("SELECT value FROM meta WHERE key='user_kicked_token_col_at'").get()
+  if (!kickColAt) {
+    try { db.exec('ALTER TABLE users ADD COLUMN kicked_token TEXT') } catch (e) { /* 已存在则忽略 */ }
+    db.prepare("INSERT INTO meta (key, value) VALUES ('user_kicked_token_col_at', datetime('now','localtime'))").run()
   }
 
   // 商家邀请码（按商家一条，只存哈希；首次使用绑定 openid，可逐个吊销）

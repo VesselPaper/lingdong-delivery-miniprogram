@@ -4,6 +4,8 @@
 // 说明：本文件不依赖任何域，域间互相 require 时不会成环。
 
 const crypto = require('crypto')
+// 单点登录：被新登录顶掉的旧管理员会话记在 admin_kicked_sessions，借助它给出明确提示（services 方向依赖，无环）
+const adminAuth = require('../services/adminAuth')
 // 状态流水：audit() 顺带登记「操作者线索」，供采集器给状态迁移署名（见 services/statusEvents.js）
 const statusEvents = require('../services/statusEvents')
 
@@ -64,7 +66,14 @@ function createShared(store) {
     const token = (req.headers.authorization || '').replace('Bearer ', '')
     if (!token) return res.status(401).json({ code: 401, msg: '未登录' })
     const row = store.prepare('SELECT * FROM users WHERE token=? OR openid=?').get(token, token)
-    if (!row) return res.status(401).json({ code: 401, msg: '登录失效' })
+    if (!row) {
+      // 单点登录：这个 token 是"被新登录顶掉"的旧会话吗？是就明确告知（前端据此提示"账号已在别处登录"），
+      // 否则只报笼统的"登录失效"，用户不知道是自己被别处登录踢下来的。
+      let kicked = null
+      try { kicked = store.prepare('SELECT id FROM users WHERE kicked_token=?').get(token) } catch (e) { kicked = null }
+      if (kicked) return res.status(401).json({ code: 'SESSION_KICKED', msg: '该账号已在其他设备登录，你已被踢下线' })
+      return res.status(401).json({ code: 401, msg: '登录失效' })
+    }
     req.user = row
     next()
   }
@@ -97,6 +106,10 @@ function createShared(store) {
       FROM admin_sessions s JOIN admin_users u ON u.id = s.admin_user_id
       WHERE s.token=? AND s.expires_at > datetime('now','localtime')`).get(given) : null
     if (!s || Number(s.status) !== 1) {
+      // 单点登录：被新登录顶掉的旧 session 会进"被踢名单"，据此给出明确提示
+      if (given && adminAuth.wasKicked(store, given)) {
+        return res.status(401).json({ code: 'SESSION_KICKED', msg: '该账号已在别处登录，你已被踢下线' })
+      }
       return res.status(401).json({ code: 401, msg: '未登录或登录已过期' })
     }
     req.admin = { id: s.id, username: s.username, nickname: s.nickname || '', role: s.role || 'admin' }

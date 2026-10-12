@@ -93,6 +93,32 @@ async function login(store, deps, body, ip) {
     }
   }
 
+  // ==================== 用户端：账号密码登录（2026-10-11 新增） ====================
+  // 为什么加：用户端原本只有微信登录，成员本机没配 WX_APPID/WX_SECRET 时只能走"演示登录"，
+  // 且必须真机/模拟器能连到后端才有意义。现在支持「后端账号 + 密码」，
+  // 成员不配微信凭据也能登进用户端（账号可在管理员网页「商家管理」创建，或由启动自举生成，
+  // 见 services/bootstrap.js）。与商家端共用 users 表与同一套 scrypt 校验。
+  // 注意单点登录语义：同一账号在用户端登录会顶掉它在商家端的会话（users.token 只有一个槽位）。
+  if (username && password) {
+    const uname = String(username).trim()
+    const row = q.findByUsername(store, uname)
+    if (!row || Number(row.status) !== 1 || !row.password_hash || !adminAuth.verifyPassword(String(password), row.password_hash)) {
+      loginFail.add(ip)
+      return { error: { status: 403, msg: '账号或密码错误' } }
+    }
+    const token = crypto.randomBytes(32).toString('hex')
+    q.setToken(store, row.id, token)
+    loginFail.ok(ip)
+    const rt = deps.runtime
+    return {
+      data: {
+        token,
+        user: sanitizeUser(q.findById(store, row.id)),
+        runtime: { mode: rt.mode, device_mock: rt.deviceMock, pay_mock: !rt.realPay, login: rt.loginMode(clientKey) }
+      }
+    }
+  }
+
   // ==================== 用户端：微信登录（不变） ====================
   if (!code) return { error: { status: 400, msg: '缺少登录凭证' } }
   let openid = ''

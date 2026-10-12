@@ -2,7 +2,8 @@
   // ---------- 单项操作（走后端统一落账） ----------
   function opFail(e, label) {
     if (isUnauthorized(e)) {
-      setAuthBanner('登录已失效：无法认证，不能查看和管理', true)
+      // 被"别处登录"踢下线时保留 onUnauthorized 写的明确提示，不要覆盖成笼统文案
+      if (!e.kicked) setAuthBanner('登录已失效：无法认证，不能查看和管理', true)
       log('认证失败：' + e.message, 'bad')
     } else {
       toast(label + ' 失败：' + e.message, 'err')

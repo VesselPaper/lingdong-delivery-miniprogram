@@ -45,8 +45,30 @@ function createAdmin(store, { username, password, nickname = '', role = 'admin' 
   return store.prepare('SELECT * FROM admin_users WHERE id=?').get(Number(info.lastInsertRowid))
 }
 
+// 单点登录（2026-10-11）：同一管理员**只保留一个有效会话**。
+// 新登录时先把该账号原有 session 挪进 admin_kicked_sessions 再删，旧页面下次请求就能得到
+// 明确的"已被踢下线"提示；否则只能笼统报"登录已过期"，用户不知道账号被别处登了。
+// 被踢名单只用于解释一次，超过会话有效期即清理，不参与鉴权判定。
+function kickExistingSessions(store, adminId) {
+  try {
+    store.prepare(`INSERT OR REPLACE INTO admin_kicked_sessions (token, admin_user_id, kicked_at)
+      SELECT token, admin_user_id, datetime('now','localtime') FROM admin_sessions WHERE admin_user_id=?`).run(Number(adminId))
+    store.prepare('DELETE FROM admin_sessions WHERE admin_user_id=?').run(Number(adminId))
+    store.prepare("DELETE FROM admin_kicked_sessions WHERE kicked_at < datetime('now','localtime', ?)").run('-' + SESSION_DAYS + ' days')
+  } catch (e) { /* 清理失败不影响本次签发 */ }
+}
+
+// 该 token 是不是"被新登录踢下线"的旧会话（供鉴权层给出明确提示）
+function wasKicked(store, token) {
+  if (!token) return null
+  try {
+    return store.prepare('SELECT token, kicked_at FROM admin_kicked_sessions WHERE token=?').get(String(token)) || null
+  } catch (e) { return null }
+}
+
 // 签发 session：过期时间在 SQL 里算（datetime('now','localtime', '+N days')）
 function issueSession(store, adminId) {
+  kickExistingSessions(store, adminId)   // 单点登录：先踢掉该账号原有会话
   const token = crypto.randomBytes(32).toString('hex')
   store.prepare(`INSERT INTO admin_sessions (token, admin_user_id, expires_at)
     VALUES (?,?, datetime('now','localtime', ?))`).run(token, Number(adminId), '+' + SESSION_DAYS + ' days')
@@ -90,5 +112,7 @@ module.exports = {
   resolveSession,
   revokeSession,
   revokeAllSessions,
+  kickExistingSessions,
+  wasKicked,
   enabledCount
 }

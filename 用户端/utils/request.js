@@ -72,6 +72,12 @@ function request(options) {
           toLogin()
           const msg = (res.data && res.data.msg) || (res.statusCode === 401 ? '登录已失效' : '无权限')
           if (res.statusCode === 403 && !silent) wx.showToast({ title: msg, icon: 'none', duration: 3000 })
+          // 单点登录（2026-10-11）：被"别处登录"踢下线时后端回 code=SESSION_KICKED。
+          // 把原因写进 login_notice 交给登录页弹窗 —— toLogin() 会销毁当前页面，直接 toast 可能来不及显示。
+          // 普通登录失效（会话过期）不打扰用户，保持原有静默回登录页的行为。
+          if (res.data && res.data.code === 'SESSION_KICKED') {
+            try { wx.setStorageSync('login_notice', msg) } catch (e2) { /* 忽略 */ }
+          }
           const err = new Error(msg)
           err.code = res.statusCode
           reject(err)

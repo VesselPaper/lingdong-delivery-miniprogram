@@ -92,8 +92,11 @@
         var err = new Error(j.msg || ('HTTP ' + r.status))
         err.status = r.status
         err.code = j.code
+        // 单点登录（2026-10-11）：被"别处登录"顶下线的旧会话，后端回 code=SESSION_KICKED。
+        // 标在 error 上，让会话失效回调能给出明确提示（而不是笼统的"登录已过期"）。
+        err.kicked = (j.code === 'SESSION_KICKED')
         // 登录接口自身的 401（密码错误）不触发全局会话失效回调，否则会清空用户刚输入的账号密码
-        if (r.status === 401 && path !== '/login') { if (onUnauthorized) onUnauthorized(); throw err }
+        if (r.status === 401 && path !== '/login') { if (onUnauthorized) onUnauthorized(err); throw err }
         if (r.status === 401) throw err
         if (j.code !== 0 && j.code !== undefined) throw err
         return j.data

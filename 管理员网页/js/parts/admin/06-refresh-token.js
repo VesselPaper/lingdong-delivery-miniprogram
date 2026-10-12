@@ -20,7 +20,8 @@
       $('conn').textContent = ''
       if (isUnauthorized(e)) {
         state = null
-        setAuthBanner('登录已过期：请重新登录', true)
+        // 被"别处登录"踢下线时，onUnauthorized 已经写了明确提示，这里不要用笼统文案覆盖它
+        if (!e.kicked) setAuthBanner('登录已过期：请重新登录', true)
         log('认证失败：' + e.message, 'bad')
       } else {
         setAuthBanner('')
@@ -104,9 +105,15 @@
   }
 
   // 会话失效（任意接口 401）统一回调 → 弹登录页
-  onUnauthorized = function () {
+  // 单点登录（2026-10-11）：同一管理员只允许一个会话，被新登录顶掉时后端回 code=SESSION_KICKED；
+  // 必须告诉用户"账号在别处登录了"，否则他只会看到登录页莫名弹出、以为系统坏了。
+  onUnauthorized = function (e) {
     currentAdmin = null
     showLogin()
+    if (e && e.kicked) {
+      setAuthBanner('该账号已在别处登录，你已被踢下线：请重新登录', true)
+      log('会话被踢下线：该管理员账号在其他地方登录了', 'bad')
+    }
   }
 
   // 登录页 / 账号页事件

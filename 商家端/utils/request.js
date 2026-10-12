@@ -51,6 +51,11 @@ function request(options) {
           clearLoginState()
           const msg = (res.data && res.data.msg) || (res.statusCode === 401 ? '登录已失效' : '当前账号不是商家')
           if (res.statusCode === 403) wx.showToast({ title: msg, icon: 'none', duration: 3000 })
+          // 单点登录（2026-10-11）：被"别处登录"踢下线时后端回 code=SESSION_KICKED。
+          // reLaunch 会销毁当前页面，直接 toast 可能来不及显示，故把原因写进 login_notice 交给登录页弹窗。
+          if (res.data && res.data.code === 'SESSION_KICKED') {
+            try { wx.setStorageSync('login_notice', msg) } catch (e2) { /* 忽略 */ }
+          }
           wx.reLaunch({ url: '/pages/user/login' })
           const err = new Error(msg)
           err.code = res.statusCode

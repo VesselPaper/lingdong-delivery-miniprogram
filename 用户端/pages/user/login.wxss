@@ -41,3 +41,25 @@
   text-align: center;
   margin-top: 24rpx;
 }
+
+/* 账号密码登录（2026-10-11 新增）：默认收起，点「用账号密码登录」展开 */
+.login-account {
+  margin-top: 32rpx;
+}
+
+.login-input {
+  height: 96rpx;
+  line-height: 96rpx;
+  padding: 0 32rpx;
+  margin-bottom: 24rpx;
+  background: #FFFFFF;
+  border: 2rpx solid #E0E0E0;
+  border-radius: 12rpx;
+  font-size: 30rpx;
+  color: #111111;
+  box-sizing: border-box;
+}
+
+.login-ph {
+  color: #999999;
+}

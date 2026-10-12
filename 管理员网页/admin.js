@@ -92,8 +92,11 @@
         var err = new Error(j.msg || ('HTTP ' + r.status))
         err.status = r.status
         err.code = j.code
+        // 单点登录（2026-10-11）：被"别处登录"顶下线的旧会话，后端回 code=SESSION_KICKED。
+        // 标在 error 上，让会话失效回调能给出明确提示（而不是笼统的"登录已过期"）。
+        err.kicked = (j.code === 'SESSION_KICKED')
         // 登录接口自身的 401（密码错误）不触发全局会话失效回调，否则会清空用户刚输入的账号密码
-        if (r.status === 401 && path !== '/login') { if (onUnauthorized) onUnauthorized(); throw err }
+        if (r.status === 401 && path !== '/login') { if (onUnauthorized) onUnauthorized(err); throw err }
         if (r.status === 401) throw err
         if (j.code !== 0 && j.code !== undefined) throw err
         return j.data
@@ -816,7 +819,8 @@
       $('conn').textContent = ''
       if (isUnauthorized(e)) {
         state = null
-        setAuthBanner('登录已过期：请重新登录', true)
+        // 被"别处登录"踢下线时，onUnauthorized 已经写了明确提示，这里不要用笼统文案覆盖它
+        if (!e.kicked) setAuthBanner('登录已过期：请重新登录', true)
         log('认证失败：' + e.message, 'bad')
       } else {
         setAuthBanner('')
@@ -900,9 +904,15 @@
   }
 
   // 会话失效（任意接口 401）统一回调 → 弹登录页
-  onUnauthorized = function () {
+  // 单点登录（2026-10-11）：同一管理员只允许一个会话，被新登录顶掉时后端回 code=SESSION_KICKED；
+  // 必须告诉用户"账号在别处登录了"，否则他只会看到登录页莫名弹出、以为系统坏了。
+  onUnauthorized = function (e) {
     currentAdmin = null
     showLogin()
+    if (e && e.kicked) {
+      setAuthBanner('该账号已在别处登录，你已被踢下线：请重新登录', true)
+      log('会话被踢下线：该管理员账号在其他地方登录了', 'bad')
+    }
   }
 
   // 登录页 / 账号页事件
@@ -1538,7 +1548,8 @@
   // ---------- 单项操作（走后端统一落账） ----------
   function opFail(e, label) {
     if (isUnauthorized(e)) {
-      setAuthBanner('登录已失效：无法认证，不能查看和管理', true)
+      // 被"别处登录"踢下线时保留 onUnauthorized 写的明确提示，不要覆盖成笼统文案
+      if (!e.kicked) setAuthBanner('登录已失效：无法认证，不能查看和管理', true)
       log('认证失败：' + e.message, 'bad')
     } else {
       toast(label + ' 失败：' + e.message, 'err')
