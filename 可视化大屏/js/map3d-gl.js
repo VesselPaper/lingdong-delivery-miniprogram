@@ -1206,7 +1206,7 @@ window.Map3DGL = (function () {
   var TIER_T3_ZOOM = 0.50, TIER_T2_ZOOM = 1.00, TIER_T1_HIDE_OUT = 1.25
   // 各层字号基准（zoom=1 时的像素）：楼栋 12 / 第二层 10 / 第三层 9
   var LABEL_BASE_PX = { 1: 12, 2: 10, 3: 9 }
-  // 站点名被别的文字压住时的透明度下限：再挤也不低于这个值，保证"文字永不消失"
+  // 站点名透明度下限：已废弃（2026-10-12 起点位名被遮挡时直接隐藏 alpha=0，不再降透明度）
   var LABEL_ALPHA_MIN = 0.32
   // 站点图标基准半径（zoom=1），第二层 4.4 / 第三层 3.6（比原来 5.4 小）
   var SITE_HEAD_BASE = { 2: 4.4, 3: 3.6 }
@@ -1969,16 +1969,19 @@ window.Map3DGL = (function () {
       if (its2.bold) continue
       var ws = textWidth(g, its2.text, its2.font), hs = its2.base * kzText * 1.2
       var nOv = overlapCount(its2.x, its2.y, ws, hs)
-      // 压住它的东西越多越淡：每个重叠 ×0.6，但不低于下限（文字永不消失）
-      if (nOv > 0) its2.alpha = Math.max(LABEL_ALPHA_MIN, its2.alpha * Math.pow(0.6, nOv))
+      // 2026-10-12 负责人要求：点位名称被遮挡时**不显示名称、只留图标** → 重叠直接 alpha=0；
+      // 楼栋名（bold）不走这里、不受影响。图标在站点绘制段已画，与文字独立。
+      if (nOv > 0) its2.alpha = 0
       reserve(its2.x, its2.y, ws, hs)
     }
-    // 记下这一帧的落笔情况（只读快照，供 labelsDebug() 断言"文字没有被挪位"）
+    // 记下这一帧的落笔情况（只读快照，供 labelsDebug() 断言"文字没有被挪位"；
+    // alpha=0 的条目 = 被遮挡而隐藏的点位名，探针据此断言"隐藏只留图标"）
     _lastLabels = items.map(function (it) {
       return { text: it.text, kind: it.kind, x: it.x, y: it.y, tx: it.tx, ty: it.ty, alpha: it.alpha }
     })
     for (var k2 = 0; k2 < items.length; k2++) {
       var it = items[k2]
+      if (it.alpha <= 0) continue           // 被遮挡的点位名：不画（只留图标）
       g.globalAlpha = it.alpha
       g.font = it.font
       g.lineWidth = Math.max(2, 3 * kzText)
