@@ -579,6 +579,23 @@ function migrate(db) {
   }
 }
 
+// 离线演示档首次建库写入的「演示种子商品」（零栋热卤/饮品那套）。
+// 抽成模块级常量（2026-10-12）：门店商品导入之后这些种子商品就是需要清掉的「旧测试商品」，
+// tools/goods_cleanup.js 要按同一份名单去识别它们 —— 两处各写一份名单，迟早改一处漏一处。
+// 行格式（与下方 insGoods 的列顺序一致）：[名称, 售价, 原价, 图片, 分类, 库存, 描述, 销量]
+const DEMO_GOODS = [
+  ['零小栋热卤盲盒套餐（含卤串）', 10.9, 12.9, '', '热卤', 100, '卤味盲盒，含素菜、卤串、主食，随机搭配，惊喜开盒', 326],
+  ['零小栋热卤精选套餐', 12.9, 15.9, '', '热卤', 100, '含素菜、荤菜、卤串、主食，可选米饭或粥', 412],
+  ['招牌鸭脖（个）', 3.0, 4.0, '', '卤味', 200, '麻辣鲜香，追剧必点，单只装', 568],
+  ['鸭爪（个）', 3.0, 4.0, '', '卤味', 200, '筋道入味，越啃越香', 487],
+  ['鸭翅（个）', 3.0, 4.0, '', '卤味', 200, '香辣过瘾，卤制入味', 355],
+  ['现卤素拼（份）', 5.0, 6.0, '', '热卤', 150, '莲藕、土豆、海带、豆皮四拼', 278],
+  ['热奶茶（中杯）', 8.0, 10.0, '', '饮品', 300, '茶香浓郁，可做冷热', 621],
+  ['柠檬茶（中杯）', 7.0, 9.0, '', '饮品', 300, '手打柠檬，清爽解腻', 534],
+  ['冰美式（中杯）', 9.0, 12.0, '', '饮品', 200, '零栋 4A 咖啡，现磨出品', 198],
+  ['君姐烤鱼单人餐', 18.8, 22.0, '', '套餐', 80, '黑豆花烤鱼单人份，配米饭', 145]
+]
+
 function seed(db) {
   // 店铺状态（营业/自动接单）—— 单门店场景，id=1 为唯一门店
   // 放在 landmarks 提前返回之前，保证首次启动即创建
@@ -618,18 +635,7 @@ function seed(db) {
   }
 
   const insGoods = db.prepare('INSERT INTO goods (name, price, original_price, image, category, stock, description, sales) VALUES (?,?,?,?,?,?,?,?)')
-  ;[
-    ['零小栋热卤盲盒套餐（含卤串）', 10.9, 12.9, '', '热卤', 100, '卤味盲盒，含素菜、卤串、主食，随机搭配，惊喜开盒', 326],
-    ['零小栋热卤精选套餐', 12.9, 15.9, '', '热卤', 100, '含素菜、荤菜、卤串、主食，可选米饭或粥', 412],
-    ['招牌鸭脖（个）', 3.0, 4.0, '', '卤味', 200, '麻辣鲜香，追剧必点，单只装', 568],
-    ['鸭爪（个）', 3.0, 4.0, '', '卤味', 200, '筋道入味，越啃越香', 487],
-    ['鸭翅（个）', 3.0, 4.0, '', '卤味', 200, '香辣过瘾，卤制入味', 355],
-    ['现卤素拼（份）', 5.0, 6.0, '', '热卤', 150, '莲藕、土豆、海带、豆皮四拼', 278],
-    ['热奶茶（中杯）', 8.0, 10.0, '', '饮品', 300, '茶香浓郁，可做冷热', 621],
-    ['柠檬茶（中杯）', 7.0, 9.0, '', '饮品', 300, '手打柠檬，清爽解腻', 534],
-    ['冰美式（中杯）', 9.0, 12.0, '', '饮品', 200, '零栋 4A 咖啡，现磨出品', 198],
-    ['君姐烤鱼单人餐', 18.8, 22.0, '', '套餐', 80, '黑豆花烤鱼单人份，配米饭', 145]
-  ].forEach(r => insGoods.run(...r))
+  DEMO_GOODS.forEach(r => insGoods.run(...r))
 
   // 不再写入演示账号：登录必须走真实微信 code2session（WX_APPID / WX_SECRET）
 }
@@ -712,9 +718,12 @@ function importStoreGoods(db) {
 // 商品种子图回填（幂等）：门店商品数据源自 Excel，不含图片列，所以同步进来的商品 image 是空的，
 // 用户端/商家端商品图会空白。这里在每次启动后，为「图片为空但有同名种子图」的商品填上
 // /store-img/<文件名>，其余（无种子图）保持为空、留待商家后台自行上传。
-// 幂等：只更新 image 为空的商品；已有图片（商家后台上传过 /uploads/...、或上一轮填过的）绝不覆盖。
 // 2026-10-06 起 importStoreGoods 已改为按条码更新、不再删行，商家上传的图不会再被清掉，
 // 本函数只负责「补上还缺图的商品」，与导入不再有先后依赖。
+//
+// 2026-10-12 增加第二种情况：**image 指向的 /store-img/ 文件已经不存在**（历史遗留的错扩展名，
+// 例如库里写着 .png 而仓库里其实是 .jpg；或那张种子图后来被换名/删掉）。这种商品界面上显示的是
+// 破图，比「空图」更糟，所以只要同名的种子图存在就顺手修正路径；商家后台上传的 /uploads/... 一律不碰。
 function applySeedImages(db) {
   const dir = path.join(__dirname, 'seed_images')
   let files = []
@@ -723,19 +732,28 @@ function applySeedImages(db) {
   // 保留中文/字母/数字，去掉空格与标点，用于名称匹配
   const key = (s) => String(s).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]/g, '')
   const seeds = files.map((f) => ({ file: f, key: key(f.replace(/\.[^.]+$/, '')) }))
-  const empty = db.prepare("SELECT id, name FROM goods WHERE image IS NULL OR image = ''").all()
+  const rows = db.prepare("SELECT id, name, image FROM goods WHERE image IS NULL OR image = '' OR image LIKE '/store-img/%'").all()
   const upd = db.prepare('UPDATE goods SET image=? WHERE id=?')
   let n = 0
-  for (const g of empty) {
+  for (const g of rows) {
     const gk = key(g.name)
     if (!gk) continue
     // 只做「规范化后完全相等」的匹配：种子图文件名就是商品名（仅标点/空格差异）。
     // 早先的子串匹配（indexOf/startsWith）会把「脆升升 薯条蜂蜜黄油味50g」错配给
     // 「脆升升 波浪薯片蜂蜜黄油味38g」这类同品牌不同口味的商品，故收紧为精确匹配。
     const hit = seeds.find((s) => s.key === gk)
-    if (hit) { upd.run('/store-img/' + hit.file, g.id); n++ }
+    if (!hit) continue
+    const cur = String(g.image || '').trim().replace('/store-img/', '')
+    // 已经有图且那张图确实在磁盘上 → 不动（含上一轮回填过的、以及换过名但文件仍在的）
+    if (cur && cur !== hit.file) {
+      let exists = false
+      try { exists = fs.existsSync(path.join(dir, cur)) || fs.existsSync(path.join(dir, decodeURIComponent(cur))) } catch (e) { exists = false }
+      if (exists) continue
+    }
+    if (cur === hit.file) continue
+    upd.run('/store-img/' + hit.file, g.id); n++
   }
-  if (n) console.log(`[db] 种子图回填：${n} 个商品已补齐 image（/store-img/）`)
+  if (n) console.log(`[db] 种子图回填：${n} 个商品已补齐/修正 image（/store-img/）`)
 }
 
-module.exports = { init, DB_PATH }
+module.exports = { init, DB_PATH, DEMO_GOODS }

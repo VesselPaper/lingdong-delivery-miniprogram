@@ -118,5 +118,28 @@ Page({
       wx.showToast({ title: '已更新', icon: 'success' })
       this.load()
     } catch (err) { /* handled */ }
+  },
+
+  // 删除商品（店主专属，真删行、不可恢复）。
+  // 与「下架」的区别：下架只是用户端看不见，商品仍占着商家端列表一行、批量录入还会按条码
+  // 把它当「已存在」跳过；门店 Excel 里删掉的旧商品、演示种子商品只能靠真删清掉。
+  // 历史订单明细不受影响（order_items 存的是下单快照），故文案里说明这一点，避免商家不敢删。
+  async deleteGoods(e) {
+    const { id, name } = e.currentTarget.dataset
+    const confirm = await new Promise((resolve) => {
+      wx.showModal({
+        title: '删除商品',
+        content: '将永久删除「' + name + '」，删除后不可恢复；用户端立即看不到该商品。历史订单明细不受影响。确定删除？',
+        confirmText: '删除',
+        confirmColor: '#E64340',
+        success: (r) => resolve(r.confirm)
+      })
+    })
+    if (!confirm) return
+    try {
+      await request.del(api.goodsDelete, { id: Number(id) })
+      wx.showToast({ title: '已删除', icon: 'success' })
+      this.load()
+    } catch (err) { /* handled（后端会提示「商品不存在」等） */ }
   }
 })

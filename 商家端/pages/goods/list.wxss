@@ -149,6 +149,10 @@
   color: #2BA471;
 }
 
+.action-text.text-red {
+  color: #E64340;
+}
+
 .goods-meta {
   margin-top: 8rpx;
   font-size: 24rpx;

@@ -62,6 +62,10 @@
           <t-icon name="stop" size="32rpx" color="{{item.sold_out ? '#2BA471' : '#E64340'}}" />
           <text class="action-text {{item.sold_out ? 'text-green' : ''}}">{{item.sold_out ? '恢复库存' : '标记售罄'}}</text>
         </view>
+        <view class="action" wx:if="{{isOwner}}" bindtap="deleteGoods" data-id="{{item.id}}" data-name="{{item.name}}">
+          <t-icon name="delete" size="32rpx" color="#E64340" />
+          <text class="action-text text-red">删除</text>
+        </view>
       </view>
     </view>
     <view class="empty" wx:if="{{!filtered.length}}">
