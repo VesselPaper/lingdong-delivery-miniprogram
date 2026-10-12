@@ -2215,21 +2215,32 @@ window.Map3DGL = (function () {
     if (!info) return (c && c.snapped) ? '已贴路' : '在线'
     return String(info.machine_text || info.machine_status || '在线') + (c.snapped ? ' · 已贴路' : '')
   }
-  // 未选中车的简洁名称：发光小字 + 深色描边，不画底板/引线（"贴"在车边，不抢画面）
-  // 字号比数据牌小一档（主次分明），但同样跟随地图缩放置适应
+  // 未选中车的简洁名称：白色粗体 + 深色描边 + 青色小圆点前缀（和光环同色系 → "这是车"），
+  // 不画底板/引线（"贴"在车边，不抢画面）。
+  // 2026-10-12 负责人反馈"小车名称和楼栋文字一样，要区分"：
+  // 楼栋名是淡青细字（#9ef2ff），小车名改为纯白粗体 + 圆点前缀，一眼能分开。
   function drawCarName(g, x, y, text, strong) {
     if (!text) return
     var kz = 1 / Math.max(0.01, view.zoom)
     g.save()
     g.textAlign = 'center'
     g.textBaseline = 'middle'
-    g.font = (strong ? 'bold ' : '') + (12.5 * kz).toFixed(1) + 'px "Microsoft YaHei",sans-serif'
+    g.font = 'bold ' + (13 * kz).toFixed(1) + 'px "Microsoft YaHei",sans-serif'
+    var tw = textWidth(g, text, g.font)
+    // 车标圆点前缀（青色，与光环/光柱同色系）
+    var dotR = Math.max(3, 4 * kz)
+    g.fillStyle = 'rgba(127,240,255,0.95)'
+    g.shadowColor = 'rgba(80,220,255,0.9)'
+    g.shadowBlur = 6 * kz
+    g.beginPath(); g.arc(x - tw / 2 - dotR - 5 * kz, y, dotR, 0, 6.2832); g.fill()
+    g.shadowBlur = 0
+    // 名称：白色粗体 + 深色描边
     g.lineWidth = Math.max(2, 3 * kz)
     g.strokeStyle = 'rgba(6,18,32,0.9)'
     g.strokeText(text, x, y)
-    g.fillStyle = 'rgba(196,246,255,0.96)'
-    g.shadowColor = 'rgba(80,220,255,0.75)'
-    g.shadowBlur = 6 * kz
+    g.fillStyle = 'rgba(255,255,255,0.98)'
+    g.shadowColor = 'rgba(80,220,255,0.55)'
+    g.shadowBlur = 5 * kz
     g.fillText(text, x, y)
     g.restore()
     g.textAlign = 'start'
