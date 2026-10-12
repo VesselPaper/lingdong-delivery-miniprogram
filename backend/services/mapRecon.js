@@ -33,7 +33,13 @@ module.exports = {
     try {
       const j = JSON.parse(fs.readFileSync(FILE, 'utf8'))
       if (j && typeof j === 'object') cached = j
-    } catch (e) { /* 首次运行尚无文件或损坏 */ }
+    } catch (e) {
+      // 首次运行尚无文件是正常的（前端回退内置默认地图）。但**文件存在却读不出来**必须留痕：
+      // 这类静默回退会表现为"负责人那边楼是新的、成员那边是旧的"，以前完全没有线索可查（2026-10-11）。
+      if (fs.existsSync(FILE)) {
+        console.warn('[mapRecon] 重构数据读取失败，已回退内置默认地图：' + FILE + ' · ' + e.message)
+      }
+    }
     return cached
   },
 

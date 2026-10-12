@@ -548,7 +548,13 @@ function loadAutoCalib() {
     autoCalibState.pairs = Array.isArray(j && j.pairs) ? j.pairs : []
     autoCalibState.calib = (j && j.calib) || null
     autoCalibState.message = (j && j.message) || ''
-  } catch (e) { /* 首次运行尚无文件 */ }
+  } catch (e) {
+    // 首次运行尚无文件是正常的（回退全局 POS_CAL）。但文件存在却读不出来必须留痕：
+    // 自动标定静默失效会让车/点位整体偏移，而界面上没有任何提示（2026-10-11）。
+    if (fs.existsSync(CALIB_FILE)) {
+      console.warn('[autoCalib] 标定文件读取失败，已回退全局 POS_CAL：' + CALIB_FILE + ' · ' + e.message)
+    }
+  }
   return autoCalibState
 }
 function saveAutoCalib() {

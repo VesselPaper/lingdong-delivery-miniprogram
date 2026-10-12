@@ -6,9 +6,23 @@ const fs = require('fs')
 // 轻量 .env 加载（零依赖）：backend/.env 存在时读取，格式 KEY=VALUE（# 注释行）
 // 注意：必须最先执行——services/platform 与 services/wxpay 在模块加载时就读取 env，
 // 若晚于 require 执行，APPID/SECRET 等将被捕获为空。
+//
+// 2026-10-11：.env 不存在时**自动**从 .env.example 复制一份。
+// 为什么：成员 clone 后没有 .env → RUN_MODE 取默认 demo 但 PLATFORM_MOCK 为空 →
+// 启动守卫判为"运行模式与开关组合不合法"直接 exit(1)，而那句报错完全看不出是缺 .env，
+// 这是成员"我这边跑不起来"最常见的一条。示例文件本身就是 demo+mock 的可跑配置，
+// 自动复制不会引入真实平台/支付风险；要接真实凭据时照常编辑 .env（该文件不进仓库）。
 ;(function loadEnvFile() {
+  const p = path.join(__dirname, '.env')
   try {
-    const p = path.join(__dirname, '.env')
+    const ex = path.join(__dirname, '.env.example')
+    if (!fs.existsSync(p) && fs.existsSync(ex)) {
+      fs.copyFileSync(ex, p)
+      console.log('[lingdong-backend] 未找到 backend/.env，已自动从 .env.example 复制一份（演示/mock 配置）。')
+      console.log('[lingdong-backend]   接真实平台或微信支付时，请编辑 backend/.env 填凭据（该文件不进仓库）。')
+    }
+  } catch (e) { /* 复制失败不阻断：下面照常尝试读取，读不到时由启动守卫给提示 */ }
+  try {
     if (!fs.existsSync(p)) return
     const lines = fs.readFileSync(p, 'utf8').split(/\r?\n/)
     for (const line of lines) {
@@ -73,6 +87,9 @@ platform.setOrderStateSink((store, ev) => {
 })
 
 const store = init()
+// 默认账号自举：成员 clone 后本机库是空的（账号不存在仓库里），这里在非正式档补上默认账号并把账号密码
+// 打印在控制台，让「克隆 → 复制 .env → 启动 → 能登」成立。正式档（production）不会自动建号。
+require('./services/bootstrap').ensureDefaultAccounts(store, runtime)
 const app = express()
 const PORT = process.env.PORT || 3000
 const UPLOAD_DIR = path.join(__dirname, 'uploads')

@@ -175,11 +175,33 @@ window.Dash.main = (function (Dash) {
     syncLayout()
   }
 
+  /* ---------------- 地图「先起来」（2026-10-11） ----------------
+   * 渲染器（连带工具栏上所有按钮，含「雷达图」）只在第一次 renderMap 里创建，而 renderMap 原先
+   * 只被"接口成功后的 apply()"调用 → 后端没起 / 接口失败时渲染器根本不初始化，地图区永久停在
+   * 「地图数据加载中…」，工具栏每个按钮点了都没反应，console 里也没有任何报错。
+   * 但楼栋/道路/雷达底图都来自本地标定文件，本来就不依赖后端，没理由等接口。
+   * 故启动时无条件先建渲染器；接口失败时把原因写到地图提示条上，让"为什么没数据"一眼可见。
+   * ------------------------------------------------------------- */
+  var mapAwake = false
+  var robotPollFails = 0    // 位置轮询连续失败次数（只用来限流告警，见 pollRobots）
+  function wakeMap() {
+    if (mapAwake || !Dash.map || !Dash.map.renderMap) return
+    try { Dash.map.renderMap({ map: null }); mapAwake = true }
+    catch (e) { if (window.console && console.warn) console.warn('[dash] 地图渲染器初始化失败：' + (e && e.message)) }
+  }
+
   function loop() {
     Dash.api.fetchOverview().then(function (d) {
       apply(DEMO ? demoPatch(d) : d)
     }).catch(function (e) {
-      Dash.views.setConn(false, '连接中断' + (e && e.message ? '（' + e.message + '）' : ''))
+      var em = e && e.message ? '（' + e.message + '）' : ''
+      Dash.views.setConn(false, '连接中断' + em)
+      wakeMap()
+      // 首轮就没拿到数据：地图提示条写明原因（地图本身已经画出来了，不是"一片空白"）
+      if (!state.lastOkTs) {
+        var tip = $('mapTip')
+        if (tip) txt(tip, '后端未连接' + em + '：地图与工具栏仍可用，数据恢复后自动刷新')
+      }
     })
   }
 
@@ -193,7 +215,15 @@ window.Dash.main = (function (Dash) {
         return r.has_pos !== false && r.x != null && r.y != null
       })
       Map3D.setRobots(withPos)
-    }).catch(function () { /* 轮询失败静默 */ })
+      robotPollFails = 0
+    }).catch(function (e) {
+      // 位置轮询每秒一次：断网/后端挂掉时不能刷屏，但也不能完全无声 —— 以前这里彻底静默，
+      // 排查"车怎么不动了"连线索都没有。首次失败 + 之后每 30 次提示一次（2026-10-11）。
+      robotPollFails++
+      if (robotPollFails === 1 || robotPollFails % 30 === 0) {
+        if (window.console && console.warn) console.warn('[dash] 机器人位置轮询失败 ' + robotPollFails + ' 次：' + (e && e.message))
+      }
+    })
   }
 
   function memoryGuard() {
@@ -296,6 +326,7 @@ window.Dash.main = (function (Dash) {
     window.resetMap = function () { if (Dash.map && Dash.map.resetView) Dash.map.resetView() }
     window.addEventListener('resize', function () { fitScreen(); Dash.map.mapResized() })
 
+    wakeMap()          // 先建地图（工具栏按钮随之可用），不等接口
     loop()
     setInterval(loop, C.POLL_MS)
     pollRobots()

@@ -616,7 +616,16 @@ window.Map3DGL = (function () {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
       groundReady = true
     }
-    im.onerror = function () { groundReady = false }
+    // 静默失败的坑（2026-10-11）：底图缺失时原来什么都不说，表现为「点『雷达图』按钮变亮但画面
+    // 毫无变化」，排查时完全没有线索。现在明确告警 + 把原因写进地图遮罩。
+    im.onerror = function () {
+      groundReady = false
+      if (window.console && console.warn) console.warn('[Map3D] 雷达底图加载失败：' + im.src)
+      if (maskEl) {
+        maskEl.hidden = false
+        maskEl.textContent = '雷达底图缺失（assets/radar-ground-dark.png 没加载出来），点「雷达图」不会有变化'
+      }
+    }
     im.src = ASSET + 'radar-ground-dark.png?v=' + (window.MAP_ASSET_VER || '1')
   }
 
