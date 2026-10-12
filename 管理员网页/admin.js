@@ -4,20 +4,18 @@
    本文件是 IIFE 的第一片（01-core）：头部注释、常量、基础工具。
    收尾（启动 + `})()`）在最后一片 09-ops.js。
 
-   页面结构（2026-09 重构；2026-10-07 起「配送数据」只读）：
+   页面结构（2026-09 重构；2026-10-12 起导航三项）：
    · 总览：机器人（卡片 + 校园实时地图 + 异常告警）/ 操作日志（服务端审计 + 状态字典 + 会话回显）
-   · 配送数据：批次 / 订单 / 任务 三标签 × 活跃 / 历史 / 全部 三分段，卡片式展示（**只读**）
-   · 设置：账号 / 危险操作（机器人控制页 2026-09-26 移除：控制权与点位同步均由业务自动管理）
    · 商家管理：创建账号 / 已创建列表（编辑弹窗：改用户名 / 改权限 / 重置密码 / 删除账号）
+   · 设置：账号 / 危险操作（机器人控制页 2026-09-26 移除：控制权与点位同步均由业务自动管理）
 
    交互约定（铁律）：
-   · 破坏性操作（关闭并作废 / 仅作废）只从右键菜单进入，无行内按钮；
-     卡片整卡点击 = 打开详情抽屉。
-   · **2026-10-07 权限迁移**：「删除订单」「清理批次」改由商家端小程序执行
-     （店主专属 + 二次确认），管理员网页只保留机器人本体相关的配置与监控，不再维护订单批次。
-     因此本页批次/订单菜单里没有删除项——不是漏了，是权限不在管理员这边了。
-   · 保留下来的任务级操作（关闭并作废 / 仅作废）仍走后端统一落账
-     （作废任务 + 回补库存 + 摘批次 + 平台召回），保证机器人状态、用户端、商家端同步，杜绝死锁。
+   · **2026-10-12：订单相关操作一律在商家端小程序**。「配送数据」页（批次 / 订单 / 任务三类卡片的
+     搜索、状态筛选、右键操作）已整页删除；随页面一起下线的还有它仅剩的任务级「关闭并作废 / 仅作废」
+     （同属订单相关操作）。后端接口保留（回归测试与「一键初始化」复用），管理页不再提供入口。
+   · 管理员侧只保留机器人本体相关的监控与配置：总览 / 商家管理 / 设置。
+   · 机器人卡的破坏性动作（停止并取消任务）仍走后端统一落账：未送达订单取消并自动退款
+     （用户端以「配送小车异常」售后记录可见），双端一致，杜绝死锁。
    · 操作日志读服务端 audit_logs（成功与失败都在），前端内存日志只作会话回显。
    ============================================================ */
 (function () {
@@ -42,10 +40,6 @@
 
   var $ = function (id) { return document.getElementById(id) }
   var state = null                // GET /api/admin/state 的聚合结果
-  var dataTab = 'batch'           // batch | order | task
-  var dataScope = 'active'        // active | history | all
-  var searchQ = ''
-  var statusFilter = ''
   var liveRobots = []             // 最近一次 WS live 推送的机器人位置（供抽屉显示实时位置）
   var toastTimer = null
   var busy = false                // 状态拉取防重入
@@ -115,31 +109,6 @@
       + (isError ? '<span class="hint">请重新登录后再操作</span>' : '')
   }
 
-  // ---------- 状态色（不同状态不同颜色） ----------
-  function tag(text, cls) { return '<span class="tag ' + (cls || '') + '">' + esc(text) + '</span>' }
-
-  function orderTag(o) {
-    var s = Number(o.status)
-    var cls = s === 2 ? 'blue' : s === 3 ? 'violet' : s === 4 ? 'green' : s === 6 ? 'red' : (s === 1 ? 'orange' : 'gray')
-    return tag(ORDER_STATUS[s] || ('状态 ' + s), cls)
-  }
-  function batchTag(b) {
-    var s = Number(b.status)
-    var cls = s === 0 || s === 1 ? 'orange' : s === 2 ? 'blue' : s === 3 ? 'green' : 'gray'
-    return tag(b.status_text && [3, 4].indexOf(s) >= 0 ? b.status_text : (BATCH_STATUS[s] || ('状态 ' + s)), cls)
-  }
-  function taskTag(t) {
-    var s = Number(t.task_status !== undefined ? t.task_status : t.taskStatus)
-    var txt = t.status_text || TASK_STATUS[s] || ('状态 ' + s)
-    var cls = s === 80 ? 'green' : ([90, 100, 120].indexOf(s) >= 0 ? 'red' : ([1, 110, 150].indexOf(s) >= 0 ? 'gray' : (s >= 50 && s < 80 ? 'blue' : 'orange')))
-    return tag(txt, cls)
-  }
-
-  // 批次卡整行头部的底色（按状态取色；与 .bcard-head 的 --bh 变量配合）
-  function batchHeadColor(b) {
-    var s = Number(b.status)
-    return s === 2 ? 'var(--blue)' : s === 3 ? 'var(--ok)' : (s === 0 || s === 1) ? 'var(--amber)' : 'var(--ink-3)'
-  }
   // 时间线节点圆点配色
   function statusDotClass(type, status) {
     var s = Number(status)
@@ -148,17 +117,11 @@
     return s === 80 ? 'ok' : [90, 100, 120].indexOf(s) >= 0 ? 'bad' : [1, 110, 150].indexOf(s) >= 0 ? 'bad' : (s >= 50 && s < 80 ? 'wait' : 'busy')
   }
 
-  // 「最近变更」摘要：来自 status_events 的最新一条
-  function lastEventText(e) {
-    if (!e) return '—'
-    return esc(e.created_at || '') + ' · ' + esc(e.status_text || '')
-  }
 
-
-  // ---------- 导航（总览 / 配送数据 / 商家管理 / 设置） ----------
+  // ---------- 导航（总览 / 商家管理 / 设置） ----------
+  // 2026-10-12：「配送数据」整页删除（订单相关操作全在商家端小程序），导航从 4 项回到 3 项
   var PAGE_META = {
     overview: { title: '总览', sub: '机器人状态、异常与死锁监控' },
-    data: { title: '配送数据', sub: '批次 / 订单 / 任务的搜索、状态与详情' },
     merchants: { title: '商家管理', sub: '商家账号的创建、角色与状态维护' },
     settings: { title: '设置', sub: '账号、控制权、点位与危险操作' }
   }
@@ -176,7 +139,6 @@
     var pgEl = document.getElementById('page-' + page)
     var sc = pgEl ? pgEl.querySelector('.page-body') : null
     if (sc) sc.scrollTop = 0
-    if (state && page === 'data') renderDataPage()
     if (page === 'overview') {
       if (window.invalidateAdminMap) window.invalidateAdminMap()
       if (overviewTab === 'log') loadAudit()
@@ -201,22 +163,12 @@
     if (!root) return
     root.querySelectorAll('.tab').forEach(function (t) { t.classList.toggle('active', t.dataset.tab === key) })
   }
-  // 面板切换：prefix + 首字母大写的 key → 匹配 id（如 dataPanel+batch = dataPanelBatch）
+  // 面板切换：prefix + 首字母大写的 key → 匹配 id（如 merchantsPanel+list = merchantsPanelList）
   function showPanel(prefix, key, allKeys) {
     allKeys.forEach(function (k) {
       var p = $(prefix + k.charAt(0).toUpperCase() + k.slice(1))
       if (p) p.hidden = k !== key
     })
-  }
-
-  // ---------- 筛选下拉：按实体类型填充状态选项 ----------
-  function fillStatusOptions(kind) {
-    var s = $('dataStatus')
-    if (!s) return
-    var dict = kind === 'order' ? ORDER_STATUS : kind === 'task' ? TASK_STATUS : BATCH_STATUS
-    var html = '<option value="">全部状态</option>'
-    Object.keys(dict).forEach(function (k) { html += '<option value="' + k + '">' + esc(dict[k]) + '</option>' })
-    s.innerHTML = html
   }
 
   // ---------- 总览页标签（机器人 / 操作日志） ----------
@@ -227,54 +179,6 @@
     if (tab === 'robot' && window.invalidateAdminMap) window.invalidateAdminMap()
     if (tab === 'log') loadAudit()
   })
-
-  // ---------- 配送数据页标签（批次 / 订单 / 任务） ----------
-  wireTabs('dataTabs', function (tab) {
-    dataTab = tab
-    statusFilter = ''
-    var sel = $('dataStatus'); if (sel) sel.value = ''
-    fillStatusOptions(tab)
-    showPanel('dataPanel', tab, ['batch', 'order', 'task'])
-    renderDataPage()
-  })
-
-  // ---------- 配送数据页分段（活跃 / 历史 / 全部） ----------
-  var scopeRoot = $('dataScope')
-  if (scopeRoot) {
-    scopeRoot.addEventListener('click', function (e) {
-      var btn = e.target.closest('.seg-btn')
-      if (!btn || btn.classList.contains('active')) return
-      scopeRoot.querySelectorAll('.seg-btn').forEach(function (b) { b.classList.toggle('active', b === btn) })
-      dataScope = btn.dataset.scope || 'active'
-      renderDataPage()
-    })
-  }
-
-  // ---------- 状态筛选 ----------
-  // 所选状态是否属于「活跃」口径（batch [0,1,2]、order [2,3,6]、task task_status<80）
-  function statusFitsActive(kind, statusStr) {
-    var sets = { batch: [0, 1, 2], order: [2, 3, 6] }
-    if (kind === 'task') return Number(statusStr) < 80
-    return (sets[kind] || []).indexOf(Number(statusStr)) >= 0
-  }
-  var statusSel = $('dataStatus')
-  if (statusSel) {
-    statusSel.addEventListener('change', function () {
-      statusFilter = this.value
-      // 「活跃」分段下选了「全部状态」或某个终态状态（如已完成/已取消）时，
-      // 这些记录必然不在活跃里 → 自动切到「全部」分段，让「全部状态」名副其实；
-      // 历史/全部分段与「活跃分段选活跃状态」不干预。
-      var needAll = statusFilter === '' || !statusFitsActive(dataTab, statusFilter)
-      if (needAll && dataScope === 'active') {
-        dataScope = 'all'
-        var scopeRoot = $('dataScope')
-        if (scopeRoot) scopeRoot.querySelectorAll('.seg-btn').forEach(function (b) {
-          b.classList.toggle('active', b.dataset.scope === 'all')
-        })
-      }
-      renderDataPage()
-    })
-  }
 
   // ---------- 设置页标签（账号 / 危险操作；机器人控制页已移除：控制权与点位同步均由业务自动管理） ----------
   wireTabs('settingsTabs', function (tab) {
@@ -287,24 +191,11 @@
     if (tab === 'list') loadMerchants()
   })
 
-  // ---------- 搜索框（防抖；跨批次号/订单号/任务号/点位/商品名） ----------
-  function wireSearch(inputId) {
-    var inp = $(inputId)
-    if (!inp) return
-    inp.addEventListener('input', function () {
-      clearTimeout(inp._t)
-      inp._t = setTimeout(function () {
-        searchQ = inp.value.trim().toLowerCase()
-        renderDataPage()
-      }, 160)
-    })
-  }
-
 
   // ---------- 右键上下文菜单 ----------
-  // 破坏性操作（关闭并作废 / 仅作废）只在这里出现，卡片上没有行内按钮，
-  // 避免同一操作存在多处入口；非破坏性项（复制编号 / 在地图查看）也一并放这里。
-  // 2026-10-07：删除订单 / 清理批次已迁到商家端小程序（配送数据页改为只读），本页不再提供这两个入口。
+  // 2026-10-12：配送数据页整页删除后，本菜单只剩机器人卡的「更多操作」；
+  // 批次 / 订单 / 任务卡的右键菜单已随页面一起删除 ——
+  // 订单相关操作一律在商家端小程序，管理员侧不再留入口。
   var ctxOpen = false
   function showCtx(x, y, title, items) {
     var m = $('ctxMenu')
@@ -334,63 +225,6 @@
   })
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideCtx() })
   window.addEventListener('blur', hideCtx)
-
-  // 按 id 从 state 里取实体（内联处理器只能传 id，不能传对象）
-  function findOrder(id) { return (state && state.orders || []).find(function (o) { return o.id === Number(id) }) }
-  function findBatch(id) { return (state && state.batches || []).find(function (b) { return b.id === Number(id) }) }
-  function findTask(id) { return (state && state.tasks || []).find(function (t) { return t.id === Number(id) }) }
-
-  function ctxOrder(id, ev) {
-    ev.preventDefault()
-    ev.stopPropagation()
-    var o = findOrder(id)
-    if (!o) return false
-    var items = [
-      { icon: 'i-copy', label: '复制订单号', run: function () { copyText(o.order_no, '订单号已复制') } },
-      { icon: 'i-timeline', label: '查看详情与时间线', run: function () { openDrawer('order', o.id) } }
-    ]
-    showCtx(ev.clientX, ev.clientY, '订单 ' + (o.code_short || o.id) + ' · ' + o.order_no, items)
-    return false
-  }
-  window.ctxOrder = ctxOrder
-
-  function ctxBatch(id, ev) {
-    ev.preventDefault()
-    ev.stopPropagation()
-    var b = findBatch(id)
-    if (!b) return false
-    var items = [
-      { icon: 'i-copy', label: '复制批次号', run: function () { copyText(b.batch_no, '批次号已复制') } },
-      { icon: 'i-timeline', label: '查看详情与时间线', run: function () { openDrawer('batch', b.id) } }
-    ]
-    if (Number(b.status) === 2 && parseRoute(b).length > 0) {
-      items.push({ icon: 'i-map', label: '在地图查看配送站位', run: function () { goBatchMap(b.id) } })
-    }
-    showCtx(ev.clientX, ev.clientY, '批次 ' + (b.code_short || b.id) + ' · ' + b.batch_no, items)
-    return false
-  }
-  window.ctxBatch = ctxBatch
-
-  function ctxTask(id, ev) {
-    ev.preventDefault()
-    ev.stopPropagation()
-    var t = findTask(id)
-    if (!t) return false
-    var active = [80, 110, 150].indexOf(Number(t.task_status)) < 0 && !t.void_at
-    var items = [
-      { icon: 'i-copy', label: '复制任务号', run: function () { copyText(String(t.id), '任务号已复制') } },
-      { icon: 'i-timeline', label: '查看详情与时间线', run: function () { openDrawer('task', t.id) } }
-    ]
-    if (active) {
-      items.push(
-        { icon: 'i-close', label: '关闭并作废', danger: true, run: function () { actCloseVoid(t.id) } },
-        { icon: 'i-x', label: '仅作废（不关平台任务）', danger: true, run: function () { actVoid(t.id) } }
-      )
-    }
-    showCtx(ev.clientX, ev.clientY, '任务 #' + t.id, items)
-    return false
-  }
-  window.ctxTask = ctxTask
 
   // ---------- 机器人卡「更多操作」 ----------
   // 只保留三种设备级动作；召唤与开关舱是高频操作，仍在卡片上直接暴露。
@@ -451,8 +285,6 @@
   function render() {
     if (!state) return
     renderOverview()
-    renderDataPage()
-    renderNavCount()
   }
 
   function renderOverview() {
@@ -553,248 +385,6 @@
   function scheduleReconnect() {
     clearTimeout(wsReconnectTimer)
     wsReconnectTimer = setTimeout(connectWS, 4000)
-  }
-
-  // 侧栏「配送数据」徽标：活跃批次 + 活跃订单 + 未完成任务的合计
-  function renderNavCount() {
-    var activeTotal = (state.batches || []).filter(function (b) { return [0, 1, 2].indexOf(Number(b.status)) >= 0 }).length
-      + (state.orders || []).filter(function (o) { return [2, 3, 6].indexOf(Number(o.status)) >= 0 }).length
-      + (state.tasks || []).filter(function (t) { return Number(t.task_status) < 80 && !t.void_at }).length
-    var navCnt = $('navTaskCount')
-    if (navCnt) {
-      navCnt.textContent = activeTotal
-      navCnt.className = 'nav-count' + (activeTotal ? ' red' : '')
-    }
-  }
-
-
-  // ---------- 配送数据页：卡片渲染（批次卡包裹订单子卡 / 订单卡 / 任务卡） ----------
-  // 取代原先的表格 + 多选批量体系：
-  //   · 整卡点击 → 打开详情抽屉（时间线 + 实时位置 + 商品明细）
-  //   · 右键 → 复制编号 / 在地图查看 / 破坏性操作（唯一入口）
-  //   · 活跃 / 历史 / 全部 分段 + 状态筛选 + 搜索 在渲染前统一过滤
-
-  function renderDataPage() {
-    if (!state) return
-    var count = 0
-    if (dataTab === 'order') count = renderOrderCards()
-    else if (dataTab === 'task') count = renderTaskCards()
-    else count = renderBatchCards()
-    var box = $('dataCount')
-    if (box) box.textContent = count ? ('共 ' + count + ' 张卡') : ''
-  }
-
-  // ---------- 过滤 ----------
-  // 分段口径：活跃 / 历史 / 全部（与后端 admin 域 active/history 的判定一致）
-  function inScope(kind, row) {
-    if (dataScope === 'all') return true
-    if (kind === 'batch') {
-      var isActive = [0, 1, 2].indexOf(Number(row.status)) >= 0
-      return dataScope === 'active' ? isActive : !isActive
-    }
-    if (kind === 'order') {
-      var oActive = [2, 3, 6].indexOf(Number(row.status)) >= 0
-      return dataScope === 'active' ? oActive : !oActive
-    }
-    var tActive = !row.void_at && Number(row.task_status) < 80
-    return dataScope === 'active' ? tActive : !tActive
-  }
-  function inStatus(status) {
-    if (statusFilter === '') return true
-    return String(status) === statusFilter
-  }
-  function hit(q, vals) {
-    if (!q) return true
-    for (var i = 0; i < vals.length; i++) {
-      if (vals[i] !== undefined && vals[i] !== null && String(vals[i]).toLowerCase().indexOf(q) >= 0) return true
-    }
-    return false
-  }
-  function goodsNames(o) {
-    return (o.items || []).map(function (it) { return it.goods_name }).filter(Boolean)
-  }
-
-  // ---------- 订单：商品明细行（最多 6 行，其余折叠成一行） ----------
-  function orderGoodsRows(o, limit) {
-    var items = o.items || []
-    if (!items.length) return '<div class="o-row"><span class="o-name mini">（无商品明细）</span></div>'
-    var max = limit || 6
-    var rows = items.slice(0, max).map(function (it) {
-      var img = it.goods_image
-        ? '<img class="o-thumb" src="' + esc(it.goods_image) + '" alt="" onerror="this.style.display=\'none\'">'
-        : '<span class="o-thumb ph"></span>'
-      return '<div class="o-row">' + img
-        + '<span class="o-name">' + esc(it.goods_name) + '</span>'
-        + '<span class="o-qty">× ' + Number(it.quantity || 0) + '</span>'
-        + '<span class="o-price">¥' + Number(it.price || 0).toFixed(2) + '</span></div>'
-    }).join('')
-    if (items.length > max) rows += '<div class="o-row"><span class="o-name mini">等 ' + items.length + ' 项商品</span></div>'
-    return rows
-  }
-
-  // ---------- 批次卡（内含订单子卡） ----------
-  function batchCardHtml(b, ordersOfBatch) {
-    var lines = []
-    if (b.device_sn) lines.push('<div class="bcard-line"><span class="k">机器人</span><span class="v mono">' + esc(b.device_sn) + '</span></div>')
-    if (Number(b.total_items)) lines.push('<div class="bcard-line"><span class="k">件数</span><span class="v">' + Number(b.total_items) + ' 件</span></div>')
-    var rt = batchRouteText(b)
-    if (rt) lines.push('<div class="bcard-line"><span class="k">路线</span><span class="v">' + esc(rt) + '</span></div>')
-    if (Number(b.status) === 2) {
-      lines.push('<div class="bcard-line"><span class="k">当前停靠</span><span class="v">' + esc(currentStopText(b)) + '</span></div>')
-      lines.push('<div class="bcard-line"><span class="k">进度</span><span class="v">已取 ' + Number(b.picked_orders || 0) + ' / ' + Number(b.total_orders || 0) + ' 单</span></div>')
-    }
-    lines.push('<div class="bcard-line"><span class="k">创建</span><span class="v weak">' + esc(b.created_at || '—') + '</span></div>')
-    lines.push('<div class="bcard-line"><span class="k">最近变更</span><span class="v weak">' + lastEventText(b.last_event) + '</span></div>')
-
-    var subs = ordersOfBatch.map(function (o) { return orderSubCardHtml(o) }).join('')
-    var subWrap = ordersOfBatch.length
-      ? '<div class="bcard-orders">' + subs + '</div>'
-      : '<div class="bcard-more">该批次暂无可展示的订单明细</div>'
-
-    return '<div class="bcard" data-kind="batch" data-id="' + b.id + '" tabindex="0"'
-      + ' oncontextmenu="window.ctxBatch(' + b.id + ',event)" onclick="openDrawer(\'batch\',' + b.id + ')"'
-      + ' onkeydown="if(event.key===\'Enter\')openDrawer(\'batch\',' + b.id + ')">'
-      + '<div class="bcard-head" style="--bh:' + batchHeadColor(b) + '">'
-      + '<div class="bcard-title"><b>批次 ' + esc(b.code_short || b.daily_seq || b.id) + '</b>'
-      + '<span class="full">' + esc(b.batch_no || '') + '</span></div>'
-      + '<div class="bcard-tags">'
-      + '<span class="tag solid">' + esc(b.status_text || BATCH_STATUS[Number(b.status)] || '') + '</span>'
-      + '<span class="tag">' + Number(b.total_orders || 0) + ' 单</span>'
-      + '</div></div>'
-      + '<div class="bcard-body">' + lines.join('') + subWrap
-      + '<div class="bcard-more">点击卡片查看详情与状态时间线 · 右键打开操作菜单</div>'
-      + '</div></div>'
-  }
-
-  function orderSubCardHtml(o) {
-    return '<div class="bcard-order" data-kind="order" data-id="' + o.id + '"'
-      + ' oncontextmenu="window.ctxOrder(' + o.id + ',event)"'
-      + ' onclick="event.stopPropagation();openDrawer(\'order\',' + o.id + ')">'
-      + '<div class="bcard-order-head"><b>订单 ' + esc(o.code_short || o.daily_seq || o.id) + '</b>'
-      + '<span class="lm">' + esc(o.landmark_name || '未选点位') + '</span>'
-      + '<span class="st">' + orderTag(o) + '</span></div>'
-      + '<div class="bcard-order-body">' + orderGoodsRows(o, 4) + '</div>'
-      + '<div class="bcard-order-foot">'
-      + '<span>取餐码 <b>' + esc(o.pickup_code || '—') + '</b></span>'
-      + '<span>金额 <b>¥' + Number(o.total_amount || 0).toFixed(2) + '</b></span>'
-      + '</div></div>'
-  }
-
-  function renderBatchCards() {
-    var box = $('dataPanelBatch')
-    if (!box) return 0
-    var q = searchQ
-    var all = state.batches || []
-    var orders = state.orders || []
-    var byBatch = {}
-    orders.forEach(function (o) { if (o.batch_id) (byBatch[o.batch_id] = byBatch[o.batch_id] || []).push(o) })
-
-    var rows = all.filter(function (b) {
-      if (!inScope('batch', b)) return false
-      if (!inStatus(b.status)) return false
-      var mine = byBatch[b.id] || []
-      var vals = [b.batch_no, b.code_short, b.daily_seq, b.device_sn, batchRouteText(b)]
-      mine.forEach(function (o) { vals.push(o.order_no, o.code_short, o.landmark_name); vals = vals.concat(goodsNames(o)) })
-      return hit(q, vals)
-    })
-
-    if (!rows.length) {
-      box.innerHTML = '<div class="empty"><svg><use href="#i-box"/></svg>'
-        + (q || statusFilter ? '没有符合条件的批次' : (dataScope === 'history' ? '暂无历史批次' : dataScope === 'all' ? '暂无批次' : '暂无活跃批次'))
-        + '</div>'
-      return 0
-    }
-    box.innerHTML = '<div class="cards">' + rows.map(function (b) { return batchCardHtml(b, byBatch[b.id] || []) }).join('') + '</div>'
-    return rows.length
-  }
-
-  // ---------- 订单卡（扁平列表） ----------
-  function renderOrderCards() {
-    var box = $('dataPanelOrder')
-    if (!box) return 0
-    var q = searchQ
-    var batchNo = {}
-    ;(state.batches || []).forEach(function (b) { batchNo[b.id] = b.batch_no })
-
-    var rows = (state.orders || []).filter(function (o) {
-      if (!inScope('order', o)) return false
-      if (!inStatus(o.status)) return false
-      var vals = [o.order_no, o.code_short, o.daily_seq, o.landmark_name, o.pickup_code, o.device_sn, batchNo[o.batch_id]]
-      vals = vals.concat(goodsNames(o))
-      return hit(q, vals)
-    })
-
-    if (!rows.length) {
-      box.innerHTML = '<div class="empty"><svg><use href="#i-box"/></svg>'
-        + (q || statusFilter ? '没有符合条件的订单' : (dataScope === 'history' ? '暂无历史订单' : dataScope === 'all' ? '暂无订单' : '暂无活跃订单'))
-        + '</div>'
-      return 0
-    }
-    box.innerHTML = '<div class="cards">' + rows.map(function (o) {
-      return '<div class="bcard" data-kind="order" data-id="' + o.id + '" tabindex="0"'
-        + ' oncontextmenu="window.ctxOrder(' + o.id + ',event)" onclick="openDrawer(\'order\',' + o.id + ')"'
-        + ' onkeydown="if(event.key===\'Enter\')openDrawer(\'order\',' + o.id + ')">'
-        + '<div class="bcard-head" style="--bh:var(--ink-3)">'
-        + '<div class="bcard-title"><b>订单 ' + esc(o.code_short || o.daily_seq || o.id) + '</b>'
-        + '<span class="full">' + esc(o.order_no || '') + '</span></div>'
-        + '<div class="bcard-tags"><span class="tag solid">' + esc(ORDER_STATUS[Number(o.status)] || ('状态 ' + o.status)) + '</span></div>'
-        + '</div>'
-        + '<div class="bcard-body">'
-        + '<div class="bcard-line"><span class="k">送达点位</span><span class="v">' + esc(o.landmark_name || '—') + '</span></div>'
-        + '<div class="bcard-line"><span class="k">批次</span><span class="v mono">' + esc(batchNo[o.batch_id] || '—') + '</span></div>'
-        + '<div class="bcard-line"><span class="k">机器人</span><span class="v mono">' + esc(o.device_sn || '—') + '</span></div>'
-        + '<div class="bcard-line"><span class="k">取餐码</span><span class="v">' + esc(o.pickup_code || '—') + '</span></div>'
-        + '<div class="bcard-line"><span class="k">金额</span><span class="v">¥' + Number(o.total_amount || 0).toFixed(2) + '</span></div>'
-        + '<div class="bcard-line"><span class="k">创建</span><span class="v weak">' + esc(o.created_at || '—') + '</span></div>'
-        + '<div class="bcard-line"><span class="k">最近变更</span><span class="v weak">' + lastEventText(o.last_event) + '</span></div>'
-        + '<div class="bcard-orders"><div class="bcard-order" style="cursor:default">'
-        + '<div class="bcard-order-head"><b>商品明细</b><span class="st mini">' + (o.item_count || 0) + ' 件</span></div>'
-        + '<div class="bcard-order-body">' + orderGoodsRows(o, 8) + '</div>'
-        + '</div></div>'
-        + '<div class="bcard-more">点击卡片查看详情与状态时间线 · 右键打开操作菜单</div>'
-        + '</div></div>'
-    }).join('') + '</div>'
-    return rows.length
-  }
-
-  // ---------- 任务卡（扁平列表） ----------
-  function renderTaskCards() {
-    var box = $('dataPanelTask')
-    if (!box) return 0
-    var q = searchQ
-    var orderNo = {}
-    ;(state.orders || []).forEach(function (o) { orderNo[o.id] = o.order_no })
-    var batchNo = {}
-    ;(state.batches || []).forEach(function (b) { batchNo[b.id] = b.batch_no })
-
-    var rows = (state.tasks || []).filter(function (t) {
-      if (!inScope('task', t)) return false
-      if (!inStatus(t.task_status)) return false
-      return hit(q, [t.id, t.platform_task_id, t.device_sn, orderNo[t.order_id], batchNo[t.batch_id]])
-    })
-
-    if (!rows.length) {
-      box.innerHTML = '<div class="empty"><svg><use href="#i-truck"/></svg>'
-        + (q || statusFilter ? '没有符合条件的任务' : (dataScope === 'history' ? '暂无历史任务' : dataScope === 'all' ? '暂无配送任务' : '暂无活跃任务'))
-        + '</div>'
-      return 0
-    }
-    box.innerHTML = '<div class="cards">' + rows.map(function (t) {
-      var voided = !!t.void_at
-      return '<div class="tcard" data-kind="task" data-id="' + t.id + '" tabindex="0"'
-        + ' oncontextmenu="window.ctxTask(' + t.id + ',event)" onclick="openDrawer(\'task\',' + t.id + ')"'
-        + ' onkeydown="if(event.key===\'Enter\')openDrawer(\'task\',' + t.id + ')">'
-        + '<div class="tcard-head"><b>任务 #' + t.id + '</b>'
-        + '<span class="st">' + taskTag(t) + '</span></div>'
-        + '<div class="tcard-line"><span class="k">订单</span><span class="v mono">' + esc(orderNo[t.order_id] || (t.order_id ? '#' + t.order_id : '—')) + '</span></div>'
-        + '<div class="tcard-line"><span class="k">批次</span><span class="v mono">' + esc(batchNo[t.batch_id] || (t.batch_id ? '#' + t.batch_id : '—')) + '</span></div>'
-        + '<div class="tcard-line"><span class="k">平台任务</span><span class="v mono">' + esc(t.platform_task_id || '—') + '</span></div>'
-        + '<div class="tcard-line"><span class="k">设备</span><span class="v mono">' + esc(t.device_sn || '—') + '</span></div>'
-        + '<div class="tcard-line"><span class="k">最近变更</span><span class="v weak">' + lastEventText(t.last_event) + '</span></div>'
-        + (voided ? '<div class="tcard-line"><span class="k">作废于</span><span class="v weak">' + esc(t.void_at) + '</span></div>' : '')
-        + '</div>'
-    }).join('') + '</div>'
-    return rows.length
   }
 
 
@@ -1095,9 +685,29 @@
     out.push('<div class="drawer-sec"><h4><svg><use href="#i-more"/></svg>操作</h4><div class="drawer-ops">'
       + '<button class="btn ghost sm" onclick="window.drawerCopy()"><svg><use href="#i-copy"/></svg><span>复制编号</span></button>'
       + '<button class="btn ghost sm" onclick="window.drawerRefresh()"><svg><use href="#i-refresh"/></svg><span>刷新时间线</span></button>'
-      + '</div><div class="mini" style="margin-top:8px">删除 / 清理 / 作废等破坏性操作请右键卡片打开操作菜单。</div></div>')
+      + '</div><div class="mini" style="margin-top:8px">删除 / 清理 / 作废等订单相关操作一律在商家端小程序，管理员侧不再提供入口。</div></div>')
 
     $('drawerBody').innerHTML = out.join('')
+  }
+
+  // ---------- 订单：商品明细行（最多 limit 行，其余折叠成一行） ----------
+  // 2026-10-12：本函数原在 05-render-cards.js（随「配送数据」页整页删除），抽屉是它唯一的调用方，
+  // 因此搬到抽屉分片里，保持抽屉功能完整（详见 06_构建机制.md 的片间依赖说明）。
+  function orderGoodsRows(o, limit) {
+    var items = o.items || []
+    if (!items.length) return '<div class="o-row"><span class="o-name mini">（无商品明细）</span></div>'
+    var max = limit || 6
+    var rows = items.slice(0, max).map(function (it) {
+      var img = it.goods_image
+        ? '<img class="o-thumb" src="' + esc(it.goods_image) + '" alt="" onerror="this.style.display=\'none\'">'
+        : '<span class="o-thumb ph"></span>'
+      return '<div class="o-row">' + img
+        + '<span class="o-name">' + esc(it.goods_name) + '</span>'
+        + '<span class="o-qty">× ' + Number(it.quantity || 0) + '</span>'
+        + '<span class="o-price">¥' + Number(it.price || 0).toFixed(2) + '</span></div>'
+    }).join('')
+    if (items.length > max) rows += '<div class="o-row"><span class="o-name mini">等 ' + items.length + ' 项商品</span></div>'
+    return rows
   }
 
   window.drawerCopy = function () {
@@ -1604,16 +1214,10 @@
       function () { run(label, p, body, successMsg) })
   }
 
-  // 2026-10-07：「删除订单」「清理批次」已迁到商家端小程序，本页不再有这两个动作，
-  // 对应的 actCancelOrder / actCancelBatch 一并删除（后端 /admin/order/cancel、/admin/batch/cancel 保留，
-  // 供回归测试与「一键初始化」复用，只是管理页不再提供入口）。
-  // 关闭平台任务 + 本地作废（一键）
-  window.actCloseVoid = function (tid) {
-    confirmRun('关闭并作废任务 ' + tid, '/task/close-void', { task_id: tid },
-      '关闭平台任务并作废本地任务 ' + tid + '？', '任务 ' + tid + ' 已删除')
-  }
-  // 仅本地作废（不动平台任务）
-  window.actVoid = function (tid) { run('本地作废任务 ' + tid, '/task/void', { task_id: tid }) }
+  // 2026-10-07：「删除订单」「清理批次」已迁到商家端小程序；
+  // 2026-10-12：管理员「配送数据」整页删除，任务级的「关闭并作废 / 仅作废」随页面一起下线
+  // （同属订单相关操作）。对应后端接口（/admin/task/close-void、/admin/task/void）全部保留，
+  // 供回归测试复用，只是管理页不再提供入口 —— 订单相关操作一律在商家端小程序。
 
   // ---------- 选择弹窗（召唤目标点 / 开关舱） ----------
   var pickCtx = null
@@ -1699,13 +1303,29 @@
     confirmRun('恢复机器人 ' + sn, '/robot/recover', { device_sn: sn },
       '确定让机器人 ' + sn + ' 继续工作？将恢复其当前任务执行。', '已发送恢复指令')
   }
-  // 停止并取消任务：关闭该设备全部活跃平台任务 + 关联本地订单统一落账 + 批次置 4
+  // 停止并取消任务：关闭该设备全部活跃平台任务 + 未送达订单取消并**自动退款**（写售后记录，
+  // 用户端「退款」列表可见「配送小车异常…」）+ 已送达订单跳过（交取餐超时流程）+ 批次置 4。
+  // 先 dry_run 预演拿影响范围，再让管理员看着「N 单 / ¥X / 已送达 M 单」按确认 —— 一车多单时
+  // 不能只写一句「取消关联订单」，否则管理员不知道会退掉多少钱。
   window.actStopCancel = function () {
     var sn = state && state.robot ? state.robot.device_sn : ''
     if (!sn) { toast('当前无机器人信息', 'err'); return }
-    confirmRun('取消机器人 ' + sn + ' 的全部任务', '/robot/cancel-tasks', { device_sn: sn },
-      '确定取消机器人 ' + sn + ' 当前的全部任务？\n将关闭其全部平台任务、取消关联订单（回补库存、摘批次），不可撤销。',
-      '已取消该机器人的全部任务')
+    api('/robot/cancel-tasks', 'POST', { device_sn: sn, dry_run: true }).then(function (d) {
+      var n = Number((d && d.refundable) || 0)
+      var amt = Number((d && d.refund_amount) || 0)
+      var m = Number((d && d.delivered) || 0)
+      var html = '<p class="confirm-body warn">确定取消机器人 ' + esc(sn) + ' 当前的全部任务？</p>'
+        + '<p class="confirm-body">将取消并<strong>自动退款</strong> <b>' + n + '</b> 单，合计 <b>¥' + amt.toFixed(2) + '</b>；'
+        + '退款记录同步到用户端，说明为「配送小车异常」。</p>'
+      if (m) {
+        html += '<p class="confirm-body">另有 <b>' + m + '</b> 单已送达（餐已在舱内或用户手上），不自动退款，按取餐超时流程处理。</p>'
+      }
+      html += '<p class="confirm-body warn">不可撤销。</p>'
+      window.openConfirmModal('确认操作', html, function () {
+        run('取消机器人 ' + sn + ' 的全部任务', '/robot/cancel-tasks', { device_sn: sn },
+          '已取消该机器人的全部任务：未送达订单已自动退款')
+      })
+    }).catch(function (e) { opFail(e, '查询待取消订单') })
   }
 
   // ---------- 设置页：控制权 / 点位 ----------
@@ -1742,10 +1362,6 @@
   if (moreBtn) moreBtn.addEventListener('click', function (ev) { ev.stopPropagation(); window.showRobotMenu(ev) })
 
   // ---------- 启动 ----------
-  fillStatusOptions('batch')
-  wireSearch('dataSearch')
-  showPanel('dataPanel', 'batch', ['batch', 'order', 'task'])
-
   var saved = localStorage.getItem(TOKEN_KEY)
   if (saved) {
     // 方案A：有会话 token → 调 /admin/me 校验；失效/过期由 onUnauthorized 弹登录页

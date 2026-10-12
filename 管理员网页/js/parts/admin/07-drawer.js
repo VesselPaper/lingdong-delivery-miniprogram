@@ -171,9 +171,29 @@
     out.push('<div class="drawer-sec"><h4><svg><use href="#i-more"/></svg>操作</h4><div class="drawer-ops">'
       + '<button class="btn ghost sm" onclick="window.drawerCopy()"><svg><use href="#i-copy"/></svg><span>复制编号</span></button>'
       + '<button class="btn ghost sm" onclick="window.drawerRefresh()"><svg><use href="#i-refresh"/></svg><span>刷新时间线</span></button>'
-      + '</div><div class="mini" style="margin-top:8px">删除 / 清理 / 作废等破坏性操作请右键卡片打开操作菜单。</div></div>')
+      + '</div><div class="mini" style="margin-top:8px">删除 / 清理 / 作废等订单相关操作一律在商家端小程序，管理员侧不再提供入口。</div></div>')
 
     $('drawerBody').innerHTML = out.join('')
+  }
+
+  // ---------- 订单：商品明细行（最多 limit 行，其余折叠成一行） ----------
+  // 2026-10-12：本函数原在 05-render-cards.js（随「配送数据」页整页删除），抽屉是它唯一的调用方，
+  // 因此搬到抽屉分片里，保持抽屉功能完整（详见 06_构建机制.md 的片间依赖说明）。
+  function orderGoodsRows(o, limit) {
+    var items = o.items || []
+    if (!items.length) return '<div class="o-row"><span class="o-name mini">（无商品明细）</span></div>'
+    var max = limit || 6
+    var rows = items.slice(0, max).map(function (it) {
+      var img = it.goods_image
+        ? '<img class="o-thumb" src="' + esc(it.goods_image) + '" alt="" onerror="this.style.display=\'none\'">'
+        : '<span class="o-thumb ph"></span>'
+      return '<div class="o-row">' + img
+        + '<span class="o-name">' + esc(it.goods_name) + '</span>'
+        + '<span class="o-qty">× ' + Number(it.quantity || 0) + '</span>'
+        + '<span class="o-price">¥' + Number(it.price || 0).toFixed(2) + '</span></div>'
+    }).join('')
+    if (items.length > max) rows += '<div class="o-row"><span class="o-name mini">等 ' + items.length + ' 项商品</span></div>'
+    return rows
   }
 
   window.drawerCopy = function () {

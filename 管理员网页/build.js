@@ -22,12 +22,11 @@ const TARGETS = [
     out: 'admin.js',
     parts: [
       'js/parts/admin/01-core.js',           // 头部/IIFE/常量/基础工具(esc/log/toast/api/状态字典/配色)
-      'js/parts/admin/02-nav.js',            // 导航(3 项) + 标签页 + 活跃/历史/全部分段 + 搜索/筛选
-      'js/parts/admin/03-menu.js',           // 右键菜单(破坏性操作唯一入口) + 更多操作 + 复制 + 路线文本
-      'js/parts/admin/04-overview-ws.js',    // 总览渲染 + 机器人卡片 + WebSocket 事件驱动 + 导航计数
-      'js/parts/admin/05-render-cards.js',   // 配送数据卡片渲染（批次卡包裹订单子卡 / 订单卡 / 任务卡）
+      'js/parts/admin/02-nav.js',            // 导航(3 项) + 标签页
+      'js/parts/admin/03-menu.js',           // 右键菜单（机器人卡「更多操作」）+ 复制 + 路线文本
+      'js/parts/admin/04-overview-ws.js',    // 总览渲染 + 机器人卡片 + WebSocket 事件驱动
       'js/parts/admin/06-refresh-token.js',  // 刷新与认证 + 账号页
-      'js/parts/admin/07-drawer.js',         // 详情抽屉：状态时间线 + 实时位置 + 商品明细
+      'js/parts/admin/07-drawer.js',         // 详情抽屉：状态时间线 + 实时位置 + 商品明细（2026-10-12 起暂无入口，保留备用）
       'js/parts/admin/08-audit.js',          // 操作日志（服务端 audit_logs：成功与失败都在）
       'js/parts/admin/09a-merchants.js',     // 商家管理（商家入驻邀请码：创建/列表/吊销/启用/解绑）
       'js/parts/admin/09b-ops.js',           // 单项操作 + 召唤/开关舱弹窗 + 启动 + IIFE 收尾
@@ -49,7 +48,7 @@ const TARGETS = [
 // 注意：cut_i = 前 i 个 parts 的行数之和（拼接时用 '\n' 相连，分隔符被行边界吸收，不再额外 +1）。
 // 仅 `--gen` 用到；正向构建只依赖 TARGETS。改过 parts 后若要用 --gen，请先按上式刷新本表。
 const CUTS = {
-  'admin.js': [143, 281, 432, 552, 782, 900, 1089, 1181, 1413],
+  'admin.js': [119, 193, 282, 389, 514, 723, 944, 1156, 1381],
   'admin-map.js': [100, 158, 220, 273, 382],
 }
 

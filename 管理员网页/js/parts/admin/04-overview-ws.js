@@ -3,8 +3,6 @@
   function render() {
     if (!state) return
     renderOverview()
-    renderDataPage()
-    renderNavCount()
   }
 
   function renderOverview() {
@@ -105,16 +103,4 @@
   function scheduleReconnect() {
     clearTimeout(wsReconnectTimer)
     wsReconnectTimer = setTimeout(connectWS, 4000)
-  }
-
-  // 侧栏「配送数据」徽标：活跃批次 + 活跃订单 + 未完成任务的合计
-  function renderNavCount() {
-    var activeTotal = (state.batches || []).filter(function (b) { return [0, 1, 2].indexOf(Number(b.status)) >= 0 }).length
-      + (state.orders || []).filter(function (o) { return [2, 3, 6].indexOf(Number(o.status)) >= 0 }).length
-      + (state.tasks || []).filter(function (t) { return Number(t.task_status) < 80 && !t.void_at }).length
-    var navCnt = $('navTaskCount')
-    if (navCnt) {
-      navCnt.textContent = activeTotal
-      navCnt.className = 'nav-count' + (activeTotal ? ' red' : '')
-    }
   }

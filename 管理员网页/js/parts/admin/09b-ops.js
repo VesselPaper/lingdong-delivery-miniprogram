@@ -58,16 +58,10 @@
       function () { run(label, p, body, successMsg) })
   }
 
-  // 2026-10-07：「删除订单」「清理批次」已迁到商家端小程序，本页不再有这两个动作，
-  // 对应的 actCancelOrder / actCancelBatch 一并删除（后端 /admin/order/cancel、/admin/batch/cancel 保留，
-  // 供回归测试与「一键初始化」复用，只是管理页不再提供入口）。
-  // 关闭平台任务 + 本地作废（一键）
-  window.actCloseVoid = function (tid) {
-    confirmRun('关闭并作废任务 ' + tid, '/task/close-void', { task_id: tid },
-      '关闭平台任务并作废本地任务 ' + tid + '？', '任务 ' + tid + ' 已删除')
-  }
-  // 仅本地作废（不动平台任务）
-  window.actVoid = function (tid) { run('本地作废任务 ' + tid, '/task/void', { task_id: tid }) }
+  // 2026-10-07：「删除订单」「清理批次」已迁到商家端小程序；
+  // 2026-10-12：管理员「配送数据」整页删除，任务级的「关闭并作废 / 仅作废」随页面一起下线
+  // （同属订单相关操作）。对应后端接口（/admin/task/close-void、/admin/task/void）全部保留，
+  // 供回归测试复用，只是管理页不再提供入口 —— 订单相关操作一律在商家端小程序。
 
   // ---------- 选择弹窗（召唤目标点 / 开关舱） ----------
   var pickCtx = null
@@ -153,13 +147,29 @@
     confirmRun('恢复机器人 ' + sn, '/robot/recover', { device_sn: sn },
       '确定让机器人 ' + sn + ' 继续工作？将恢复其当前任务执行。', '已发送恢复指令')
   }
-  // 停止并取消任务：关闭该设备全部活跃平台任务 + 关联本地订单统一落账 + 批次置 4
+  // 停止并取消任务：关闭该设备全部活跃平台任务 + 未送达订单取消并**自动退款**（写售后记录，
+  // 用户端「退款」列表可见「配送小车异常…」）+ 已送达订单跳过（交取餐超时流程）+ 批次置 4。
+  // 先 dry_run 预演拿影响范围，再让管理员看着「N 单 / ¥X / 已送达 M 单」按确认 —— 一车多单时
+  // 不能只写一句「取消关联订单」，否则管理员不知道会退掉多少钱。
   window.actStopCancel = function () {
     var sn = state && state.robot ? state.robot.device_sn : ''
     if (!sn) { toast('当前无机器人信息', 'err'); return }
-    confirmRun('取消机器人 ' + sn + ' 的全部任务', '/robot/cancel-tasks', { device_sn: sn },
-      '确定取消机器人 ' + sn + ' 当前的全部任务？\n将关闭其全部平台任务、取消关联订单（回补库存、摘批次），不可撤销。',
-      '已取消该机器人的全部任务')
+    api('/robot/cancel-tasks', 'POST', { device_sn: sn, dry_run: true }).then(function (d) {
+      var n = Number((d && d.refundable) || 0)
+      var amt = Number((d && d.refund_amount) || 0)
+      var m = Number((d && d.delivered) || 0)
+      var html = '<p class="confirm-body warn">确定取消机器人 ' + esc(sn) + ' 当前的全部任务？</p>'
+        + '<p class="confirm-body">将取消并<strong>自动退款</strong> <b>' + n + '</b> 单，合计 <b>¥' + amt.toFixed(2) + '</b>；'
+        + '退款记录同步到用户端，说明为「配送小车异常」。</p>'
+      if (m) {
+        html += '<p class="confirm-body">另有 <b>' + m + '</b> 单已送达（餐已在舱内或用户手上），不自动退款，按取餐超时流程处理。</p>'
+      }
+      html += '<p class="confirm-body warn">不可撤销。</p>'
+      window.openConfirmModal('确认操作', html, function () {
+        run('取消机器人 ' + sn + ' 的全部任务', '/robot/cancel-tasks', { device_sn: sn },
+          '已取消该机器人的全部任务：未送达订单已自动退款')
+      })
+    }).catch(function (e) { opFail(e, '查询待取消订单') })
   }
 
   // ---------- 设置页：控制权 / 点位 ----------
@@ -196,10 +206,6 @@
   if (moreBtn) moreBtn.addEventListener('click', function (ev) { ev.stopPropagation(); window.showRobotMenu(ev) })
 
   // ---------- 启动 ----------
-  fillStatusOptions('batch')
-  wireSearch('dataSearch')
-  showPanel('dataPanel', 'batch', ['batch', 'order', 'task'])
-
   var saved = localStorage.getItem(TOKEN_KEY)
   if (saved) {
     // 方案A：有会话 token → 调 /admin/me 校验；失效/过期由 onUnauthorized 弹登录页

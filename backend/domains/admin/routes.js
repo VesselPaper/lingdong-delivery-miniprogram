@@ -393,11 +393,41 @@ module.exports = (store, deps) => {
   //   ① 旧接口只关「平台任务」且最多 3 个，不回补库存、不摘批次 → 本地订单会卡在「配送中」；
   //   ② 本接口枚举该设备全部任务并逐个关闭，且对关联本地订单走 order 域统一落账
   //      （作废任务 + 回补库存 + 摘批次 + 平台召回），批次置 4，双端一致、不留脏数据。
-  // 顺序：先枚举 → 再本地落账（内含平台召回，记录已处理的任务）→ 关闭剩余孤儿任务 → 批次置 4。
+  //
+  // 2026-10-12 起语义收敛为「小车出异常要停 → 未送达的单取消并自动退款」：
+  //   · 未送达（0待支付/1待接单/2配送中/6配送异常）：取消并**自动退款**，同时在 refunds 写一条
+  //     自动售后记录（用户端「退款」列表能看到「配送小车异常…」，这是用户唯一可见的原因通道）；
+  //   · 已送达（3）：**不参与自动退款**（餐已在舱里/用户手上，退了就是白送），其订单与平台任务
+  //     原样保留，交给既有的「取餐超时驳回退款」流程收尾（那条路径同样会退款并关平台任务）。
+  //   · dry_run=true 只回计划不执行，供管理页确认框显示「将退款 N 单、合计 ¥X、另有 M 单已送达」。
+  // 顺序：先枚举 → 逐单「真实退款成功才落库置 7」→ 关闭剩余孤儿平台任务 → 批次置 4。
   router.post('/admin/robot/cancel-tasks', adminGuard, async (req, res) => {
-    const sn = String((req.body || {}).device_sn || '')
+    const body = req.body || {}
+    const sn = String(body.device_sn || '')
     if (!sn) return res.status(400).json({ code: 400, msg: '缺少设备编号' })
-    const out = { device_sn: sn, closed: 0, cancelled: 0, batch_cleaned: 0, failed: [], source: '' }
+
+    // 可自动退款的状态（未送达）；3已送达单独排除，理由见上方注释
+    const REFUNDABLE = [0, 1, 2, 6]
+    const orders = q.activeOrdersByDevice(store, sn)
+    const refundable = orders.filter((o) => REFUNDABLE.indexOf(Number(o.status)) >= 0)
+    const delivered = orders.filter((o) => Number(o.status) === 3)
+    const refundAmount = refundable.reduce((s, o) => s + (Number(o.total_amount) || 0), 0)
+
+    // 预演：只回计划、不落任何库。管理页确认框用它先把影响范围摆给管理员看（单数 / 金额 / 已送达单数）
+    if (body.dry_run) {
+      return ok(res, {
+        device_sn: sn,
+        dry_run: true,
+        refundable: refundable.length,
+        refund_amount: Number(refundAmount.toFixed(2)),
+        delivered: delivered.length
+      })
+    }
+
+    const out = {
+      device_sn: sn, closed: 0, cancelled: 0, refund_amount: 0,
+      skipped_delivered: delivered.length, batch_cleaned: 0, failed: [], source: ''
+    }
 
     // ① 枚举该设备当前任务：优先平台货舱查询（权威），失败回退本地活跃任务
     const ids = []
@@ -412,19 +442,43 @@ module.exports = (store, deps) => {
     }
     const uniq = [...new Set(ids)]
 
-    // ② 关联本地订单统一落账（内含平台召回）；记录其平台任务，避免下一步重复关闭
-    const handled = new Set()
-    for (const o of q.activeOrdersByDevice(store, sn)) {
+    // 某订单名下的平台任务号（用于决定「哪些平台任务不能关」）
+    const taskIdsOf = (orderId) => {
       try {
-        const r = await deps.order.applyOrderCancelled(store, orderDeps, o, { reason: '管理员取消机器人全部任务' })
-        if (r.claimed) out.cancelled++
+        return store.prepare("SELECT platform_task_id FROM delivery_tasks WHERE order_id=? AND platform_task_id IS NOT NULL AND platform_task_id!=''")
+          .all(Number(orderId)).map((x) => String(x.platform_task_id))
+      } catch (e) { return [] }
+    }
+
+    // ② 未送达订单：取消 + 自动退款 + 自动售后记录（内含平台召回）；记录其平台任务，避免下一步重复关闭
+    const handled = new Set()
+    // 明确不关的平台任务：已送达单的（交给取餐超时流程）+ 本次退款失败单的（保持状态一致，便于重试）
+    const keepOpen = new Set()
+    for (const o of delivered) for (const pid of taskIdsOf(o.id)) keepOpen.add(pid)
+
+    for (const o of refundable) {
+      try {
+        const r = await deps.order.cancelAndRefundOrder(store, orderDeps, o, {
+          reason: '配送小车异常，订单取消并退款',
+          reply: '配送小车出现异常，已自动取消订单并退款'
+        })
+        if (!r.ok) {
+          out.failed.push('订单#' + o.id + '：' + r.msg)
+          for (const pid of taskIdsOf(o.id)) keepOpen.add(pid)
+          continue
+        }
+        out.cancelled++
+        out.refund_amount += Number(r.amount) || 0
         for (const t of (r.tasks || [])) if (t && t.platform_task_id) handled.add(String(t.platform_task_id))
-      } catch (e) { out.failed.push('订单#' + o.id + '：' + e.message) }
+      } catch (e) {
+        out.failed.push('订单#' + o.id + '：' + e.message)
+        for (const pid of taskIdsOf(o.id)) keepOpen.add(pid)
+      }
     }
 
     // ③ 关闭剩余平台任务（订单落账未覆盖的孤儿任务），逐项容错
     for (const pid of uniq) {
-      if (handled.has(pid)) continue
+      if (handled.has(pid) || keepOpen.has(pid)) continue
       try {
         const r = await deps.platform.closeTask(sn, pid, '管理员取消机器人全部任务')
         if (r.ok) out.closed++
@@ -443,11 +497,13 @@ module.exports = (store, deps) => {
       } catch (e) { /* 统计失败不影响主流程 */ }
     }
 
-    // ④ 该设备涉及的活跃批次置 4
+    // ④ 该设备涉及的活跃批次置 4（取餐超时流程只看订单自身的 status/pickup_* 字段，不依赖批次状态）
     for (const b of q.activeBatchesByDevice(store, sn)) { q.cleanBatch(store, b.id); out.batch_cleaned++ }
 
+    out.refund_amount = Number(out.refund_amount.toFixed(2))
     audit(req, 'admin/robot-cancel-tasks', 'device#' + sn,
-      '关闭平台任务 ' + out.closed + '，取消订单 ' + out.cancelled + '，清理批次 ' + out.batch_cleaned
+      '关闭平台任务 ' + out.closed + '，取消并退款 ' + out.cancelled + ' 单 ¥' + out.refund_amount
+      + '，跳过已送达 ' + out.skipped_delivered + ' 单，清理批次 ' + out.batch_cleaned
       + '，失败 ' + out.failed.length + '（枚举来源 ' + out.source + '）')
     ok(res, out)
   })

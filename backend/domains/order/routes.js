@@ -440,13 +440,16 @@ module.exports = (store, deps) => {
     const order = q.findById(store, order_id)
     if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
     if (Number(order.status) !== 6) return res.status(400).json({ code: 400, msg: '仅配送异常订单可取消退款' })
-    const ref = await s.realRefundOrLocal(store, deps, order, null, Number(order.total_amount))
-    if (!ref.ok) return res.status(502).json({ code: 502, msg: ref.msg })
-    // 落库统一走 orderCancel（作废任务 + 回补库存 + 摘除批次 + 停模拟推进）
-    const c = await s.applyOrderCancelled(store, deps, order, { finalStatus: 7, reason: '异常退款，任务作废' })
-    if (!c.claimed) return res.status(409).json({ code: 409, msg: '订单状态已变更，请刷新后重试' })
+    // 取消并退款 + 自动售后记录：收口在 s.cancelAndRefundOrder（先真实退款成功才置 7）
+    const r = await s.cancelAndRefundOrder(store, deps, order, {
+      reason: '配送异常，商家取消并退款',
+      reply: '配送异常自动退款'
+    })
+    if (!r.ok) {
+      if (r.stage === 'refund') return res.status(502).json({ code: 502, msg: r.msg })
+      return res.status(409).json({ code: 409, msg: '订单状态已变更，请刷新后重试' })
+    }
     q.setExceptionHandled(store, order.id, 'refund')
-    q.insertAutoRefund(store, { orderId: order.id, userId: order.user_id, reason: '配送异常，商家取消并退款', amount: order.total_amount, reply: '配送异常自动退款', refundNo: ref.refundNo })
     console.log('[exception] 配送异常订单取消退款 order=' + order.id + ' amount=' + order.total_amount + ' user=' + req.user.id)
     audit(req, 'order/exception-refund', 'order#' + order.id, 'amount=' + order.total_amount)
     ok(res, { order_id: order.id, status: 7, msg: '已取消并退款 ¥' + order.total_amount })

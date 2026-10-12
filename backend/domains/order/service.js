@@ -248,6 +248,36 @@ async function realRefundOrLocal(store, deps, order, refundId, amount) {
   return { ok: true, local: true, refundNo: '' }
 }
 
+// 取消并退款 + 写自动售后记录（供「配送异常退款」「管理员取消机器人全部任务」等自动退款路径复用）。
+// 顺序是硬要求：**先真实退款，成功后才落库置 7** —— 退款失败时订单保持原状，
+// 绝不出现「订单显示已退款但钱没退」这种无法对账的状态（与商家同意退款同一条规则）。
+// 售后记录是用户端唯一能看到「为什么被取消」的通道（用户端「退款」列表显示申请原因 + 商家处理）。
+async function cancelAndRefundOrder(store, deps, order, opts) {
+  const o = opts || {}
+  if (!order) return { ok: false, stage: 'order', msg: '订单不存在' }
+  const amount = Number(o.amount != null ? o.amount : order.total_amount) || 0
+  const ref = await realRefundOrLocal(store, deps, order, o.refundId || null, amount)
+  if (!ref.ok) return { ok: false, stage: 'refund', msg: ref.msg }
+  const c = await applyOrderCancelled(store, deps, order, { finalStatus: 7, reason: o.reason || '取消并退款' })
+  if (!c.claimed) {
+    // 抢占失败=订单已被别处处理成终态：此时钱已退，必须显式暴露出来，不能静默吞掉
+    return { ok: false, stage: 'claim', msg: '订单状态已变更，未落库', refundNo: ref.refundNo || '', local: !!ref.local }
+  }
+  q.insertAutoRefund(store, {
+    orderId: order.id,
+    userId: order.user_id,
+    reason: o.reason || '取消并退款',
+    amount,
+    reply: o.reply || '已自动退款',
+    refundNo: ref.refundNo || ''
+  })
+  return {
+    ok: true, claimed: true, amount,
+    local: !!ref.local, refundNo: ref.refundNo || '',
+    finalStatus: c.finalStatus, tasks: c.tasks || []
+  }
+}
+
 // 订单拆单：按 maxItems 件上限把购物车行贪心拆成多个子订单行块（每块 ≤ maxItems 件）
 function splitOrderChunks(lineItems, maxItems) {
   const chunks = []
@@ -472,7 +502,7 @@ module.exports = {
   DELIVERY_TIMEOUT_MS, DELIVERY_SCAN_MS,
   // 状态机辅助
   orderTrulyDelivering, orderStuckDelivering, maybeAutoAccept, withinFreeCancelWindow,
-  applyOrderCancelled, realRefundOrLocal, splitOrderChunks,
+  applyOrderCancelled, realRefundOrLocal, cancelAndRefundOrder, splitOrderChunks,
   // 状态推进收口（orders 状态迁移唯一入口：守卫 + 收口函数族，跨域经 deps.order 或 server 注入钩子调用）
   canAdvanceOrderStatus, attachTaskToOrder, markOrderStarted, markOrderInBatchStart,
   markOrderDelivered, markOrderException, markOrderPicked, arriveOrder, fulfillOrder,
