@@ -241,7 +241,8 @@ const server = app.listen(PORT, BIND_HOST, () => {
         const r = await platform.syncLandmarks(store)
         if (r && r.ok) {
           console.log('[lingdong-backend]   点位已从平台同步（' + why + '）：平台 ' + r.count + ' 条 · 新增 ' + r.inserted + ' / 更新 ' + r.updated +
-            ' / 同位置重复跳过 ' + r.skipped + ' / 清理旧演示 ' + r.removed + ' / 去重删除 ' + (r.deduped || 0))
+            ' / 同位置重复跳过 ' + r.skipped + ' / 改写到运营图 ' + (r.repointed || 0) + ' / 清理旧演示 ' + r.removed + ' / 去重删除 ' + (r.deduped || 0) +
+            (r.activeMapId ? ' · 运营图 ' + r.activeMapId : ' · 运营图未知（按 sort 兜底）'))
         } else {
           console.warn('[lingdong-backend]   点位同步失败（' + why + '）：' + ((r && r.msg) || '未知'))
         }

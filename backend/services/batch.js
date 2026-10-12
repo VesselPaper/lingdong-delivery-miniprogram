@@ -12,6 +12,8 @@
 
 // 编号服务：批次号 = 日期 + 当日序号（原子取号）
 const seqSvc = require('./seq')
+// 点位口径（当前运营图 / 上货点唯一取值入口）：叶子模块，只依赖 store → 不成环
+const points = require('./points')
 
 const BATCH_STATUS = {
   0: '组单中',
@@ -251,13 +253,14 @@ function landmarkPointOf(store, landmarkId) {
   } catch (e) { return null }
 }
 
-// 上货点取值（唯一入口）：必须取「真有坐标」的那一条 ——
-// 库初始化会播一批 pos=(0,0) 的占位点位，只按 sort 取第一条会命中占位点，
-// lmPoint() 对 (0,0) 返回 null，于是「上货点 → 第 1 站」那一段被静默丢掉，
-// 行程时长与用户 ETA 双双偏小（人下楼太晚）。按 sort,id 排序保证结果稳定。
+// 上货点取值：**口径已收口到 services/points.js**（全项目唯一入口，别再各写一条 SQL）。
+// 选点规则见 points.js 头注释：优先「当前运营图」（车所在图）上那条 —— 平台上同时挂着
+// 在用图与备份图、同名点各有不同 landmarkId，只按 sort 取第一条会命中备份图的旧位置。
+// 这里保留本函数名与「排除 (0,0) 占位点」的语义：points.loadingPointRow 的前两级都排除 (0,0)，
+// 只有全库仅剩一条 (0,0) 占位点时才返回它 —— 而 lmPoint() 对 (0,0) 仍返回 null，
+// 所以「上货点 → 第 1 站」那一段的行为与拆分前逐字一致（见 lmPoint 注释）。
 function loadingPointOf(store) {
-  return store.prepare(
-    "SELECT * FROM landmarks WHERE type='loadingPoint' AND (pos_x != 0 OR pos_y != 0) ORDER BY sort, id LIMIT 1").get() || null
+  return points.loadingPointRow(store)
 }
 
 // 所有未定型批次（status=0）的候选快照，供打分使用

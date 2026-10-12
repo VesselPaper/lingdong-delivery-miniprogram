@@ -551,21 +551,27 @@ function seed(db) {
   if (platformConfigured) {
     console.log('[lingdong-backend]   点位表为空：将由平台实时同步（代码中不保留点位副本）')
   } else {
-    // 离线演示点位（仅无平台凭据时使用）：名称与平台 landmarkName 对齐，platform_* 便于切到平台后对账。
-    const BID = '1257237128126592_zcsdb3dd6396c824'
-    const MID = '1257237128126592_zcsdb3dd6396c824_1d-1'
+    // 离线演示点位（仅无平台凭据时使用）：名称/楼层/类型/排序照旧，平台身份一律用 **demo-* 占位**。
+    // 为什么不用真实 id（2026-10-12 改）：platform_building_id / platform_map_id / platform_landmark_id
+    // 是**平台侧**的 id，悦凡换图/重建图后会整体变掉，写死在代码里必然过时 —— 本次就踩到：
+    // 种子里原来的 MID=…_1d-1 与 10 个 landmarkId 在备份图被删后全部失效（线上那 9 栋楼的派车因此会失败）。
+    // 为什么不能干脆留空：mock/演示档建任务/召唤时 platform.js 会校验这三个字段非空，留空会让演示链路跑不通。
+    // 占位 id 与真实 id 一定不相等，所以真接上平台后，同步会按「名称+坐标」把它们**就地改写**成真实身份
+    // （services/points.js:preferIncoming），不会留下幽灵点位。
+    const DEMO_BID = 'demo-building'
+    const DEMO_MID = 'demo-map-1'
     const insLandmark = db.prepare('INSERT INTO landmarks (name, building, floor, type, sort, platform_building_id, platform_map_id, platform_landmark_id) VALUES (?,?,?,?,?,?,?,?)')
     ;[
-      ['商铺上货', '四川师范大学成龙校区', '1', 'loadingPoint', 1, BID, MID, '71bb894d0f6548e98fa8580429307a10'],
-      ['东苑1栋', '四川师范大学成龙校区', '1', 'deliverPoint', 2, BID, MID, '05f66b224f1148c78a5a1cb63b284702'],
-      ['东苑2栋', '四川师范大学成龙校区', '1', 'deliverPoint', 3, BID, MID, '87987c7a7d7145b8ba43738b046f6668'],
-      ['东苑3栋', '四川师范大学成龙校区', '1', 'deliverPoint', 4, BID, MID, 'eb064f9c5a8b4e3c906ca0008bf66395'],
-      ['东苑4栋', '四川师范大学成龙校区', '1', 'deliverPoint', 5, BID, MID, 'b0de449f2ccd4f20a6ccb0e9397e73cb'],
-      ['东苑5栋', '四川师范大学成龙校区', '1', 'deliverPoint', 6, BID, MID, '2da7414ef2ee405d9b613a620d08d5e0'],
-      ['东苑7栋', '四川师范大学成龙校区', '1', 'deliverPoint', 7, BID, MID, 'fe0ad571bb124217ba16243cc38030a2'],
-      ['东苑11栋', '四川师范大学成龙校区', '1', 'deliverPoint', 8, BID, MID, '183cd72d16a14903aba7601dda4b9224'],
-      ['东苑12栋', '四川师范大学成龙校区', '1', 'deliverPoint', 9, BID, MID, '1dbf6004fab6426c8485a552169a2325'],
-      ['东苑13栋', '四川师范大学成龙校区', '1', 'deliverPoint', 10, BID, MID, 'e82ce545658e415d92bfe45d96588e2e']
+      ['商铺上货', '四川师范大学成龙校区', '1', 'loadingPoint', 1, DEMO_BID, DEMO_MID, 'demo-lm-01'],
+      ['东苑1栋', '四川师范大学成龙校区', '1', 'deliverPoint', 2, DEMO_BID, DEMO_MID, 'demo-lm-02'],
+      ['东苑2栋', '四川师范大学成龙校区', '1', 'deliverPoint', 3, DEMO_BID, DEMO_MID, 'demo-lm-03'],
+      ['东苑3栋', '四川师范大学成龙校区', '1', 'deliverPoint', 4, DEMO_BID, DEMO_MID, 'demo-lm-04'],
+      ['东苑4栋', '四川师范大学成龙校区', '1', 'deliverPoint', 5, DEMO_BID, DEMO_MID, 'demo-lm-05'],
+      ['东苑5栋', '四川师范大学成龙校区', '1', 'deliverPoint', 6, DEMO_BID, DEMO_MID, 'demo-lm-06'],
+      ['东苑7栋', '四川师范大学成龙校区', '1', 'deliverPoint', 7, DEMO_BID, DEMO_MID, 'demo-lm-07'],
+      ['东苑11栋', '四川师范大学成龙校区', '1', 'deliverPoint', 8, DEMO_BID, DEMO_MID, 'demo-lm-08'],
+      ['东苑12栋', '四川师范大学成龙校区', '1', 'deliverPoint', 9, DEMO_BID, DEMO_MID, 'demo-lm-09'],
+      ['东苑13栋', '四川师范大学成龙校区', '1', 'deliverPoint', 10, DEMO_BID, DEMO_MID, 'demo-lm-10']
     ].forEach(r => insLandmark.run(...r))
   }
 

@@ -1,6 +1,9 @@
 // delivery 域专属表：delivery_tasks / delivery_batches / landmarks
 // 本文件只写本域三张表；跨域读（orders/order_items）以只读形式出现在 service.js/routes.js 并注释（delivery→orders 是 05 方案明确允许的例外）。
 
+// 点位口径（当前运营图 / 上货点唯一入口）：叶子模块，只依赖 store → 不成环
+const pointsSvc = require('../../services/points')
+
 module.exports = {
   // ---------- delivery_tasks ----------
   taskById: (store, id) => store.prepare('SELECT * FROM delivery_tasks WHERE id=?').get(Number(id)),
@@ -83,7 +86,12 @@ module.exports = {
   // ---------- landmarks ----------
   landmarksAll: (store) => store.prepare('SELECT * FROM landmarks ORDER BY sort').all(),
   landmarksWithPos: (store) => store.prepare('SELECT id,name,type,pos_x,pos_y FROM landmarks WHERE pos_x IS NOT NULL AND pos_y IS NOT NULL').all(),
-  loadingPointFirst: (store) => store.prepare("SELECT pos_x,pos_y FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get(),
+  // 上货点坐标（用户端追踪地图的路线折线起点）：口径收口到 services/points.js ——
+  // 必须与批次模块（batch.js loadingPointOf）取同一条记录，否则路线折线起点与实际派车起点不是同一个点
+  loadingPointFirst: (store) => {
+    const r = pointsSvc.loadingPointRow(store)
+    return r ? { pos_x: r.pos_x, pos_y: r.pos_y } : undefined
+  },
   landmarkById: (store, id) => store.prepare('SELECT * FROM landmarks WHERE id=?').get(String(id)),
   landmarkPosById: (store, id) => store.prepare('SELECT name,pos_x,pos_y FROM landmarks WHERE id=?').get(String(id)),
   deliverPointById: (store, id) => store.prepare("SELECT * FROM landmarks WHERE id=? AND type='deliverPoint'").get(String(id)),

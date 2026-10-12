@@ -12,12 +12,18 @@
 const httpApi = require('./platform-http')
 const mock = require('./platform-mock')
 const callbacks = require('./platform-callbacks')
+// 点位口径（当前运营图 / 上货点唯一入口）：叶子模块，只依赖 store → 不成环。
+// 原先这里 7 处都是 `WHERE type='loadingPoint' ORDER BY sort LIMIT 1`，只看 sort 不看地图，
+// 换图后（在用图与备份图并存）会取到备份图的旧上货点，下发的 loadingMapId 与车所在图不一致。
+const pointsSvc = require('./points')
+// 取上货点：一律走上货点唯一入口（当前运营图优先，见 services/points.js 头注释）
+const loadingOf = (store) => pointsSvc.loadingPointRow(store)
 
 const MOCK = httpApi.MOCK
 
 // ---------------- 创建配送任务 ----------------
 function createQueueTask(store, order) {
-  const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
+  const loading = loadingOf(store)
   const unloading = store.prepare('SELECT * FROM landmarks WHERE id=?').get(order.landmark_id)
   const info = store.prepare(
     'INSERT INTO delivery_tasks (order_id, platform_task_id, device_sn, task_status, status_text) VALUES (?,?,?,?,?)'
@@ -63,7 +69,7 @@ async function pickAvailableRobot() {
 async function createTasksForBatch(store, batch, orders, route = []) {
   // 防御：用最新批次行（派车流程会在中途写入 device_sn，调用方传入的对象可能仍是旧值）
   batch = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(batch.id) || batch
-  const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get() || null
+  const loading = loadingOf(store) || null
   const stopOfOrder = new Map() // orderId -> { stop, priority }
   if (route && route.length) {
     route.forEach((stop) => {
@@ -109,7 +115,7 @@ async function realDispatchBatch(store, taskId, order, loading, unloading, batch
   if (!l || !u || !l.platform_landmark_id || !u.platform_landmark_id) {
     const r = await httpApi.syncLandmarks(store)
     if (r && r.ok) {
-      l = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
+      l = loadingOf(store)
       u = store.prepare('SELECT * FROM landmarks WHERE id=?').get(order.landmark_id)
     }
   }
@@ -211,7 +217,7 @@ async function createDirectTask(store, taskId, order, loading, unloading, batch,
   if (!l || !u || !l.platform_landmark_id || !u.platform_landmark_id) {
     const r = await httpApi.syncLandmarks(store)
     if (r && r.ok) {
-      l = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
+      l = loadingOf(store)
       u = store.prepare('SELECT * FROM landmarks WHERE id=?').get(order.landmark_id)
     }
   }
@@ -297,7 +303,7 @@ async function summonToLoadingPoint(store, preferredSn, optExpireMin) {
   // Mock：模拟创建轻任务并返回合成 id——真到站链路（queryLightTask→status 30）依赖 light_task_id 才能把订单置待取货
   if (MOCK) return { ok: true, msg: '模拟召唤成功', light_task_id: 'mock-light-' + Date.now() }
   if (!httpApi.platformReady()) return { ok: false, msg: '未配置平台凭据' }
-  const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
+  const loading = loadingOf(store)
   if (!loading || !loading.platform_landmark_id || !loading.platform_map_id || !loading.platform_building_id) {
     return { ok: false, msg: '上货点未配置平台映射' }
   }
@@ -503,7 +509,7 @@ async function stopAndCancelTask(store, deviceSn) {
 // 是否会先回上货点，待与越凡确认；失败不阻断 —— 二段超时（pickup_revisit_at + PICKUP_RETRY_TIMEOUT_MS）
 // 到期仍会驳回。mock 档走本地任务推进便于联调。
 async function recreatePickupTask(store, batch, order) {
-  const loading = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get() || null
+  const loading = loadingOf(store) || null
   const unloading = store.prepare('SELECT * FROM landmarks WHERE id=?').get(order.landmark_id)
   const info = store.prepare(
     'INSERT INTO delivery_tasks (order_id, batch_id, platform_task_id, device_sn, task_status, status_text) VALUES (?,?,?,?,?,?)'
@@ -576,7 +582,7 @@ async function realDispatch(store, taskId, order, loading, unloading) {
   if (!l || !u || !l.platform_landmark_id || !u.platform_landmark_id) {
     const r = await httpApi.syncLandmarks(store)
     if (r && r.ok) {
-      l = store.prepare("SELECT * FROM landmarks WHERE type='loadingPoint' ORDER BY sort LIMIT 1").get()
+      l = loadingOf(store)
       u = store.prepare('SELECT * FROM landmarks WHERE id=?').get(order.landmark_id)
     }
   }

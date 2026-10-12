@@ -33,6 +33,8 @@ const virtualRobot = require('./virtualRobot')
 // 大屏「3D 图层重构」服务器端数据：虚拟车路线必须用与前端一致的「重构后道路」几何，
 // 否则车会跑在"原始道路"而在画面上看到的是"重构位移后的道路"，车看起来就脱离道路。
 const mapRecon = require('./mapRecon')
+// 点位口径（当前运营图 / 上货点唯一入口）：叶子模块，只依赖 store → 不成环
+const pointsSvc = require('./points')
 
 // 生成注册到平台的回调 URL，防伪令牌以 ?token= 查询参数携带。
 // 为什么用 query 而不是路径段：平台侧示例回调 URL 自带 "&version+3d24d260000" 后缀
@@ -126,6 +128,34 @@ function formatLocalDt(ts) {
     + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds())
 }
 
+// ---------------- 当前运营图（车所在图） ----------------
+// 规则：平台报告的**在线车所在图**（curr_map_id）就是当前运营图，写进 meta.active_map_id，
+// 供 services/points.js 同步读取（批次/平台/用户端都要同一个口径）。
+// 为什么不能只看点位：平台上同时挂着在用的「东苑」和旧的「东苑（备份）」，两张图上的点
+// 同名同坐标但 landmarkId 不同，只看点位无法判断"哪张图是现在在跑的"。
+// 缓存 2 分钟：点位同步每 60s 一次，没必要每轮都打一次设备列表；取不到（演示档/平台不可用）
+// 就沿用 meta 里上一次的值，仍然取不到则返回空串（下游一律退回旧的「按 sort 第一条」行为）。
+const ACTIVE_MAP_TTL_MS = Number(process.env.ACTIVE_MAP_TTL_MS || 120 * 1000)
+let activeMapCache = { ts: 0, id: '' }
+async function resolveActiveMapId(store) {
+  if (activeMapCache.id && Date.now() - activeMapCache.ts < ACTIVE_MAP_TTL_MS) return activeMapCache.id
+  try {
+    const r = await getDeviceList()          // 纯业务判定：不带虚拟测试车
+    const bots = (r && r.ok && Array.isArray(r.robots)) ? r.robots : []
+    const bot = bots.find((x) => x.online && x.curr_map_id)
+    if (bot) {
+      if (pointsSvc.setActiveMapId(store, bot.curr_map_id)) {
+        console.log('[platform] 当前运营图 = ' + bot.curr_map_id + '（车 ' + bot.device_sn + ' 所在图）')
+      }
+      activeMapCache = { ts: Date.now(), id: bot.curr_map_id }
+      return activeMapCache.id
+    }
+  } catch (e) { /* 取不到就退回 meta 里的旧值 */ }
+  const cached = pointsSvc.activeMapId(store)
+  if (cached) activeMapCache = { ts: Date.now(), id: cached }
+  return activeMapCache.id || ''
+}
+
 // ---------------- 点位同步：buildingList + landmarkInfo -> landmarks 表 ----------------
 // 将平台真实点位（含 platform_building_id / platform_map_id / platform_landmark_id）写入本地 landmarks 表。
 // 按平台 landmarkId 幂等 upsert：已存在则更新名称/映射，不存在则新增；并清理无平台映射的历史演示点位。
@@ -146,16 +176,35 @@ async function syncLandmarks(store) {
     let inserted = 0
     let updated = 0
     let skipped = 0
+    let repointed = 0
     let sort = 1
     const isLoading = (p) => /上货|商铺|店铺|铺子/.test(p.landmarkName || '')
     // 平台上同一个物理点位存在**多条记录**（不同 landmarkId、同名同坐标，实测 9 栋宿舍各有 2 条）。
     // 若照单全收，用户端取货点列表会出现「东苑1栋」两项、召唤点也重复。这里按 (名称+坐标)
-    // 视为同一点：只保留先出现的那条（landmarkId 仍以平台为准），后续同位置记录跳过不入库。
+    // 视为同一点：只保留一条（landmarkId 仍以平台为准），后续同位置记录跳过不入库。
+    //
+    // ⚠️ 2026-10-12 换图事故：平台把**备份图**（「东苑（备份）」…_1d-1）的 10 条排在**在用图**
+    // （「东苑」…_1d-9）前面，于是「先到先得」把 9 栋楼和一个商铺上货的 landmarkId 永久钉在备份图上，
+    // 建任务/召唤下发的 mapId 与车所在图不一致，上货点还指到 19 米外的旧位置。
+    // 现在把「同名同坐标」的两条按**当前运营图**（车所在图，见 services/points.js）择一：
+    // 若来的这条属于运营图、库里那条不属于 → 把库里那条的**平台身份就地改写**成运营图的记录。
+    // 为什么是改写而不是新增：① id 不变 → orders.landmark_id / addresses 的引用不受影响；
+    // ② 不新增行 → 每 60s 一次的重同步不会反复插入同一物理点。
+    // 关键：**不改写 sort**。sort 决定「取地图锚点」与展示顺序，保持原值才能让
+    // getMapRaw（ORDER BY sort LIMIT 1）跟着同一条点位一起切到运营图。
+    const activeMap = await resolveActiveMapId(store)
     const posKey = (n, x, y) => n + '|' + Number(x).toFixed(3) + '|' + Number(y).toFixed(3)
-    const seenPos = new Set(
-      store.prepare("SELECT name, pos_x, pos_y FROM landmarks WHERE platform_landmark_id != '' OR platform_landmark_id IS NOT NULL").all()
-        .map((r) => posKey(r.name, r.pos_x, r.pos_y))
-    )
+    const seenPos = new Map()
+    for (const r of store.prepare("SELECT id, name, pos_x, pos_y, platform_map_id FROM landmarks WHERE platform_landmark_id != '' OR platform_landmark_id IS NOT NULL").all()) {
+      seenPos.set(posKey(r.name, r.pos_x, r.pos_y), { id: r.id, mapId: r.platform_map_id || '' })
+    }
+    // sort 的语义修正为「**物理点位**在平台列表里的位次」，而不是「原始记录的行号」。
+    // 原因（2026-10-12 换图实测）：同一个物理点在平台上有两条记录（备份图 + 在用图），
+    // 用行号当 sort 会导致——第一条（备份图）先按行号写 sort，第二条（在用图）改写到同一行时
+    // 又按它自己的行号写 11..19，于是每重同步一次 sort 就跳一次，取地图锚点（ORDER BY sort LIMIT 1）
+    // 会跟着漂到备份图那条上。按物理点位去重后，同一个点的位次每轮都一样 → sort 稳定。
+    let sortSeq = 0
+    const sortOfKey = new Map()
     for (const p of points) {
       if (!p || !p.landmarkName) continue
       const lmId = p.landmarkId || ''
@@ -165,20 +214,31 @@ async function syncLandmarks(store) {
       const posY = pose.length > 1 ? Number(pose[1]) : 0
       const exist = lmId ? store.prepare('SELECT id FROM landmarks WHERE platform_landmark_id=?').get(lmId) : null
       const key = posKey(p.landmarkName, posX, posY)
+      if (!sortOfKey.has(key)) sortOfKey.set(key, ++sortSeq)
+      const sort = sortOfKey.get(key)
       if (exist) {
         const r = store.prepare('UPDATE landmarks SET name=?, building=?, floor=?, type=?, sort=?, platform_building_id=?, platform_map_id=?, pos_x=?, pos_y=? WHERE id=?')
           .run(p.landmarkName, building.buildingName || '', p.floor || '', type, sort, buildingId, p.mapId || '', posX, posY, exist.id)
         if (r.changes) updated++
-        seenPos.add(key)
+        if (seenPos.has(key)) seenPos.get(key).mapId = p.mapId || ''
+        else seenPos.set(key, { id: exist.id, mapId: p.mapId || '' })
       } else if (seenPos.has(key)) {
-        skipped++                                   // 同位置重复记录：不重复入库
+        const ex = seenPos.get(key)
+        if (pointsSvc.preferIncoming(p.mapId, ex.mapId, activeMap)) {
+          // 就地改写成运营图的身份（name/floor 同名同坐标，一并按运营图的记录对齐；sort 用物理点位位次，稳定）
+          store.prepare('UPDATE landmarks SET type=?, sort=?, platform_landmark_id=?, platform_map_id=?, platform_building_id=?, floor=? WHERE id=?')
+            .run(type, sort, lmId, p.mapId || '', buildingId, p.floor || '', ex.id)
+          ex.mapId = p.mapId || ''
+          repointed++
+        } else {
+          skipped++                                 // 同位置重复记录：不重复入库
+        }
       } else {
-        store.prepare('INSERT INTO landmarks (name, building, floor, type, sort, platform_building_id, platform_map_id, platform_landmark_id, pos_x, pos_y) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        const info = store.prepare('INSERT INTO landmarks (name, building, floor, type, sort, platform_building_id, platform_map_id, platform_landmark_id, pos_x, pos_y) VALUES (?,?,?,?,?,?,?,?,?,?)')
           .run(p.landmarkName, building.buildingName || '', p.floor || '', type, sort, buildingId, p.mapId || '', lmId, posX, posY)
-        seenPos.add(key)
+        seenPos.set(key, { id: Number(info.lastInsertRowid), mapId: p.mapId || '' })
         inserted++
       }
-      sort++
     }
     // 清理无平台映射的历史演示点位（仅当本次成功拉到有效点位时执行）
     let removed = 0
@@ -194,7 +254,7 @@ async function syncLandmarks(store) {
       const del = store.prepare('DELETE FROM landmarks WHERE id=?')
       for (const d of dups) { del.run(d.id); deduped++ }
     } catch (e) { /* 表结构差异时跳过清理，不影响同步本身 */ }
-    return { ok: true, buildingId, buildingName: building.buildingName, count: points.length, inserted, updated, skipped, removed, deduped }
+    return { ok: true, buildingId, buildingName: building.buildingName, count: points.length, inserted, updated, skipped, repointed, removed, deduped, activeMapId: activeMap }
   } catch (e) {
     return { ok: false, msg: e.message }
   }
@@ -277,7 +337,10 @@ let mapInfoCache = { ts: 0, data: null }
 
 async function getMapRaw(store) {
   if (mapInfoCache.data && Date.now() - mapInfoCache.ts < 60000) return mapInfoCache.data
-  const lm = store.prepare("SELECT * FROM landmarks WHERE platform_building_id != '' ORDER BY sort LIMIT 1").get()
+  // 取哪张图：**必须取当前运营图（车所在图）上的点位**，不能只按 sort 第一条 ——
+  // 平台上同时挂着在用图与备份图，若备份图上有一个在用图没有的点（历史上就有）且 sort 更小，
+  // 只按 sort 取会把大屏/追踪页的底图切回旧图。points.anchorRow 优先运营图，取不到才按 sort。
+  const lm = pointsSvc.anchorRow(store)
   if (!lm || !lm.platform_map_id) return null
   try {
     const m = await requestPlatform('GET', '/open-api/v1/building/mapInfo/' + encodeURIComponent(lm.platform_map_id))
