@@ -20,6 +20,16 @@ const REFUND_STATUS = { 0: '待处理', 2: '已拒绝', 3: '已退款', 4: '已�
 // 取消申请状态：0 待处理 / 2 已拒绝 / 3 已同意取消
 const CANCEL_REQ_STATUS = { 0: '待处理', 2: '已拒绝', 3: '已同意取消' }
 
+// 用户可见订单状态文案：商家/管理员清理的订单（cancel_note 有值）显示「订单异常（已取消/已退款）」，
+// 不直接说"管理员删除"（2026-10-12 负责人定的口径）。只对取消/退款两类终态附加。
+function orderStatusText(order) {
+  const st = Number(order && order.status)
+  const base = ORDER_STATUS[st] || ''
+  const note = String((order && order.cancel_note) || '').trim()
+  if (note && (st === 5 || st === 7)) return note + '（' + base + '）'
+  return base
+}
+
 // 免费取消时间窗：下单后该时长内可直接取消（不论商家是否接单），超过须提交取消申请由商家判断。
 const FREE_CANCEL_WINDOW_MS = Number(process.env.FREE_CANCEL_WINDOW_MS || 10 * 60 * 1000)
 
@@ -248,6 +258,15 @@ async function realRefundOrLocal(store, deps, order, refundId, amount) {
   return { ok: true, local: true, refundNo: '' }
 }
 
+// 自动退款单落账（供商家端「订单异常管理」的订单清理 / 批次清理跨域调用，与 order/routes 直调同源）
+function recordAutoRefund(store, f) {
+  return q.insertAutoRefund(store, {
+    orderId: f.orderId, userId: f.userId,
+    reason: f.reason || '订单异常自动退款', amount: Number(f.amount || 0),
+    reply: f.reply || '订单异常自动退款', refundNo: f.refundNo || ''
+  })
+}
+
 // 订单拆单：按 maxItems 件上限把购物车行贪心拆成多个子订单行块（每块 ≤ maxItems 件）
 function splitOrderChunks(lineItems, maxItems) {
   const chunks = []
@@ -443,6 +462,7 @@ module.exports = {
   // 状态机辅助
   orderTrulyDelivering, orderStuckDelivering, maybeAutoAccept, withinFreeCancelWindow,
   applyOrderCancelled, realRefundOrLocal, splitOrderChunks,
+  orderStatusText, recordAutoRefund,
   // 状态推进收口（orders 状态迁移唯一入口：守卫 + 收口函数族，跨域经 deps.order 或 server 注入钩子调用）
   canAdvanceOrderStatus, attachTaskToOrder, markOrderStarted, markOrderInBatchStart,
   markOrderDelivered, markOrderException, markOrderPicked, arriveOrder, fulfillOrder,

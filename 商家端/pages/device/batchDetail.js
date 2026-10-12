@@ -1,6 +1,5 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
-const role = require('../../utils/role')
 
 // 批次上货页（一车多单）—— 新流程（2026-10-06 改版）
 // ---------------------------------------------------------------------------
@@ -46,8 +45,7 @@ Page({
     loadMsg: '',
     countdown: 0,
     countdownText: '',
-    hintWarn: false,      // 倒计时超时后提示转警示色
-    canDeleteBatch: false // 删除批次：店主专属 + 只对活跃批次开放
+    hintWarn: false      // 倒计时超时后提示转警示色
   },
   timer: null,
   openTimer: null,     // 自动开舱重试计时器
@@ -99,10 +97,7 @@ Page({
       const phase = this.inferPhase(b)
       this.setData({
         batch: this.decorate(b),
-        phase,
-        // 删除批次：店主专属，且只对活跃批次开放（组单中/待上货/配送中），与后端口径保持一致；
-        // 前端先拦一道，免得店员点了才弹"无权限"——request.js 遇 403 会清登录态把人踢回登录页。
-        canDeleteBatch: role.isOwner() && [0, 1, 2].indexOf(Number(b.status)) >= 0
+        phase
       })
       // 舱门没开就自动开 —— 这是「点『上货』即自动开盖」的落点，也兜住扫码入口与中途重进。
       if (phase === 'scanned') this.ensureBinOpen()
@@ -187,43 +182,6 @@ Page({
   retryOpenBin() {
     this._retryCount = 0
     this.ensureBinOpen()
-  },
-
-  // ---------- 删除批次（店主专属；2026-10-07 从管理员网页「清理批次」迁来） ----------
-  // 这一步会连带删掉批内全部订单（作废机器人任务 + 回补库存 + 平台召回）并释放设备控制权，
-  // 所以确认弹窗必须把"会波及哪些单"说清楚：商家以为只删一个批次、实际砍掉好几单，是最容易出事的误解。
-  deleteBatch() {
-    const b = this.data.batch
-    if (!b) return
-    const n = (b.orders || []).length
-    wx.showModal({
-      title: '删除批次',
-      content: '将取消该批次内全部 ' + n + ' 个订单（作废机器人任务、回补库存、召回机器人）并释放设备控制权。用户端会看到订单已取消，不可撤销。确定删除？',
-      confirmText: '删除',
-      confirmColor: '#E64340',
-      success: (r) => { if (r.confirm) this.doDeleteBatch() }
-    })
-  },
-
-  async doDeleteBatch() {
-    wx.showLoading({ title: '删除中' })
-    try {
-      const out = await request.post(api.batchDelete, { batch_id: this.data.batch.id }, { silent: true })
-      wx.hideLoading()
-      this.clearTimers()
-      const failed = (out && out.failed) || []
-      wx.showModal({
-        title: '批次已删除',
-        content: '已取消 ' + ((out && out.cancelled) || 0) + ' 个订单'
-          + (failed.length ? '，另有 ' + failed.length + ' 项未成功：' + failed.slice(0, 3).join('；') : ''),
-        showCancel: false,
-        confirmText: '知道了',
-        success: () => wx.navigateBack()
-      })
-    } catch (e) {
-      wx.hideLoading()
-      wx.showModal({ title: '删除失败', content: (e && e.message) || '请稍后重试', showCancel: false, confirmText: '知道了' })
-    }
   },
 
   decorate(b) {

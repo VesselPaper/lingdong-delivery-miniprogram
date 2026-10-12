@@ -42,11 +42,7 @@
 
   var $ = function (id) { return document.getElementById(id) }
   var state = null                // GET /api/admin/state 的聚合结果
-  var dataTab = 'batch'           // batch | order | task
-  var dataScope = 'active'        // active | history | all
-  var searchQ = ''
-  var statusFilter = ''
-  var liveRobots = []             // 最近一次 WS live 推送的机器人位置（供抽屉显示实时位置）
+  var liveRobots = []             // 最近一次 WS live 推送的机器人位置（供地图小车/机器人卡显示）
   var toastTimer = null
   var busy = false                // 状态拉取防重入
   var currentAdmin = null         // 当前登录的管理员（方案A：账号密码登录）

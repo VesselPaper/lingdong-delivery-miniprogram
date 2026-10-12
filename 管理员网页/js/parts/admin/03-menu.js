@@ -33,62 +33,8 @@
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideCtx() })
   window.addEventListener('blur', hideCtx)
 
-  // 按 id 从 state 里取实体（内联处理器只能传 id，不能传对象）
-  function findOrder(id) { return (state && state.orders || []).find(function (o) { return o.id === Number(id) }) }
-  function findBatch(id) { return (state && state.batches || []).find(function (b) { return b.id === Number(id) }) }
-  function findTask(id) { return (state && state.tasks || []).find(function (t) { return t.id === Number(id) }) }
-
-  function ctxOrder(id, ev) {
-    ev.preventDefault()
-    ev.stopPropagation()
-    var o = findOrder(id)
-    if (!o) return false
-    var items = [
-      { icon: 'i-copy', label: '复制订单号', run: function () { copyText(o.order_no, '订单号已复制') } },
-      { icon: 'i-timeline', label: '查看详情与时间线', run: function () { openDrawer('order', o.id) } }
-    ]
-    showCtx(ev.clientX, ev.clientY, '订单 ' + (o.code_short || o.id) + ' · ' + o.order_no, items)
-    return false
-  }
-  window.ctxOrder = ctxOrder
-
-  function ctxBatch(id, ev) {
-    ev.preventDefault()
-    ev.stopPropagation()
-    var b = findBatch(id)
-    if (!b) return false
-    var items = [
-      { icon: 'i-copy', label: '复制批次号', run: function () { copyText(b.batch_no, '批次号已复制') } },
-      { icon: 'i-timeline', label: '查看详情与时间线', run: function () { openDrawer('batch', b.id) } }
-    ]
-    if (Number(b.status) === 2 && parseRoute(b).length > 0) {
-      items.push({ icon: 'i-map', label: '在地图查看配送站位', run: function () { goBatchMap(b.id) } })
-    }
-    showCtx(ev.clientX, ev.clientY, '批次 ' + (b.code_short || b.id) + ' · ' + b.batch_no, items)
-    return false
-  }
-  window.ctxBatch = ctxBatch
-
-  function ctxTask(id, ev) {
-    ev.preventDefault()
-    ev.stopPropagation()
-    var t = findTask(id)
-    if (!t) return false
-    var active = [80, 110, 150].indexOf(Number(t.task_status)) < 0 && !t.void_at
-    var items = [
-      { icon: 'i-copy', label: '复制任务号', run: function () { copyText(String(t.id), '任务号已复制') } },
-      { icon: 'i-timeline', label: '查看详情与时间线', run: function () { openDrawer('task', t.id) } }
-    ]
-    if (active) {
-      items.push(
-        { icon: 'i-close', label: '关闭并作废', danger: true, run: function () { actCloseVoid(t.id) } },
-        { icon: 'i-x', label: '仅作废（不关平台任务）', danger: true, run: function () { actVoid(t.id) } }
-      )
-    }
-    showCtx(ev.clientX, ev.clientY, '任务 #' + t.id, items)
-    return false
-  }
-  window.ctxTask = ctxTask
+  // 2026-10-12：配送数据页已从管理员网页移除（订单/任务管理只在商家端进行），
+  // 订单/批次/任务的右键菜单 ctxOrder/ctxBatch/ctxTask 一并删除。
 
   // ---------- 机器人卡「更多操作」 ----------
   // 只保留三种设备级动作；召唤与开关舱是高频操作，仍在卡片上直接暴露。

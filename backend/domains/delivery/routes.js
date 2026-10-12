@@ -162,7 +162,8 @@ module.exports = (store, deps) => {
     }
     ok(res, {
       order_status: order.status,
-      order_status_text: PICKUP.ORDER_STATUS[order.status] || '',
+      // 用户可见状态文案走 order 域统一口径（清理过的订单显示「订单异常（已取消/已退款）」）
+      order_status_text: deps.order.orderStatusText(order),
       pickup_code: order.pickup_code,
       landmark_name: order.landmark_name,
       task: task ? { task_status: task.task_status, status_text: task.status_text } : null,

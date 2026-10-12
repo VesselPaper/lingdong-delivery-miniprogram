@@ -63,6 +63,12 @@ function cancelLocal(store, order, opts) {
   const finalStatus = Number(o.finalStatus) === 7 ? 7 : 5
   const claimed = finalStatus === 7 ? claimRefunded(store, order.id) : claimCancelled(store, order.id)
   if (!claimed) return { claimed: false, finalStatus, tasks: [] }
+  // 取消原因（用户可见口径）：opts.cancelNote 例如「订单异常」，用户端据此显示
+  // 「订单异常（已取消/已退款）」，不直接暴露"管理员删除"。
+  if (o.cancelNote) {
+    store.prepare("UPDATE orders SET cancel_note=?, updated_at=datetime('now','localtime') WHERE id=?")
+      .run(String(o.cancelNote).slice(0, 50), order.id)
+  }
 
   const voided = voidTasks(store, order.id, o.reason)
   // 未售出则回补库存（内部以 stock_restored_at 幂等；已结算的单自动跳过）

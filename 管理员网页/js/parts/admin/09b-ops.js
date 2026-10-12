@@ -49,7 +49,6 @@
       toast(successMsg || label + ' 成功', 'ok')
       refresh()
       if (overviewTab === 'log') loadAudit(true)   // 操作日志页正开着就顺带刷新
-      if (drawerCtx) window.drawerRefresh()
     }).catch(function (e) { opFail(e, label) })
   }
   function confirmRun(label, p, body, confirmText, successMsg) {
@@ -165,30 +164,8 @@
   // ---------- 设置页：控制权 / 点位 ----------
   // 2026-09-26 移除：设备控制权与点位同步均由业务路径自动管理（扫码开舱自动获取、派车缺映射自动同步），
   // 管理员手动入口无使用场景，随「机器人控制」页一并删除（后端接口保留）。
-
-  // 一键初始化（危险）：关闭全部平台任务 + 释放全部控制权 + 删除全部活跃订单 + 批次置4
-  $('reset').onclick = function () {
-    var steps = [
-      '关闭全部平台活跃任务',
-      '释放全部设备控制权',
-      '删除全部活跃订单（作废任务 + 回补库存 + 平台召回）',
-      '全部批次置已取消'
-    ]
-    var html = '<p class="confirm-body warn">此操作会作用于真实机器人，不可撤销。确认继续？</p>'
-      + '<ol class="confirm-steps">' + steps.map(function (s) { return '<li>' + esc(s) + '</li>' }).join('') + '</ol>'
-    window.openConfirmModal('一键初始化状态', html, function () {
-      log('一键初始化 …（可能耗时，请等待）')
-      api('/reset', 'POST', {}).then(function (d) {
-        var failed = d.failed && d.failed.length ? d.failed : []
-        var msg = '一键初始化完成：关闭任务 ' + d.closed + '，释放控制权 ' + d.released + '，删除订单 ' + d.cancelled + '，清理批次 ' + d.batch_cleaned
-          + (failed.length ? '，失败 ' + failed.length + ' 项（' + failed.slice(0, 5).join('；') + '）' : '')
-        log(msg, failed.length ? 'warn' : 'green')
-        toast(msg, failed.length ? 'warn' : 'ok')
-        refresh()
-        if (overviewTab === 'log') loadAudit(true)
-      }).catch(function (e) { opFail(e, '一键初始化') })
-    })
-  }
+  // 2026-10-12 移除「一键初始化」（设置→危险操作）：管理员网页细分后只管机器人事务，
+  // 订单/任务管理只在商家端进行，清理订单统一走商家端「订单异常管理」入口（后端 /admin/reset 保留供测试）。
 
   // ---------- 其他控件绑定 ----------
   $('refresh').onclick = refresh
@@ -196,10 +173,6 @@
   if (moreBtn) moreBtn.addEventListener('click', function (ev) { ev.stopPropagation(); window.showRobotMenu(ev) })
 
   // ---------- 启动 ----------
-  fillStatusOptions('batch')
-  wireSearch('dataSearch')
-  showPanel('dataPanel', 'batch', ['batch', 'order', 'task'])
-
   var saved = localStorage.getItem(TOKEN_KEY)
   if (saved) {
     // 方案A：有会话 token → 调 /admin/me 校验；失效/过期由 onUnauthorized 弹登录页

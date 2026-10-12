@@ -154,7 +154,7 @@ app.use('/api', orderRoutes(store, {
   settleRobot: (deviceSn) => deliveryService.settleRobotAtLoading(store, { runtime, platform, batch }, deviceSn)
 }))
 app.use('/api', deliveryRoutes(store, {
-  runtime, platform, batch, orderCancel,
+  runtime, platform, batch, orderCancel, wxpay,
   goods: goodsService, order: orderService, wxmp, push
 }))
 // 召唤多单配送推进钩子：批次内任一订单被取走（order.fulfillOrder→batch.countPicked→notify），

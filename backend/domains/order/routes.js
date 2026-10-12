@@ -84,7 +84,7 @@ module.exports = (store, deps) => {
     const { status = '' } = req.query
     const rows = q.listByUser(store, req.user.id, status).map((o) => ({
       ...o,
-      status_text: s.ORDER_STATUS[o.status] || '',
+      status_text: s.orderStatusText(o),
       code_short: seqSvc.orderShortOf(o.seq_date, o.created_at, o.daily_seq || o.id)
     }))
     ok(res, rows)
@@ -136,7 +136,7 @@ module.exports = (store, deps) => {
     }
     ok(res, {
       ...order,
-      status_text: s.ORDER_STATUS[order.status] || '',
+      status_text: s.orderStatusText(order),
       code_short: seqSvc.orderShortOf(order.seq_date, order.created_at, order.daily_seq || order.id),
       items,
       task,
@@ -398,6 +398,33 @@ module.exports = (store, deps) => {
     audit(req, 'order/delete', 'order#' + order.id,
       '订单 ' + (order.order_no || order.id) + ' 删除：claimed=' + r.claimed + ' 终态=' + r.finalStatus + ' 平台任务=' + r.tasks.length)
     ok(res, { claimed: r.claimed, final_status: r.finalStatus, tasks: r.tasks.length })
+  })
+
+  // 清理订单（商家端「订单异常管理」店主专用入口，2026-10-12 起取代订单详情/批次详情里的删除按钮）：
+  //   · 订单正在进行 → 驳回任务（applyOrderCancelled 统一作废平台任务 + 平台召回 + 摘批次 + 回补库存）
+  //   · 已付款（status≥1）→ 真实退款（微信原路 / 模拟档本地标记）→ 订单置 7 已退款
+  //   · 未付款 → 订单置 5 已取消
+  //   · 用户端显示「订单异常（已退款/已取消）」，不暴露"管理员删除"
+  router.post('/merchant/admin/order/clear', ownerGuard, async (req, res) => {
+    const order = q.findById(store, (req.body || {}).order_id)
+    if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
+    if (ORDER_DELETABLE.indexOf(Number(order.status)) < 0) {
+      return res.status(400).json({ code: 400, msg: '该订单已是终态，不能清理' })
+    }
+    let refund = null
+    if (Number(order.status) >= 1) {
+      refund = await s.realRefundOrLocal(store, deps, order, null, Number(order.total_amount))
+      if (!refund.ok) return res.status(502).json({ code: 502, msg: refund.msg })
+    }
+    const finalStatus = refund ? 7 : 5
+    const c = await s.applyOrderCancelled(store, deps, order, { finalStatus, reason: '订单异常，商家清理', cancelNote: '订单异常' })
+    if (!c.claimed) return res.status(409).json({ code: 409, msg: '订单状态已变更，请刷新后重试' })
+    if (refund) {
+      q.insertAutoRefund(store, { orderId: order.id, userId: order.user_id, reason: '订单异常，商家清理并退款', amount: order.total_amount, reply: '订单异常自动退款', refundNo: refund.refundNo })
+    }
+    audit(req, 'admin/order-clear', 'order#' + order.id,
+      '订单 ' + (order.order_no || order.id) + ' 清理：终态=' + finalStatus + (refund ? ' 已退款¥' + order.total_amount : ' 未付款') + ' 平台任务=' + c.tasks.length)
+    ok(res, { order_id: order.id, status: finalStatus, refunded: !!refund, msg: '已清理，用户端将显示「订单异常（' + (finalStatus === 7 ? '已退款' : '已取消') + '）」' })
   })
 
   // 商家接单（真实业务：店铺歇业时后端拒绝接单；接单即并入当前配送批次，待批次派车）

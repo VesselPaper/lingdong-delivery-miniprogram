@@ -1,0 +1,51 @@
+<view class="oa-page" wx:if="{{isOwner}}">
+  <!-- 顶部说明 + 标签切换（订单 / 批次） -->
+  <view class="oa-head">
+    <view class="oa-tip">
+      清理会驳回正在进行的任务、付过款的原路退款，用户端显示「订单异常」。仅店长可用，请谨慎操作。
+    </view>
+    <view class="seg">
+      <view class="seg-item {{tab === 'order' ? 'on' : ''}}" bindtap="switchTab" data-tab="order">异常订单（{{orders.length}}）</view>
+      <view class="seg-item {{tab === 'batch' ? 'on' : ''}}" bindtap="switchTab" data-tab="batch">异常批次（{{batches.length}}）</view>
+    </view>
+  </view>
+
+  <!-- 订单列表 -->
+  <block wx:if="{{tab === 'order'}}">
+    <view class="card" wx:for="{{orders}}" wx:key="id">
+      <view class="oa-row">
+        <view class="oa-main">
+          <view class="oa-title">订单 {{item.code_short || item.daily_seq || item.id}} · <text class="st st-{{item.stClass}}">{{item.status_text}}</text></view>
+          <view class="oa-sub text-weak text-sm">{{item.order_no}} · ¥{{item.total_amount}} · {{item.item_count}}件</view>
+          <view class="oa-sub text-weak text-sm" wx:if="{{item.landmark_name}}">送达：{{item.landmark_name}}</view>
+          <view class="oa-sub text-weak text-sm" wx:if="{{item.batch}}">批次：{{item.batch.code_short || item.batch.batch_no}}</view>
+        </view>
+        <view class="oa-act btn btn-sm btn-danger" hover-class="btn-hover" bindtap="clearOrder" data-id="{{item.id}}">清理</view>
+      </view>
+    </view>
+    <view class="empty" wx:if="{{!orders.length && !loading}}">
+      <view class="empty-text">暂无待清理订单</view>
+    </view>
+  </block>
+
+  <!-- 批次列表 -->
+  <block wx:if="{{tab === 'batch'}}">
+    <view class="card" wx:for="{{batches}}" wx:key="id">
+      <view class="oa-row">
+        <view class="oa-main">
+          <view class="oa-title">批次 {{item.code_short || item.daily_seq || item.id}} · {{item.status_text}}</view>
+          <view class="oa-sub text-weak text-sm">{{item.batch_no}} · {{item.total_orders}}单 · {{item.total_items}}件</view>
+          <view class="oa-sub text-weak text-sm" wx:if="{{item.route_text}}">路线：{{item.route_text}}</view>
+        </view>
+        <view class="oa-act btn btn-sm btn-danger" hover-class="btn-hover" bindtap="clearBatch" data-id="{{item.id}}">清理批次</view>
+      </view>
+    </view>
+    <view class="empty" wx:if="{{!batches.length && !loading}}">
+      <view class="empty-text">暂无待清理批次</view>
+    </view>
+  </block>
+
+  <view class="card" wx:if="{{loading}}">
+    <view class="empty"><view class="empty-text">加载中…</view></view>
+  </view>
+</view>

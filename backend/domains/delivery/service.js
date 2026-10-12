@@ -629,11 +629,25 @@ async function deleteBatch(store, deps, b) {
     } catch (e) { out.failed.push('释放控制权：' + e.message) }
   }
   // order 域统一落账（本域只借它的 service，不复制取消逻辑）
+  // 2026-10-12：批次删除（商家端「订单异常管理」入口）逐单按"是否付款"退款——付过钱的订单
+  // 真实退款并置 7 已退款，没付钱的置 5 已取消；用户端统一显示「订单异常（已退款/已取消）」。
   const orderDeps = { orderCancel: deps.orderCancel, platform: deps.platform }
   for (const o of q.batchOrders(store, b.id)) {
     try {
-      const r = await deps.order.applyOrderCancelled(store, orderDeps, o, { reason: '商家删除批次' })
-      if (r.claimed) out.cancelled++
+      let refund = null
+      if (Number(o.status) >= 1) {
+        refund = await deps.order.realRefundOrLocal(store, deps, o, null, Number(o.total_amount))
+        if (!refund.ok) { out.failed.push('订单#' + o.id + '退款：' + refund.msg); continue }
+      }
+      const r = await deps.order.applyOrderCancelled(store, orderDeps, o, {
+        finalStatus: refund ? 7 : 5, reason: '订单异常，批次清理', cancelNote: '订单异常'
+      })
+      if (r.claimed) {
+        out.cancelled++
+        if (refund) {
+          try { deps.order.recordAutoRefund(store, { orderId: o.id, userId: o.user_id, amount: o.total_amount, refundNo: refund.refundNo }) } catch (e) { /* 退款单失败不影响主流程 */ }
+        }
+      }
     } catch (e) { out.failed.push('订单#' + o.id + '：' + e.message) }
   }
   q.cleanBatch(store, b.id)

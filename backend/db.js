@@ -354,6 +354,9 @@ function migrate(db) {
   if (!taskCols.includes('recall_status')) db.exec("ALTER TABLE delivery_tasks ADD COLUMN recall_status INTEGER DEFAULT 0")
   if (!taskCols.includes('recall_error')) db.exec("ALTER TABLE delivery_tasks ADD COLUMN recall_error TEXT DEFAULT ''")
   if (!orderCols.includes('cancelled_at')) db.exec("ALTER TABLE orders ADD COLUMN cancelled_at TEXT")
+  // 取消原因（用户可见口径）：商家/管理员清理的订单写「订单异常」，用户端据此显示
+  // 「订单异常（已取消/已退款）」，不直接说"管理员删除"（2026-10-12 负责人定）。
+  if (!orderCols.includes('cancel_note')) db.exec("ALTER TABLE orders ADD COLUMN cancel_note TEXT DEFAULT ''")
   // 批次摘除与库存回补各自的幂等标记：同一订单会被「用户取消 / 平台推送 110 / 商家异常退款」
   // 多条路径处理，此前每条都会扣一次批次计数、补一次库存。
   if (!orderCols.includes('batch_removed_at')) db.exec("ALTER TABLE orders ADD COLUMN batch_removed_at TEXT")

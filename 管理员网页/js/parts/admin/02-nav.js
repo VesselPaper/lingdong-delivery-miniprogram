@@ -1,10 +1,9 @@
 
-  // ---------- 导航（总览 / 配送数据 / 商家管理 / 设置） ----------
+  // ---------- 导航（总览 / 商家管理 / 设置；2026-10-12 起移除「配送数据」，订单/任务管理只在商家端） ----------
   var PAGE_META = {
     overview: { title: '总览', sub: '机器人状态、异常与死锁监控' },
-    data: { title: '配送数据', sub: '批次 / 订单 / 任务的搜索、状态与详情' },
     merchants: { title: '商家管理', sub: '商家账号的创建、角色与状态维护' },
-    settings: { title: '设置', sub: '账号、控制权、点位与危险操作' }
+    settings: { title: '设置', sub: '账号与控制权' }
   }
   function navTo(page) {
     if (!PAGE_META[page]) return
@@ -20,7 +19,6 @@
     var pgEl = document.getElementById('page-' + page)
     var sc = pgEl ? pgEl.querySelector('.page-body') : null
     if (sc) sc.scrollTop = 0
-    if (state && page === 'data') renderDataPage()
     if (page === 'overview') {
       if (window.invalidateAdminMap) window.invalidateAdminMap()
       if (overviewTab === 'log') loadAudit()
@@ -53,16 +51,6 @@
     })
   }
 
-  // ---------- 筛选下拉：按实体类型填充状态选项 ----------
-  function fillStatusOptions(kind) {
-    var s = $('dataStatus')
-    if (!s) return
-    var dict = kind === 'order' ? ORDER_STATUS : kind === 'task' ? TASK_STATUS : BATCH_STATUS
-    var html = '<option value="">全部状态</option>'
-    Object.keys(dict).forEach(function (k) { html += '<option value="' + k + '">' + esc(dict[k]) + '</option>' })
-    s.innerHTML = html
-  }
-
   // ---------- 总览页标签（机器人 / 操作日志） ----------
   var overviewTab = 'robot'
   wireTabs('overviewTabs', function (tab) {
@@ -72,57 +60,9 @@
     if (tab === 'log') loadAudit()
   })
 
-  // ---------- 配送数据页标签（批次 / 订单 / 任务） ----------
-  wireTabs('dataTabs', function (tab) {
-    dataTab = tab
-    statusFilter = ''
-    var sel = $('dataStatus'); if (sel) sel.value = ''
-    fillStatusOptions(tab)
-    showPanel('dataPanel', tab, ['batch', 'order', 'task'])
-    renderDataPage()
-  })
-
-  // ---------- 配送数据页分段（活跃 / 历史 / 全部） ----------
-  var scopeRoot = $('dataScope')
-  if (scopeRoot) {
-    scopeRoot.addEventListener('click', function (e) {
-      var btn = e.target.closest('.seg-btn')
-      if (!btn || btn.classList.contains('active')) return
-      scopeRoot.querySelectorAll('.seg-btn').forEach(function (b) { b.classList.toggle('active', b === btn) })
-      dataScope = btn.dataset.scope || 'active'
-      renderDataPage()
-    })
-  }
-
-  // ---------- 状态筛选 ----------
-  // 所选状态是否属于「活跃」口径（batch [0,1,2]、order [2,3,6]、task task_status<80）
-  function statusFitsActive(kind, statusStr) {
-    var sets = { batch: [0, 1, 2], order: [2, 3, 6] }
-    if (kind === 'task') return Number(statusStr) < 80
-    return (sets[kind] || []).indexOf(Number(statusStr)) >= 0
-  }
-  var statusSel = $('dataStatus')
-  if (statusSel) {
-    statusSel.addEventListener('change', function () {
-      statusFilter = this.value
-      // 「活跃」分段下选了「全部状态」或某个终态状态（如已完成/已取消）时，
-      // 这些记录必然不在活跃里 → 自动切到「全部」分段，让「全部状态」名副其实；
-      // 历史/全部分段与「活跃分段选活跃状态」不干预。
-      var needAll = statusFilter === '' || !statusFitsActive(dataTab, statusFilter)
-      if (needAll && dataScope === 'active') {
-        dataScope = 'all'
-        var scopeRoot = $('dataScope')
-        if (scopeRoot) scopeRoot.querySelectorAll('.seg-btn').forEach(function (b) {
-          b.classList.toggle('active', b.dataset.scope === 'all')
-        })
-      }
-      renderDataPage()
-    })
-  }
-
-  // ---------- 设置页标签（账号 / 危险操作；机器人控制页已移除：控制权与点位同步均由业务自动管理） ----------
+  // ---------- 设置页标签（账号） ----------
   wireTabs('settingsTabs', function (tab) {
-    showPanel('settingsPanel', tab, ['account', 'danger'])
+    showPanel('settingsPanel', tab, ['account'])
   })
 
   // ---------- 商家管理页标签（创建 / 已创建） ----------
@@ -130,16 +70,3 @@
     showPanel('merchantsPanel', tab, ['create', 'list'])
     if (tab === 'list') loadMerchants()
   })
-
-  // ---------- 搜索框（防抖；跨批次号/订单号/任务号/点位/商品名） ----------
-  function wireSearch(inputId) {
-    var inp = $(inputId)
-    if (!inp) return
-    inp.addEventListener('input', function () {
-      clearTimeout(inp._t)
-      inp._t = setTimeout(function () {
-        searchQ = inp.value.trim().toLowerCase()
-        renderDataPage()
-      }, 160)
-    })
-  }

@@ -31,6 +31,12 @@
       <view class="cell-label cell-full">配送监控</view>
       <t-icon name="chevron-right" size="36rpx" color="#C0C0C0" />
     </view>
+    <!-- 订单异常管理：店长专用入口（店员不可见）。清理订单/批次会驳回任务、付款退款，
+         用户端显示「订单异常」——不进首页常用功能图标区，避免误触。 -->
+    <view class="cell" wx:if="{{isOwner}}" bindtap="goOrderAdmin">
+      <view class="cell-label cell-full order-admin-text">订单异常管理</view>
+      <t-icon name="chevron-right" size="36rpx" color="#C0C0C0" />
+    </view>
     <view class="cell" bindtap="logout">
       <view class="cell-label cell-full logout-text">退出登录</view>
       <t-icon name="chevron-right" size="36rpx" color="#C0C0C0" />

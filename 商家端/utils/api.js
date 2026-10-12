@@ -8,6 +8,9 @@ const api = {
   orderConfirm: '/merchant/order/confirm',
   // 删除订单（店主专属）：2026-10-07 从管理员网页迁来
   orderDelete: '/merchant/order/delete',
+  // 清理订单（店长「订单异常管理」入口，2026-10-12 起取代详情页删除按钮）：
+  // 驳回任务 + 付款退款 + 用户端显示「订单异常」
+  orderAdminClear: '/merchant/admin/order/clear',
   deliveryTestComplete: '/merchant/delivery/test-complete',
   goods: '/merchant/goods',
   goodsUpdate: '/merchant/goods',

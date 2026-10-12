@@ -28,6 +28,7 @@
     "pages/activity/edit",
     "pages/delivery/monitor",
     "pages/shop/settings",
+    "pages/shop/orderAdmin",
     "pages/user/profile"
   ],
   "window": {

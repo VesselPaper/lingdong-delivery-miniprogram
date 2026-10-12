@@ -1,11 +1,13 @@
 const shopState = require('../../utils/shopState')
 const request = require('../../utils/request')
+const role = require('../../utils/role')
 
 Page({
   data: {
     business: 'open',
     autoAccept: false,
-    deliveryFee: '1.00'
+    deliveryFee: '1.00',
+    isOwner: false // 订单异常管理入口：店长专属，不进首页常用功能图标区
   },
 
   async onLoad() {
@@ -13,7 +15,8 @@ Page({
     this.setData({
       business: shopState.getBusiness(),
       autoAccept: shopState.getAutoAccept(),
-      deliveryFee: shopState.getDeliveryFee().toFixed(2)
+      deliveryFee: shopState.getDeliveryFee().toFixed(2),
+      isOwner: role.isOwner()
     })
   },
 
@@ -56,6 +59,11 @@ Page({
 
   goMonitor() {
     wx.navigateTo({ url: '/pages/delivery/monitor' })
+  },
+
+  // 订单异常管理（店长专用）：异常/垃圾订单的清理入口（清理会驳回任务、付款退款、用户端显示「订单异常」）
+  goOrderAdmin() {
+    wx.navigateTo({ url: '/pages/shop/orderAdmin' })
   },
 
   logout() {
