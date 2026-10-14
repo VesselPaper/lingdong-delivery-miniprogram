@@ -1312,6 +1312,29 @@ const LOADING_RADIUS_M = Number(process.env.LOADING_POINT_RADIUS_M || 1.5)
 const ARRIVE_RADIUS_M = Number(process.env.ARRIVE_RADIUS_M || 2.0)
 const POS_M_PER_UNIT = Number(process.env.POS_M_PER_UNIT || 1.0)
 
+// 【需求6】互斥闸共用判据：机器人「正在移动」的机器状态集合。
+// 开舱/关舱/执行动作 三道命令共用同一把锁（2026-10-14）：
+//   ① 车在移动 → 禁止开舱（等待停稳）；
+//   ② 舱门开着/正在开 → 禁止任何会把车叫走的动作（立即配送等）。
+// 平台机器状态里只有这几个明确表示"车在跑"，其余（idle/charging/lightTask/return* 等）都是静止态。
+const MOVING_STATUS = ['Delivery', 'delivery', 'patrol', 'Patrol']
+
+// 只读查「这台车现在动不动」。返回 { ok, moving, status, text }。
+// MOCK 档恒 not moving（本地模拟不涉及真车）；设备查不到 → moving=false 但 ok=false（调用方按"拿不到就拦"处理）。
+async function robotMoving(store, deviceSn) {
+  if (MOCK) return { ok: true, moving: false, status: '', text: '' }
+  if (!deviceSn) return { ok: false, moving: false, status: '', text: '缺少设备编号' }
+  try {
+    const r = await getDeviceList()
+    if (!r.ok || !r.robots) return { ok: false, moving: false, status: '', text: '无法获取设备状态' }
+    const me = r.robots.find((x) => x.device_sn === deviceSn)
+    if (!me) return { ok: false, moving: false, status: '', text: '设备不在线' }
+    return { ok: true, moving: MOVING_STATUS.includes(me.machine_status), status: me.machine_status || '', text: me.machine_text || '' }
+  } catch (e) {
+    return { ok: false, moving: false, status: '', text: '设备状态查询异常' }
+  }
+}
+
 async function robotAtLoadingPoint(store, deviceSn) {
   if (MOCK) return { ok: true, at_loading_point: true, distance_m: 0 }
   if (!deviceSn) return { ok: false, msg: '缺少设备编号', at_loading_point: false, distance_m: null }
@@ -1588,5 +1611,5 @@ module.exports = {
   grantControl, releaseControl, loadingVerify, drawerCtrl, loadingConfirm,
   unloadingVerify, unloadingConfirm, cancelQueueTask, closeTask,
   queryLightTask, stopRobot, queryDeviceTasks,
-  robotAtLoadingPoint, robotAtPoint, isRobotBusy
+  robotAtLoadingPoint, robotAtPoint, isRobotBusy, robotMoving
 }

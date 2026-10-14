@@ -108,6 +108,9 @@ async function ensureStopArrival(store, deps, b) {
 async function startSummonDelivery(store, deps, batchId) {
   const b = q.batchById(store, batchId)
   if (!b) throw new Error('批次不存在')
+  // 【需求6】② 舱门开着/正在开 → 禁止把车叫走（含看门狗自愈路径的兜底，双保险）。
+  // 正常链路「关舱（清 bin_opened_at）→ 立即配送」不受影响；这里拦的是舱门未关就被点「立即配送」。
+  if (b.bin_opened_at) throw new Error('舱门未关，请先关舱再开始配送')
   // 已在配送推进中（current_stop>=1，已召唤/在途到某站）→ 幂等返回，绝不重复召唤/重标。
   // 注意：仅当 status=2 且 current_stop>=1 才早退。若 status=2 但 current_stop=0（上次召唤首站失败抛错、
   // 或崩溃于「召唤成功但 future_stop 未落库」），用户端订单仍停在「配送中」需补召唤——首站订单的「待取货」

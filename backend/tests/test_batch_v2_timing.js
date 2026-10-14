@@ -1,11 +1,12 @@
 // ============================================================================
-// v2 组单算法 · 第 3 层（时机层）+ 可用车判定 单元测试
+// 组单算法 · 第 3 层（时机层）+ 可用车判定 单元测试
 // ----------------------------------------------------------------------------
 // 覆盖：
-//   · BATCH_ALGO / BATCH_V2_READY 开关联动（默认必须是 legacy，线上零变化）
+//   · 唯一实现：legacy 已删除，planAutoLock 必须始终可用（旧开关变量只告警不报错）
 //   · 未定型批次数口径（只数组单中 status=0，待上货不算）
 //   · 情况1（车够）：各自到点各自锁
-//   · 情况2（车不够）：按 15 分钟窗口成批锁 + 窗口外的等下一轮
+//   · 情况2（略紧，待发 > 可用车但没到 K 倍）：窗口内成批锁
+//   · 情况3（积压，待发 ≥ K×可用车）：窗口内成批锁 + 攒单窗口缩短
 //   · 满容（12 件）无条件立即锁
 //   · 可用车 = 0 → 强制退回情况1（继续攒单，不让每单自成一批）
 //   · 派车优先级：第一张订单最早的先走
@@ -29,12 +30,17 @@ function ok(cond, msg) {
 }
 function section(title) { console.log('\n=== ' + title + ' ===') }
 
-// ---------- 临时库（只建 batch.js 需要的 3 张表）----------
+// ---------- 临时库（只建 batch.js 需要的表；列与真实库对齐，含可收单窗口用的两个时间列）----------
 const TMP_DB = path.join(os.tmpdir(), 'lingdong_test_v2timing_' + Date.now() + '.db')
 const db = new DatabaseSync(TMP_DB)
 db.exec(`CREATE TABLE delivery_batches (
   id INTEGER PRIMARY KEY AUTOINCREMENT, batch_no TEXT, status INTEGER DEFAULT 0,
-  device_sn TEXT DEFAULT '', created_at TEXT)`)
+  status_text TEXT DEFAULT '组单中', device_sn TEXT DEFAULT '', created_at TEXT,
+  route TEXT DEFAULT '[]', current_stop INTEGER DEFAULT 0, delivery_mode TEXT DEFAULT '',
+  bin_opened_at TEXT, loaded_at TEXT, mock_arrive_at TEXT, ctrl_id TEXT DEFAULT '',
+  light_task_id TEXT DEFAULT '', daily_seq INTEGER, seq_date TEXT,
+  total_orders INTEGER DEFAULT 0, total_items INTEGER DEFAULT 0, picked_orders INTEGER DEFAULT 0,
+  dispatched_at TEXT, completed_at TEXT, updated_at TEXT)`)
 db.exec(`CREATE TABLE orders (
   id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id INTEGER, status INTEGER DEFAULT 2, created_at TEXT)`)
 db.exec(`CREATE TABLE order_items (
@@ -47,9 +53,10 @@ function ago(min) {
 }
 let seq = 0
 // 造一个「组单中」批次：内含 1 张订单、件数 items，订单下单时间 = minAgo 分钟前
-function mkBatch(minAgo, items, status = 0, sn = '') {
-  const bi = db.prepare('INSERT INTO delivery_batches (batch_no, status, device_sn, created_at) VALUES (?,?,?,?)')
-    .run('TB' + (++seq), status, sn, ago(minAgo))
+// binOpened / loaded：可收单窗口的两个时间列（置上值 = 商家已开舱/已装好，不再收新单）
+function mkBatch(minAgo, items, status = 0, sn = '', binOpened = null, loaded = null) {
+  const bi = db.prepare('INSERT INTO delivery_batches (batch_no, status, device_sn, created_at, bin_opened_at, loaded_at) VALUES (?,?,?,?,?,?)')
+    .run('TB' + (++seq), status, sn, ago(minAgo), binOpened, loaded)
   const bid = Number(bi.lastInsertRowid)
   const oi = db.prepare('INSERT INTO orders (batch_id, status, created_at) VALUES (?,2,?)').run(bid, ago(minAgo))
   db.prepare('INSERT INTO order_items (order_id, quantity) VALUES (?,?)').run(Number(oi.lastInsertRowid), items)
@@ -65,10 +72,21 @@ function clear() {
 
 async function main() {
   // ---------------------------------------------------------------- 0
-  section('0. 开关与入口')
-  ok(batch.BATCH_ALGO === 'legacy', `默认实际生效 BATCH_ALGO=${batch.BATCH_ALGO}（BATCH_V2_READY=${batch.BATCH_V2_READY}）—— 线上行为零变化`)
-  ok(batch.BATCH_V2_READY === false, '默认 BATCH_V2_READY=false（必须显式打开才走 v2）')
-  ok(batch.planAutoLock(db, { cars: { available: 99 } }) === null, 'legacy 模式下 planAutoLock 返回 null（老路径逐批判定，零改动）')
+  section('0. 唯一实现：legacy 已删除，入口必须始终可用')
+  ok(typeof batch.planAutoLock === 'function', 'planAutoLock 存在（legacy 的 null 分支已删除）')
+  ok(batch.planAutoLock(db, { cars: { available: 99 } }) !== null,
+    'legacy 模式下才返回 null 的旧行为已不存在：无批次时返回空数组而不是 null')
+  ok(batch.BATCH_PRESSURE_K === 2, `运力压力系数 K = ${batch.BATCH_PRESSURE_K}（待发 ≥ 2×可用车 时缩短窗口）`)
+  ok(batch.batchHoldMs(2, 2) === batch.BATCH_HOLD_MS && batch.batchHoldMs(4, 2) === batch.BATCH_HOLD_MS,
+    `待发 2/4 个、车 2 台（未到 2 倍）→ 标准窗口 ${batch.BATCH_HOLD_MS / 60000} 分钟`)
+  ok(batch.batchHoldMs(8, 2) < batch.BATCH_HOLD_MS,
+    `待发 8 个、车 2 台（4 倍压力）→ 窗口缩短到 ${batch.batchHoldMs(8, 2) / 60000} 分钟`)
+  ok(batch.batchHoldMs(100, 2) >= 3 * 60 * 1000, `压力再大也不短于 3 分钟：${batch.batchHoldMs(100, 2) / 60000} 分钟`)
+  ok(batch.situationOf(2, 2) === 1 && batch.situationOf(3, 2) === 2 && batch.situationOf(4, 2) === 3,
+    '情况判定：待发 ≤ 车 → 1；待发 > 车但 < K 倍 → 2；待发 ≥ K 倍 → 3')
+  ok(batch.situationOf(99, 0) === 1, '可用车 0 台 → 一律回情况1（继续攒单，锁了也派不出去）')
+  ok(batch.isBatchLockSituation(2) && batch.isBatchLockSituation(3) && !batch.isBatchLockSituation(1),
+    '成批锁只在情况 2/3 生效')
 
   // ---------------------------------------------------------------- 1
   section('1. 未定型批次数口径 + 情况1（车够）：各自到点各自走')
@@ -76,38 +94,61 @@ async function main() {
   const A20 = mkBatch(20, 2), A12 = mkBatch(12, 2), A3 = mkBatch(3, 2)
   mkBatch(1, 2, 1) // 一个「待上货」批次：已锁定，不该被算进未定型
   ok(batch.openBatchCount(db) === 3, `未定型批次数 = ${batch.openBatchCount(db)}（只数组单中，待上货不算）`)
-  let plan = batch.planAutoLockV2(db, { cars: { available: 10 } })
+  let plan = batch.planAutoLock(db, { cars: { available: 10 } })
   ok(plan.length === 1 && plan[0] === A20,
     `可用车 10 台 → 只锁到点的 ${JSON.stringify(plan)}（12分/3分那两批没到点，不锁）`)
 
   // ---------------------------------------------------------------- 2
-  section('2. 情况2（车不够）：窗口内所有批次一起锁')
+  section('2. 情况2（略紧）：窗口内所有批次一起锁，窗口长度不变')
   clear()
   const C20 = mkBatch(20, 2), C12 = mkBatch(12, 2), C3 = mkBatch(3, 2)
-  plan = batch.planAutoLockV2(db, { cars: { available: 1 } })
-  console.log('     窗口起点 = 最早到点批次的第一张订单时间（20分钟前），窗口 = [T-20, T-5)')
+  // 待发 3 个、可用车 2 台 → 压力比 1.5 < K=2 → 情况2，窗口仍 15 分钟
+  plan = batch.planAutoLock(db, { cars: { available: 2 } })
+  console.log('     窗口 = [最早到点批次的第一张订单时间, +15分钟) = [T-20, T-5)')
   ok(plan.length === 2 && plan[0] === C20 && plan[1] === C12,
-    `可用车 1 台、未定型 3 个 → 锁 ${JSON.stringify(plan)}（20分 + 12分）`)
+    `可用车 2 台、未定型 3 个 → 锁 ${JSON.stringify(plan)}（20分 + 12分）`)
   ok(!plan.includes(C3), '窗口外的 3 分钟批次没被锁（留给下一轮递归）')
+
+  // ---------------------------------------------------------------- 2b
+  section('2b. 情况3（积压）：攒单窗口缩短 → 窗口内较新的批次被一起带走')
+  clear()
+  batch.V2.hysteresisMs = 400
+  batch.resetSituation()
+  // 待发 3 个、可用车 1 台 → 压力比 3 ≥ K=2 → 情况3，窗口缩到 15×max(0.5, 2/3)=10 分钟。
+  // 15 分钟那批早就到点（窗口起点），窗口 = [T-15, T-5) → 7 分钟那批被一起带走，2 分钟那批留下。
+  // （锚点比窗口边界留足余量：库里 created_at 只精确到秒，卡在边界上的断言会随秒截断偶发。）
+  const D15 = mkBatch(15, 2), D7 = mkBatch(7, 2), D2 = mkBatch(2, 2)
+  plan = batch.planAutoLock(db, { cars: { available: 1 } })
+  ok(plan.length === 1 && plan[0] === D15,
+    `迟滞未满的第 1 次：只锁到点的 ${JSON.stringify(plan)}`)
+  let t1 = Date.now(); while (Date.now() - t1 < 500) { /* 等迟滞窗口 */ }
+  plan = batch.planAutoLock(db, { cars: { available: 1 } })
+  console.log('     缩短后窗口 = [T-15, T-5)——标准窗口下窗口会是 [T-15, T)')
+  ok(plan.includes(D7),
+    `窗口内较新的 7 分钟那批被一起带走：${JSON.stringify(plan)}（这就是"车不够就成批锁"）`)
+  ok(!plan.includes(D2), '2 分钟那批在窗口外，留给下一轮递归')
+  ok(plan.length === 2 && plan[0] === D15 && plan[1] === D7,
+    `锁定顺序按第一张订单时间升序 → ${JSON.stringify(plan)}`)
+  batch.V2.hysteresisMs = 0
 
   // ---------------------------------------------------------------- 3
   section('3. 满容立即锁（不管哪种情况、到没到点）')
   clear()
   const F1 = mkBatch(20, 2), Ffull = mkBatch(2, 12)
-  plan = batch.planAutoLockV2(db, { cars: { available: 1 } })
+  plan = batch.planAutoLock(db, { cars: { available: 1 } })
   ok(plan.includes(Ffull), `满容批次（12件、才 2 分钟）被锁：${JSON.stringify(plan)}`)
-  ok(plan.includes(F1), '同时窗口内到点批次也锁')
+  ok(plan.includes(F1), '同时到点批次也锁')
 
   // ---------------------------------------------------------------- 4
   section('4. 可用车 = 0 → 强制情况1，继续攒单')
   clear()
   const Z20 = mkBatch(20, 2)
   mkBatch(12, 2)
-  plan = batch.planAutoLockV2(db, { cars: { available: 0 } })
+  plan = batch.planAutoLock(db, { cars: { available: 0 } })
   ok(plan.length === 1 && plan[0] === Z20,
     `可用车 0 台 → 只锁到点的 ${JSON.stringify(plan)}（车全忙，锁了也派不出去，不该把 12 分那批也带走）`)
-  plan = batch.planAutoLockV2(db, { cars: null })
-  ok(plan.length === 1, '拿不到车辆信息（cars=null）时同样按可用车 0 处理，不会误触发情况2')
+  plan = batch.planAutoLock(db, { cars: null })
+  ok(plan.length === 1, '拿不到车辆信息（cars=null）时同样按可用车 0 处理，不会误触发成批锁')
 
   // ---------------------------------------------------------------- 5
   section('5. 派车优先级：第一张订单最早的先走')
@@ -115,7 +156,8 @@ async function main() {
   mkBatch(3, 2)                                  // 故意乱序创建，验的是"按订单时间"不是"按批次 id"
   const P18 = mkBatch(18, 2)
   const P11 = mkBatch(11, 2)
-  plan = batch.planAutoLockV2(db, { cars: { available: 1 } })
+  // 待发 3 个、可用车 2 台 → 情况2（压力比 1.5），窗口 15 分钟 → 18 分与 11 分两批都在窗口内
+  plan = batch.planAutoLock(db, { cars: { available: 2 } })
   ok(plan[0] === P18, `计划首位 = 18 分钟前那批（最早）→ ${JSON.stringify(plan)}`)
   ok(JSON.stringify(plan) === JSON.stringify([P18, P11]),
     `窗口内按时间升序 [${P18}(18分), ${P11}(11分)]`)
@@ -126,15 +168,15 @@ async function main() {
   batch.V2.hysteresisMs = 400
   batch.resetSituation()
   mkBatch(20, 2); mkBatch(12, 2)
-  let s = batch.planAutoLockV2(db, { cars: { available: 1 } })
+  let s = batch.planAutoLock(db, { cars: { available: 1 } })
   ok(s.length === 1, `第 1 次（车不够，但迟滞未满）：仍按情况1 → ${JSON.stringify(s)}`)
   let t0 = Date.now(); while (Date.now() - t0 < 500) { /* 等迟滞窗口 */ }
-  s = batch.planAutoLockV2(db, { cars: { available: 1 } })
-  ok(s.length === 2, `连续 400ms 车不够后 → 切情况2 → ${JSON.stringify(s)}（窗口内两批一起锁）`)
-  s = batch.planAutoLockV2(db, { cars: { available: 99 } })
-  ok(s.length === 2, `车一恢复（单次抖动）：不立刻切回情况1，仍按情况2 → ${JSON.stringify(s)}`)
+  s = batch.planAutoLock(db, { cars: { available: 1 } })
+  ok(s.length === 2, `连续 400ms 车不够后 → 切成批锁 → ${JSON.stringify(s)}（窗口内两批一起锁）`)
+  s = batch.planAutoLock(db, { cars: { available: 99 } })
+  ok(s.length === 2, `车一恢复（单次抖动）：不立刻切回情况1，仍按成批锁 → ${JSON.stringify(s)}`)
   t0 = Date.now(); while (Date.now() - t0 < 500) { /* 等迟滞窗口 */ }
-  s = batch.planAutoLockV2(db, { cars: { available: 99 } })
+  s = batch.planAutoLock(db, { cars: { available: 99 } })
   ok(s.length === 1, `车持续充足 400ms 后 → 才切回情况1 → ${JSON.stringify(s)}`)
   batch.V2.hysteresisMs = 0
 

@@ -38,11 +38,6 @@ window.Dash.views = (function (Dash) {
     var auto = $('kvAuto')
     txt(auto, Number(shop.auto_accept) === 1 ? '已开启' : '已关闭')
     setClass(auto, Number(shop.auto_accept) === 1 ? 'on' : 'off')
-
-    txt($('kvMode'), ({ demo: '演示', pilot: '试点', production: '正式' })[d.run_mode] || d.run_mode || '—')
-    txt($('kvPlatform'), d.real_platform ? '真实平台' : '本地模拟')
-
-    txt($('subTitle'), (shop.name || '零栋铺子') + ' · 四川师范大学成龙校区')
   }
 
   /* ---------------- 渲染：指标 + 任务状态流水线 ---------------- */
@@ -209,38 +204,47 @@ window.Dash.views = (function (Dash) {
   function diffEvents(d) {
     var p = state.prev
     var now = hhmmss(new Date())
-    if (p) {
-      // 车辆状态变化
-      var prevRobots = {}
-      ;(p.robots || []).forEach(function (r) { prevRobots[r.device_sn] = r })
-      ;(d.robots || []).forEach(function (r) {
-        var old = prevRobots[r.device_sn]
-        if (!old) pushEvent(now, '发现车辆 ' + (r.name || r.device_sn) + ' 在线')
-        else if (old.machine_text !== r.machine_text) {
-          pushEvent(now, (r.name || r.device_sn) + ' 状态 ' + (old.machine_text || '未知') + ' → ' + (r.machine_text || '未知'))
-        }
-      })
-      // 新批次
-      var prevBatch = {}
-      ;(p.batches || []).forEach(function (b) { prevBatch[b.id] = b })
-      ;(d.batches || []).forEach(function (b) {
-        if (!prevBatch[b.id]) pushEvent(now, '新建配送批次 ' + (b.batch_no || b.id) + '，共 ' + num(b.active_orders) + ' 单')
-        else if (prevBatch[b.id].status !== b.status) {
-          pushEvent(now, '批次 ' + (b.batch_no || b.id) + ' 进入「' + (b.status_text || b.status) + '」')
-        }
-      })
-      // 新取餐超时
-      var prevAlert = {}
-      ;(p.pickup_alerts || []).forEach(function (a) { prevAlert[a.id] = a })
-      ;(d.pickup_alerts || []).forEach(function (a) {
-        var old = prevAlert[a.id]
-        if (!old) pushEvent(now, '取餐超时告警：' + (a.landmark_name || '') + ' ' + (a.order_no || ''))
-        else if (num(old.pickup_timeout_stage) !== num(a.pickup_timeout_stage)) {
-          pushEvent(now, (a.order_no || '') + ' 取餐超时进入第 ' + num(a.pickup_timeout_stage) + ' 段')
-        }
-      })
+    if (!p) {
+      // 首帧：没有上一轮快照可对比，只补一条「已连接」，不做全量对比 ——
+      // 否则会把第一轮里的每台车都刷成「新发现车辆」，动态栏开局刷屏。
+      pushEvent(now, '大屏已连接后端，开始接收实时数据')
+      renderEvents()
+      state.prev = d
+      return
     }
+    // 车辆状态变化
+    var prevRobots = {}
+    ;(p.robots || []).forEach(function (r) { prevRobots[r.device_sn] = r })
+    ;(d.robots || []).forEach(function (r) {
+      var old = prevRobots[r.device_sn]
+      if (!old) pushEvent(now, '发现车辆 ' + (r.name || r.device_sn) + ' 在线')
+      else if (old.machine_text !== r.machine_text) {
+        pushEvent(now, (r.name || r.device_sn) + ' 状态 ' + (old.machine_text || '未知') + ' → ' + (r.machine_text || '未知'))
+      }
+    })
+    // 新批次
+    var prevBatch = {}
+    ;(p.batches || []).forEach(function (b) { prevBatch[b.id] = b })
+    ;(d.batches || []).forEach(function (b) {
+      if (!prevBatch[b.id]) pushEvent(now, '新建配送批次 ' + (b.batch_no || b.id) + '，共 ' + num(b.active_orders) + ' 单')
+      else if (prevBatch[b.id].status !== b.status) {
+        pushEvent(now, '批次 ' + (b.batch_no || b.id) + ' 进入「' + (b.status_text || b.status) + '」')
+      }
+    })
+    // 新取餐超时
+    var prevAlert = {}
+    ;(p.pickup_alerts || []).forEach(function (a) { prevAlert[a.id] = a })
+    ;(d.pickup_alerts || []).forEach(function (a) {
+      var old = prevAlert[a.id]
+      if (!old) pushEvent(now, '取餐超时告警：' + (a.landmark_name || '') + ' ' + (a.order_no || ''))
+      else if (num(old.pickup_timeout_stage) !== num(a.pickup_timeout_stage)) {
+        pushEvent(now, (a.order_no || '') + ' 取餐超时进入第 ' + num(a.pickup_timeout_stage) + ' 段')
+      }
+    })
     renderEvents()
+    // ★ 2026-10-14 修复：此前从未写回，p 恒为 null，上面整段对比永不执行 → 右侧实时动态永远为空。
+    // 原版 dashboard.js（分件前）在循环末尾有 state.prev = d，分件时弄丢了。
+    state.prev = d
   }
 
   function renderEvents() {

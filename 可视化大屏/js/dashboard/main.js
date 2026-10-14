@@ -70,8 +70,7 @@ window.Dash.main = (function (Dash) {
     Dash.views.renderAlerts(d.pickup_alerts)
     Dash.map.renderMap(d)
     bindMapHooks()          // 首轮 renderMap 之后渲染器已就绪：把地图事件接回大屏（只接一次）
-    Dash.views.diffEvents(d)
-    txt($('footMid'), '后端 ' + (d.server_time || '') + ' · 运行档位 ' + (d.run_mode || '—'))
+    Dash.views.diffEvents(d)   // 对比上一轮快照 → 实时动态；state.prev 的写回在 diffEvents 内部（2026-10-14 修复）
   }
 
   /* ---------------- 选中车辆（左侧车辆卡面 ↔ 地图车辆 双向同步） ----------------

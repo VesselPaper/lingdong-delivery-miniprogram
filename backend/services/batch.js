@@ -27,40 +27,39 @@ const BATCH_STATUS = {
 const BATCH_MAX_ITEMS = Number(process.env.BATCH_MAX_ITEMS || 12)
 // 兼容旧引用（原「12 单」现为「12 件商品」口径）
 const BATCH_MAX_ORDERS = BATCH_MAX_ITEMS
-// 自动派车等待时间：自动接单模式下，批次成立后等待该时长自动派车（单位 ms）
-const BATCH_WAIT_MS = Number(process.env.BATCH_WAIT_MS || 90 * 1000)
-// 【v2】未满容批次的等待上限（默认 15 分钟）：从批次内「第一张订单的下单时间」起算，超过即定型。
-// 与 legacy 的 BATCH_WAIT_MS 有三点不同：
+// 未满容批次的等待上限（默认 15 分钟）：从批次内「第一张订单的下单时间」起算，超过即定型。
+// 三条刻意的设计（都是踩过坑换来的）：
 //   ① 锚点是【订单下单时间】而不是【批次创建时间】（自动接单有延迟时两者能差几分钟）；
-//   ② 默认 15 分钟而不是 90 秒；
+//   ② 默认 15 分钟而不是 90 秒 —— 90 秒只够凑 1~2 单，一车跑一趟成本收不回来；
 //   ③ 锚点取【第一张】订单而不是最新一张 —— 否则持续来新单会让批次无限续命，永远发不出去。
 const BATCH_HOLD_MS = Number(process.env.BATCH_HOLD_MS || 15 * 60 * 1000)
 // 单数加权最近邻权重 α（ROUTE_COUNT_WEIGHT）：给「距离」按该站点订单数打折，
 // 有效距离 = 距离平方 ÷ (订单数^α)。α=0 退化纯最近邻，越大越偏好多单楼栋。默认 0.5。
 const ROUTE_COUNT_WEIGHT = Number(process.env.ROUTE_COUNT_WEIGHT || 0.5)
 
-// ---------- 组单算法版本开关（BATCH_ALGO） ----------
-// legacy = 现有 best-fit 组批 + 「批次成立满 90s」自动定型（默认）。
-//          未显式开启 v2 时，本模块行为与加开关之前逐字一致。
-// v2     = 新组单算法（商品/订单/批次三层层级、情况1·情况2 分支、空车判定、
-//          每趟时长上限、以「新订单产生」起算的 15 分钟计时）。
+// ---------- 组单算法：v2 已是唯一实现（legacy 已于 2026-10-14 删除） ----------
+// v2 = 商品/订单/批次三层层级、情况1·情况2 分支、可用车判定、
+//      每趟时长上限、以「新订单产生」起算的 15 分钟窗口。
 //
-// 回滚方式：把 backend/.env 的 BATCH_ALGO 改回 legacy 再重启即可 ——
-// 不需要改代码、不需要 git 操作。
-// v2 就绪开关。默认 false —— 线上行为零变化，必须显式打开才会走 v2：
-//   BATCH_V2_READY=true 且 BATCH_ALGO=v2   → 走 v2
-//   其余任何组合                            → 走 legacy
-const BATCH_V2_READY = String(process.env.BATCH_V2_READY || '').trim().toLowerCase() === 'true'
-const BATCH_ALGO_RAW = String(process.env.BATCH_ALGO || 'legacy').trim().toLowerCase()
-// BATCH_ALGO 是「实际生效」的版本：v2 未就绪时一律落到 legacy，避免"以为切了其实没切"。
-const BATCH_ALGO = BATCH_ALGO_RAW === 'v2' && BATCH_V2_READY ? 'v2' : 'legacy'
-// 只在「请求的版本没被采纳」时才告警 —— 否则会出现"v2 切换成功了、日志却在喊回落 legacy"的误导。
-if (BATCH_ALGO !== BATCH_ALGO_RAW) {
-  console.warn(BATCH_ALGO_RAW === 'v2'
-    ? '[batch] BATCH_ALGO=v2 已请求，但 BATCH_V2_READY 不是 true，本次运行仍走 legacy（要试 v2：BATCH_V2_READY=true）'
-    : `[batch] BATCH_ALGO="${BATCH_ALGO_RAW}" 不是合法取值（只能是 legacy|v2），已回落 legacy`)
-} else if (BATCH_ALGO === 'v2') {
-  console.warn('[batch] BATCH_ALGO=v2 已生效：新组单算法（情况1/情况2 + 15分钟窗口 + 每趟≤15分钟）')
+// 为什么没有开关了：
+//   原来 legay/v2 双实现靠 BATCH_ALGO + BATCH_V2_READY 切换，回滚成本低。
+//   但两套算法并存意味着每次改时机/容量规则都要改两处、测两处，实测中已经出现
+//   「以为切了 v2、其实还在跑 legacy」的误判（BATCH_V2_READY 忘了给）。用户明确要求
+//   「把旧算法直接删掉」，所以现在只保留 v2，删掉 legacy 的 best-fit 组批 + 90 秒定型。
+//
+// ⚠ 删掉之后就没有「改 .env 回滚」这条路了。剩下的回退手段只有两条：
+//   ① 本地/远端分支 backup/pre-algo-rework-2026-10-14（改动前的快照）；
+//   ② 云上 /opt/lingdong/bin/rollback.sh 退到上一个 release。
+//
+// 旧变量容忍：老 `.env`、云上 `backend.env` 里可能还留着 BATCH_ALGO / BATCH_V2_READY。
+// 那两份文件不在仓库里、改不到，所以这里**只告警不报错** —— 后端必须照常起来，
+// 行为一律按 v2 走，绝不因为一个过期变量把服务拦在门外。
+const _legacyAlgoEnv = String(process.env.BATCH_ALGO || '').trim().toLowerCase()
+const _legacyReadyEnv = String(process.env.BATCH_V2_READY || '').trim().toLowerCase()
+if ((_legacyAlgoEnv && _legacyAlgoEnv !== 'v2') || (_legacyReadyEnv && _legacyReadyEnv !== 'true')) {
+  console.warn('[batch] 检测到已废弃的组单开关（BATCH_ALGO=' + (_legacyAlgoEnv || '未设')
+    + ' / BATCH_V2_READY=' + (_legacyReadyEnv || '未设') + '）：旧算法已删除，本次运行按 v2 执行，'
+    + '请把这两行从 .env / backend.env 里删掉')
 }
 
 // 召唤多单配送的「推进钩子」：当某停靠点第单被取走（批次计数+1）时，通知 delivery 域去判断
@@ -98,9 +97,12 @@ function getBatch(store, batchId) {
 }
 
 // 订单商品件数（一个订单可能含多件商品；分批以「件」为单位）
+// 单测/最小库可能没有 order_items 表 —— 此时按 0 件算，不让估时长把整条链路拖崩。
 function orderItemCount(store, orderId) {
-  const row = store.prepare('SELECT IFNULL(SUM(quantity),0) s FROM order_items WHERE order_id=?').get(orderId)
-  return Number(row && row.s || 0)
+  try {
+    const row = store.prepare('SELECT IFNULL(SUM(quantity),0) s FROM order_items WHERE order_id=?').get(orderId)
+    return Number(row && row.s || 0)
+  } catch (e) { return 0 }
 }
 
 // 手机号脱敏（P1-13）：商家端列表/详情默认只显示 138****0000，
@@ -111,11 +113,15 @@ function maskPhone(p) {
   return s.length <= 7 ? (s.slice(0, 1) + '****' + s.slice(-2)) : (s.slice(0, 3) + '****' + s.slice(-4))
 }
 
-// 最优分批：以商品件数计容量（默认 12 件/车）。取「能容纳本单件数且当前最满」的组单中批次（best-fit）；
-// 无合适批次则新建。超容量订单（>12 件）因任何批次都装不下，自动独占新建批次。
-// 批次容量一律实时计算（P1-9）：delivery_batches.total_items 是缓存列，历史上有过
-// 「UI 实时口径 8 件、调度器读缓存列 3 件」的分叉，best-fit 与自动派车判断都以实时值为准。
-function getOrCreateOpenBatchLegacy(store, itemCount) {
+// 兜底组批：不做任何打分，直接 best-fit —— 取「能容纳本单件数且当前最满」的在收批次，没有就新建。
+// 只在两种情况下用得到，正常单永远走 getOrCreateOpenBatchV2：
+//   ① 单件数 > BATCH_MAX_ITEMS（一车装不下这一单）：任何批次都塞不进，必须独占一批，
+//      否则这一单会在候选里被全部跳过、每次调用都新建空批次 → 批次爆炸；
+//   ② 调用方拿不到 order（旧调用路径 / 单测直接调）：没有楼栋与下单时间就算不出 v2 的分，
+//      退回 best-fit 保证不崩，行为也比"每次新建"合理。
+// 容量一律实时算（SUM(order_items.quantity)），不信 delivery_batches.total_items 缓存列 ——
+// 历史上出现过「UI 实时口径 8 件、调度器读缓存列 3 件」的分叉。
+function bestFitOpenBatch(store, itemCount) {
   const n = Number(itemCount || 0)
   const b = store.prepare(`
     SELECT b.id, IFNULL(SUM(oi.quantity), 0) AS items
@@ -158,13 +164,32 @@ const V2 = {
   wSameBuilding: Number(process.env.BATCH_W_SAME_BLDG || 1.5),         // 同楼栋优先合并
   wOrderAge: Number(process.env.BATCH_W_ORDER_AGE || 0.3),             // 先来先填（优先填更老的批次）
   wDistance: Number(process.env.BATCH_W_DISTANCE || 0.8),              // 楼栋间距近的优先
-  // 迟滞：情况1/情况2 的判定要连续稳定这么久才真的切换，避免车一上线/离线就来回跳
+  // 迟滞：情况1/情况2/情况3 的判定要连续稳定这么久才真的切换，避免车一上线/离线就来回跳
   hysteresisMs: Number(process.env.BATCH_HYSTERESIS_MS || 30 * 1000),
   // 硬上限：订单在组单中批次里等超过这么久，无条件发出去（防死锁的最后一层网）
   hardMaxMs: Number(process.env.BATCH_HARD_MAX_MS || 20 * 60 * 1000)
 }
 // 距离归一化参考值（米）：校园尺度上最远的东苑7栋约 220.9 m，取 250 做满量程
 const V2_REF_DIST_M = 250
+
+// 运力压力系数 K（BATCH_PRESSURE_K）：待发批次数 ≥ K × 可用车数时，说明积压已经明显超过
+// 车的消化能力 —— 再按标准 15 分钟攒单只会让队列越排越长，所以把攒单窗口缩短。
+// 用户 2026-10-14 定的规则：缩短的判据是「待发批次数 ≫ 可用车数」，取 K=2。
+// K ≤ 1 等于关掉这条规则（永远不缩短）。
+const BATCH_PRESSURE_K = Math.max(1, Number(process.env.BATCH_PRESSURE_K || 2))
+
+// 攒单窗口的分钟数（按运力压力动态调整）。返回值用于「到点判定」，全流程只有一个口径。
+// 不能小于 3 分钟：再短就等于不攒单，每单单独发一趟，车全在路上跑。
+function batchHoldMs(openCount, available, now) {
+  const n = Number(openCount || 0)
+  const avail = Math.max(1, Number(available || 0))
+  // 压力比 = 待发批次数 ÷ 可用车数。1 = 刚好排得下；2 = 得跑两轮才消化完。
+  const ratio = n / avail
+  if (ratio < BATCH_PRESSURE_K) return BATCH_HOLD_MS
+  // 缩短幅度：压得越狠缩得越短，但最多缩到标准窗口的一半（比值 ≥ 2K 封顶）。
+  const shrink = Math.max(0.5, BATCH_PRESSURE_K / ratio)
+  return Math.max(3 * 60 * 1000, Math.round(BATCH_HOLD_MS * shrink))
+}
 
 // ---------- v2 纯函数层（不碰数据库，可单测、可重放） ----------
 
@@ -190,11 +215,24 @@ function v2DistM(a, b) {
 }
 
 // 从起点依次经过各站的路网距离（米）。排序口径与 planRouteLegacy 完全一致
-// （单数加权最近邻 d² ÷ n^α），保证「估时长用的顺序」和「实际派车顺序」是同一个。
-// stops: [{ pt: {x,y}|null, n: 该站单数 }]
-function v2RouteDistanceM(from, stops) {
-  let cur = from, total = 0
+// 行程起点（上货点坐标）。
+// ★ 不能直接用 lmPoint(loading)：lmPoint 把 (0,0) 当「无坐标」返回 null，而有的点位就真的在
+//   原点附近（测试标定里上货点正是 (0,0)）。起点为 null 时，最近邻循环里 `cur && p` 恒假、
+//   所有候选得分都是 0 → 排序静默退化成「按输入顺序」，而且不报错。
+//   这里退一步取 {x:0,y:0} 当原点：排序结果确定、可复现；真机上货点有真实坐标时行为不变。
+function routeOriginPt(loading) {
+  return lmPoint(loading) || { x: 0, y: 0 }
+}
+
+// 单数加权最近邻排序（纯函数）：反复挑「有效距离最小」的未访问站。
+//  有效距离 = 直线距离² ÷ (该站单数^ROUTE_COUNT_WEIGHT)
+// 为什么要单数加权、不纯按距离：同距离下（甚至稍远一点点）单数多的楼栋先送，
+// 否则 1 单的近楼栋会抢在 5 单楼栋前面，把多单楼栋所有人的等待一起拖长。
+// 返回原 stops 数组的重排副本；无坐标的站排序结果不保证有意义（调用方自行兜底）。
+function v2OrderStops(from, stops) {
+  let cur = from
   const rest = stops.slice()
+  const out = []
   while (rest.length) {
     let best = -1, bestD = Infinity
     for (let i = 0; i < rest.length; i++) {
@@ -205,10 +243,27 @@ function v2RouteDistanceM(from, stops) {
       if (d2 < bestD) { bestD = d2; best = i }
     }
     const s = rest.splice(best, 1)[0]
-    if (cur && s.pt) total += Math.sqrt(Math.pow(cur.x - s.pt.x, 2) + Math.pow(cur.y - s.pt.y, 2))
+    out.push(s)
     cur = s.pt || cur
   }
+  return out
+}
+
+// 按给定顺序累加路网距离（米）。直线距离 × 绕行系数（无人车走路网，不是直线飞）。
+function v2PathDistanceM(from, orderedStops) {
+  let cur = from, total = 0
+  for (const s of orderedStops) {
+    if (cur && s.pt) total += Math.sqrt(Math.pow(cur.x - s.pt.x, 2) + Math.pow(cur.y - s.pt.y, 2))
+    if (s.pt) cur = s.pt
+  }
   return total * V2.detour
+}
+
+// 从起点依次经过各站的路网距离（米）。排序口径与 planRouteV2 完全一致
+// （单数加权最近邻 d² ÷ n^α），保证「估时长用的顺序」和「实际派车顺序」是同一个。
+// stops: [{ pt: {x,y}|null, n: 该站单数 }]
+function v2RouteDistanceM(from, stops) {
+  return v2PathDistanceM(from, v2OrderStops(from, stops))
 }
 
 // 一趟的预计分钟数 = 上货 + 行驶 + 每站(停靠+等用户) + 每单开舱。
@@ -263,24 +318,35 @@ function loadingPointOf(store) {
   return points.loadingPointRow(store)
 }
 
-// 所有未定型批次（status=0）的候选快照，供打分使用
-// cand = { id, items, firstOrderAt, landmarkIds:Set, stops:[{landmark_id,pt,n}], loadingPt }
+// 可以继续收单的批次候选快照，供打分使用。
+// cand = { id, status, items, firstOrderAt, landmarkIds:Set, stops:[{landmark_id,pt,n}], loadingPt }
+//
+// ★ 这里包含「已定型待上货(status=1)」的批次，是 2026-10-14 修的一个实打实的 bug：
+//   原来只认 status=0，于是自动定型（组单中→待上货）一发生，这个批次就对所有组批逻辑
+//   整体隐身了 —— 新单进不来、旧单也出不去，商家上货时明明还有空位却只能干看着。
+//   正确口径：**已锁定但还没开始装货**的批次仍然可以进单。
+//   「还没开始装货」= bin_opened_at 为空（商家没点开舱）且 loaded_at 为空（没有"已装好待配送"标记）。
+//   一旦开过舱/装过货，就不再收新单 —— 车上的货和单据已经对不上了。
 function openBatchCandidates(store) {
   const loading = loadingPointOf(store)
   const loadingPt = lmPoint(loading)
   const rows = store.prepare(`
     SELECT o.batch_id AS batch_id, o.landmark_id AS landmark_id, o.created_at AS created_at,
+           b.status AS bstatus,
            IFNULL((SELECT SUM(quantity) FROM order_items WHERE order_id = o.id), 0) AS qty
     FROM orders o
+    JOIN delivery_batches b ON b.id = o.batch_id
     WHERE o.status IN (1,2)
-      AND o.batch_id IN (SELECT id FROM delivery_batches WHERE status = 0)
+      AND b.status IN (0,1)
+      AND b.bin_opened_at IS NULL
+      AND b.loaded_at IS NULL
     ORDER BY o.batch_id, o.id`).all()
 
   const byBatch = new Map()
   for (const r of rows) {
     const id = Number(r.batch_id)
     let c = byBatch.get(id)
-    if (!c) { c = { id, items: 0, firstOrderAt: null, landmarkIds: new Set(), stops: [], counts: new Map(), loadingPt }; byBatch.set(id, c) }
+    if (!c) { c = { id, status: Number(r.bstatus || 0), items: 0, firstOrderAt: null, landmarkIds: new Set(), stops: [], counts: new Map(), loadingPt }; byBatch.set(id, c) }
     c.items += Number(r.qty || 0)
     const t = parseTime(r.created_at)
     if (t !== null && (c.firstOrderAt === null || t < c.firstOrderAt)) c.firstOrderAt = t
@@ -296,7 +362,7 @@ function openBatchCandidates(store) {
   return [...byBatch.values()]
 }
 
-// 新建一个「组单中」批次（与 getOrCreateOpenBatchLegacy 的建批段等价）
+// 新建一个「组单中」批次（bestFitOpenBatch 的建批段单独抽出来，供打分路径直接新建）
 function createOpenBatchV2(store) {
   const { day: seqDay, seq } = seqSvc.nextSeq(store, 'batch')
   const batchNo = seqSvc.batchNo(seqDay, seq)
@@ -305,17 +371,17 @@ function createOpenBatchV2(store) {
   return store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(info.lastInsertRowid))
 }
 
-// 【v2】组批决策：这一单该并入哪个未定型批次，还是新建一个。
-//   硬约束①：件数 + 本单 ≤ BATCH_MAX_ITEMS
+// 组批决策：这一单该并入哪个可收单批次（组单中 或 已定型但还没开始装货），还是新建一个。
+//   硬约束①：件数 + 本单 ≤ BATCH_MAX_ITEMS（单批次商品总数上限，默认 12 件）
 //   硬约束②：加入后预计时长 ≤ V2.maxTripMin —— 单站兜底：只有一个站点时无条件放行。
 //            否则像东苑7栋（220.9 m）这种远点会永远凑不出合规批次 → 死锁，订单永远发不出去。
-//   软约束：按 v2ScoreCandidate 打分取最高。
+//   软约束：按 v2ScoreCandidate 打分取最高（同楼栋优先 / 先来先填 / 楼栋间距近优先 / 时长余量）。
 // ctx = { order }：需要订单的 landmark_id / created_at 才能算同楼栋与楼栋间距。
-// 拿不到 order（旧调用方）或超容订单 → 回落 legacy 的 best-fit，保证不崩。
+// 拿不到 order（旧调用方）或超容订单 → 退回 bestFitOpenBatch，保证不崩。
 function getOrCreateOpenBatchV2(store, itemCount, ctx) {
   const n = Number(itemCount || 0)
   const order = ctx && ctx.order
-  if (!order || n > BATCH_MAX_ITEMS) return getOrCreateOpenBatchLegacy(store, itemCount)
+  if (!order || n > BATCH_MAX_ITEMS) return bestFitOpenBatch(store, itemCount)
 
   const orderPt = landmarkPointOf(store, order.landmark_id)
   let best = null, bestScore = -Infinity
@@ -330,18 +396,16 @@ function getOrCreateOpenBatchV2(store, itemCount, ctx) {
   return createOpenBatchV2(store)
 }
 
-
-// 组批入口（分发）：调用方签名不变；v2 需要额外上下文时通过可选的 _ctx 传入。
+// 组批入口：v2 是唯一实现（legacy 已删除）。
 function getOrCreateOpenBatch(store, itemCount, ctx) {
-  return BATCH_ALGO === 'v2'
-    ? getOrCreateOpenBatchV2(store, itemCount, ctx)
-    : getOrCreateOpenBatchLegacy(store, itemCount)
+  return getOrCreateOpenBatchV2(store, itemCount, ctx)
 }
 
 // 接单并入批次：订单 1 待接单 → 2 配送中，挂到最优适配批次（以商品件数计容量）
+// 注意：并入的目标批次可能是「已定型待上货但还没开舱」的批次（见 openBatchCandidates 注释）——
+// 这是 2026-10-14 起的有意行为，不是漏洞：还没装货就有空位就该能进单。
 function addOrderToBatch(store, order) {
   const itemCount = orderItemCount(store, order.id)
-  // v2 决策需要订单的楼栋/下单时间；legacy 会忽略这个参数，行为不变
   const batch = getOrCreateOpenBatch(store, itemCount, { order })
   // batch_removed_at 必须一并清空：「配送异常重新配送」会先摘除本单再并入新批次，
   // 留着旧标记会让本单在新批次里再也摘不掉（计数永久虚高）。
@@ -428,12 +492,14 @@ function onTaskStatus(store, task, status) {
 }
 
 // ---------- 路径规划（多地点配送顺序，最小化顾客总等待） ----------
-// 单数加权最近邻：从上货点出发，每次去「有效距离最小」的未访问点位。
-//  有效距离 = 距离平方 ÷ (该站点订单数^ROUTE_COUNT_WEIGHT)。
-// 与纯最近邻的区别：同距离下、甚至稍远一点点，单数多的楼栋会被优先安排 ——
-// 否则 1 单近楼栋会抢在 5 单楼栋前，让多单楼栋的人平均等待被拖长。
-// 同一楼栋多单合并为一站。无坐标时退化为【单数从多到少，同单数按点位 sort】。（仍单数优先）
-function planRouteLegacy(store, orders, _ctx) {
+// 分组：同一楼栋多单合并为一站（客观上就是同一个位置，分开停毫无意义）。
+// 排序：单数加权最近邻，见 v2OrderStops。
+// v2 相对旧实现多一条：**停靠顺序自带「每趟 ≤ maxTripMin」的截断** ——
+//   先按加权最近邻排出候选顺序，再逐步试算「加上这一站的预计分钟数」，
+//   一旦超上限就停手，把剩下的站留给下一趟。这就是"每趟 ≤15 分钟"真正生效的地方：
+//   旧实现只在组批时用它当并单门槛，停靠顺序里完全没有这层约束，
+//   结果可能出现「组批时算的是 3 站 14 分钟、实际排出来绕成 18 分钟」。
+function planRouteV2(store, orders, _ctx) {
   const loading = loadingPointOf(store)
   const groups = new Map()
   for (const o of orders) {
@@ -448,70 +514,51 @@ function planRouteLegacy(store, orders, _ctx) {
   }
   const arr = [...groups.values()]
   if (!arr.length) return []
-  const lx = loading ? Number(loading.pos_x || 0) : 0
-  const ly = loading ? Number(loading.pos_y || 0) : 0
+
+  // 无坐标（点位还没同步坐标）：退化为【单数从多到少，同单数按点位 sort】。
+  // 这不是"排序"，是"没法排序时的确定性兜底"—— 至少保证多单楼栋先送、结果可复现。
   const hasCoord = arr.some((g) => g.landmark && (Number(g.landmark.pos_x) || Number(g.landmark.pos_y)))
-  if (hasCoord) {
-    const alpha = Math.max(0, Number(ROUTE_COUNT_WEIGHT)) // α≥0，防负值把「多单」反向变远
-    const remaining = arr.slice()
-    const route = []
-    let cx = lx
-    let cy = ly
-    while (remaining.length) {
-      let best = 0
-      let bestD = Infinity
-      for (let i = 0; i < remaining.length; i++) {
-        const g = remaining[i]
-        const dx = cx - Number(g.landmark.pos_x || 0)
-        const dy = cy - Number(g.landmark.pos_y || 0)
-        const n = g.orders.length || 1
-        // 单数加权：距离平方除以「订单数的 α 次方」，多单楼栋的有效距离被缩小 → 更早被选
-        const d2 = (dx * dx + dy * dy) / Math.pow(n, alpha)
-        if (d2 < bestD) { bestD = d2; best = i }
-      }
-      const g = remaining.splice(best, 1)[0]
-      route.push({ stop: route.length + 1, landmark_id: g.landmark.id, landmark_name: g.name, order_ids: g.orders.map((o) => o.id) })
-      cx = Number(g.landmark.pos_x || 0)
-      cy = Number(g.landmark.pos_y || 0)
-    }
-    return route
+  if (!hasCoord) {
+    const byCountThenSort = (a, b) => (b.orders.length - a.orders.length)
+      || ((a.landmark ? Number(a.landmark.sort || 99) : 99) - (b.landmark ? Number(b.landmark.sort || 99) : 99))
+    arr.sort(byCountThenSort)
+    return arr.map((g, i) => ({ stop: i + 1, landmark_id: g.landmark ? g.landmark.id : g.orders[0].landmark_id, landmark_name: g.name, order_ids: g.orders.map((o) => o.id) }))
   }
-  // 无坐标：单数优先（多单楼栋先送，符合"人多的先送"目标），同单数按点位 sort 顺序兜底
-  const byCountThenSort = (a, b) => (b.orders.length - a.orders.length)
-    || ((a.landmark ? Number(a.landmark.sort || 99) : 99) - (b.landmark ? Number(b.landmark.sort || 99) : 99))
-  arr.sort(byCountThenSort)
-  return arr.map((g, i) => ({ stop: i + 1, landmark_id: g.landmark ? g.landmark.id : g.orders[0].landmark_id, landmark_name: g.name, order_ids: g.orders.map((o) => o.id) }))
+
+  const loadingPt = lmPoint(loading)
+  const items = arr.reduce((s, g) => s + g.orders.reduce((x, o) => x + orderItemCount(store, o.id), 0), 0)
+  const origin = routeOriginPt(loading)
+  const ordered = v2OrderStops(origin, arr.map((g) => ({ g, pt: lmPoint(g.landmark), n: g.orders.length || 1 })))
+
+  const route = []
+  let dropped = 0
+  for (let i = 0; i < ordered.length; i++) {
+    const trial = ordered.slice(0, i + 1).map((x) => ({ pt: x.pt, n: x.n }))
+    const mins = v2EstimateTripMin(origin, trial, items)
+    // 单站兜底：第一个站点无条件收下 —— 否则最远的东苑7栋永远排不进来（与组批硬约束②同一口径）
+    if (i > 0 && mins > V2.maxTripMin) { dropped = ordered.length - i; break }
+    const st = ordered[i]
+    route.push({ stop: route.length + 1, landmark_id: st.g.landmark.id, landmark_name: st.g.name, order_ids: st.g.orders.map((o) => o.id) })
+  }
+  if (dropped > 0) {
+    // 留痕：真出现"这一趟装不下全部站"时，说明组批的硬约束②和实际排线结果不一致，要能查
+    console.warn('[batch] 排线截断：' + dropped + ' 站超过每趟 ' + V2.maxTripMin + ' 分钟上限，留给下一趟')
+  }
+  return route
 }
 
-// 【v2 骨架】新路径规划：在现有「单数加权最近邻」上加每趟时长上限（超过就不再收这一站），
-// 并让停靠顺序直接以「预计总时长」为准（真实坐标已同步，能按米算而不是按楼栋数算）。
-// 尚未实现：当前直接回落 legacy。
-function planRouteV2(store, orders, ctx) {
-  return planRouteLegacy(store, orders, ctx)
-}
-
-// 路线规划入口（分发）：调用方签名不变。
+// 路线规划入口：v2 是唯一实现（legacy 已删除）。
 function planRoute(store, orders, ctx) {
-  return BATCH_ALGO === 'v2'
-    ? planRouteV2(store, orders, ctx)
-    : planRouteLegacy(store, orders, ctx)
+  return planRouteV2(store, orders, ctx)
 }
 
-// ---------- 批次自动定型判定（新老算法的核心分叉点） ----------
-// legacy 规则（与 timers.js 原有代码逐字等价）：
-//   满容（件数 >= BATCH_MAX_ITEMS）→ 定型；否则按「批次成立至今」的年龄 >= BATCH_WAIT_MS → 定型。
-// 注意：年龄锚点是【批次创建时间】，不是订单时间 —— v2 改成了「第一张订单下单后 15 分钟」。
-function shouldAutoLockLegacy(store, batch, items, _ctx) {
-  const full = Number(items || 0) >= BATCH_MAX_ITEMS
-  if (full) return true
-  const created = new Date(String(batch.created_at || '').replace(' ', 'T')).getTime()
-  const age = Date.now() - (isNaN(created) ? Date.now() : created)
-  return age >= BATCH_WAIT_MS
-}
+// ---------- 批次自动定型判定 ----------
+// 只有一条规则（v2）：满容立即定型，否则从「第一张订单的下单时间」起算满 BATCH_HOLD_MS 定型。
+// 情况1/情况2 的成批时机在下面的 planAutoLock 里，本函数只回答「这一批到点了吗」。
 
-// 【v2】批次内「第一张订单的下单时间」—— v2 的计时锚点。
+// 批次内「第一张订单的下单时间」—— 计时锚点。
 // 只算仍在批次内的有效单（status 1 待接单 / 2 配送中），已取消或已摘除的不计入。
-// 取不到订单时间时回落到批次创建时间；两者都不可解析则返回 null（调用方保守处理，不锁）。
+// 取不到订单时间时回落到批次创建时间；两者都不可解析则返回 null（调用方保守处理：当作已到点）。
 function firstOrderAt(store, batch) {
   let raw = ''
   try {
@@ -525,16 +572,8 @@ function firstOrderAt(store, batch) {
   return isNaN(t) ? null : t
 }
 
-// 【v2】新定型规则 —— 第一步：只做计时。
-//   · 满容（件数 >= BATCH_MAX_ITEMS）→ 立即定型（与 legacy 一致，不等待）
-//   · 否则从「第一张订单的下单时间」起算满 BATCH_HOLD_MS（默认 15 分钟）→ 定型
-//
-// 情况1 / 情况2 的完整时机在下面的 planAutoLock 里（本函数只回答「这一批到点了吗」）：
-//   情况1（未定型批次数 ≤ 可用车数）→ 车够，各自到点各自走
-//   情况2（未定型批次数 >  可用车数）→ 车不够，按 15 分钟窗口成批锁 + 递归
-//   未定型批次数 = 只数组单中（待上货不算，它已经锁定了）
-//   可用车 = 总车数 − 离线未使用的 − 忙的 − 已派车还没出发的（取并集，不重复扣）
-function shouldAutoLockV2(store, batch, items, _ctx) {
+// 定型规则：满容不等待；否则从「第一张订单的下单时间」起算满 BATCH_HOLD_MS 即到点。
+function shouldAutoLock(store, batch, items, _ctx) {
   // 满容：不等待，立即成型
   if (Number(items || 0) >= BATCH_MAX_ITEMS) return true
   const anchor = firstOrderAt(store, batch)
@@ -544,19 +583,36 @@ function shouldAutoLockV2(store, batch, items, _ctx) {
   return Date.now() >= anchor + BATCH_HOLD_MS
 }
 
-// ---------- v2 时机层：情况1 / 情况2 ----------
+// ---------- 成批时机层：情况1 / 情况2 / 情况3 ----------
 // 未定型批次数 = 只数「组单中」（status=0）。
-// 已定型待上货（status=1）【不算】—— 它已经锁定了，商家按批次上货即可。
+// 已定型待上货（status=1）【不算】—— 它已经锁定了（虽然还能加单，但不再占用"等车"的名额）。
 // 这条口径定死之后，"锁定会让未定型数不降反升"的自激就不存在了。
 function openBatchCount(store) {
   const r = store.prepare('SELECT COUNT(*) c FROM delivery_batches WHERE status = 0').get()
   return Number((r && r.c) || 0)
 }
 
-// 迟滞：情况1/情况2 不因为一次抖动就切换，要连续稳定 BATCH_HYSTERESIS_MS 才切。
+// 迟滞：情况切换不因为一次抖动就跳，要连续稳定 BATCH_HYSTERESIS_MS 才切。
 // 就像空调不会在 25.9° 和 26.1° 之间疯狂开关机。
 const _situation = { current: 1, pending: 0, pendingSince: 0 }
 function resetSituation() { _situation.current = 1; _situation.pending = 0; _situation.pendingSince = 0 }
+
+// 情况判定（纯函数）：待发批次数 vs 可用车数。
+//   1 = 排得下：待发 ≤ 可用车 → 车够，各自到自己那个窗口点就走。
+//   2 = 略紧：待发 > 可用车，但还没到 K 倍 → 仍按窗口成批锁，窗口长度不变。
+//   3 = 明显积压：待发 ≥ K × 可用车 → 成批锁，且把攒单窗口缩短（见 batchHoldMs）。
+// 可用车 = 0 时一律回情况1（继续攒单）：车全在外面跑，锁了也派不出去，只会把批次切得更碎。
+function situationOf(openCount, available) {
+  const avail = Number(available || 0)
+  if (avail < 1) return 1
+  const n = Number(openCount || 0)
+  if (n <= avail) return 1
+  return n >= BATCH_PRESSURE_K * avail ? 3 : 2
+}
+// 对外只暴露"是不是成批锁"（情况 2/3 都要成批锁），迟滞也挂在它上面，
+// 这样 2↔3 之间因为压力比小幅波动来回跳时不会重置迟滞计时。
+function isBatchLockSituation(sit) { return Number(sit) >= 2 }
+
 function currentSituation() { return _situation.current }
 function stabilizeSituation(raw, now) {
   if (raw === _situation.current) { _situation.pending = 0; return _situation.current }
@@ -566,22 +622,21 @@ function stabilizeSituation(raw, now) {
   return _situation.current
 }
 
-// 本轮该锁定哪些批次（v2）。返回【有序】batchId 数组，顺序 = 派车优先级：
+// 本轮该锁定哪些批次。返回【有序】batchId 数组，顺序 = 派车优先级：
 // 第一张订单最早的先走（车不够时只发得出去前面几个）。
 //
-// 情况1（未定型批次数 ≤ 可用车数）：车够 → 各自到自己那 15 分钟点就锁。
-// 情况2（未定型批次数 > 可用车数）：车不够 → 按 15 分钟窗口成批锁：
-//   窗口起点 t0 = 当前最早那张「第一张订单」的下单时间，窗口 = [t0, t0+15分钟)；
-//   等窗口起点那个批次到点（t0+15分钟）时，把窗口内所有批次一起锁（含还没到自己 15 分钟点的）。
+// 情况1（待发 ≤ 可用车）：车够 → 各自到自己那个窗口点才锁。
+// 情况2/3（待发 > 可用车）：车不够 → 按窗口成批锁：
+//   窗口起点 t0 = 当前最早那张「第一张订单」的下单时间，窗口 = [t0, t0+holdMs)；
+//   等窗口起点那个批次到点时，把窗口内所有批次一起锁（含还没到自己那个点的）。
 //   锁完它们就离开「组单中」，下一轮扫描自然从剩下的最早批次重新起一个窗口 —— 这就是"递归循环"。
 //   也正因为被锁的批次会离开「组单中」，扫多少次都不会重复锁同一批（天然幂等）。
 //
-// 前提：情况2 要求【至少 1 台可用车】。可用车 = 0 说明车全在外面跑，
+// 前提：成批锁要求【至少 1 台可用车】。可用车 = 0 说明车全在外面跑，
 //   这时候锁了也派不出去，只会让每一单都自成一个小批次 → 退回情况1，继续攒单。
 //
 // ctx.cars = { total, available, occupied }，由 timers.js 查平台后传入（batch.js 不碰平台）。
-function planAutoLockV2(store, ctx) {
-
+function planAutoLock(store, ctx) {
   const now = Date.now()
   const cars = (ctx && ctx.cars) || null
   const available = cars ? Number(cars.available || 0) : 0
@@ -593,10 +648,7 @@ function planAutoLockV2(store, ctx) {
       FROM orders o LEFT JOIN order_items oi ON oi.order_id = o.id
       WHERE o.batch_id=? AND o.status IN (1,2)`).get(b.id)
     if (Number((cnt && cnt.c) || 0) <= 0) continue // 空批次不管
-    const items = Number((cnt && cnt.items) || 0)
-    const anchor = firstOrderAt(store, b)
-    // 拿不到订单时间（数据脏）→ 当作已到点，防死锁
-    list.push({ id: Number(b.id), items, anchor, due: anchor === null || now >= anchor + BATCH_HOLD_MS })
+    list.push({ id: Number(b.id), items: Number((cnt && cnt.items) || 0), anchor: firstOrderAt(store, b) })
   }
   if (!list.length) return []
 
@@ -604,25 +656,32 @@ function planAutoLockV2(store, ctx) {
   const key = (x) => (x.anchor === null ? Infinity : x.anchor)
   list.sort((x, y) => (key(x) - key(y)) || (x.id - y.id))
 
+  // 窗口长度由【压力】决定：待发越多、车越少，攒单窗口越短。整轮共用一个窗口长度，
+  // 不能每批各算各的 —— 否则同一轮里前面的批次用长窗口、后面的用短窗口，锁定顺序会自相矛盾。
+  const openCount = openBatchCount(store)
+  const holdMs = batchHoldMs(openCount, available, now)
+  // 到点判定用本轮实际窗口（不是常量）：缩短窗口时"到点"要跟着提前，否则缩短形同虚设。
+  for (const x of list) x.due = x.anchor === null || now >= x.anchor + holdMs
+
   // 满容的无论什么情况都立即锁（不等待）
   const full = list.filter((x) => x.items >= BATCH_MAX_ITEMS)
   const rest = list.filter((x) => x.items < BATCH_MAX_ITEMS)
   const due = rest.filter((x) => x.due)
 
   // 情况判定（带迟滞）。可用车 0 台 → 强制情况1，继续攒单。
-  const raw = openBatchCount(store) > available ? 2 : 1
+  const raw = situationOf(openCount, available)
   const situation = available >= 1 ? stabilizeSituation(raw, now) : 1
 
   const chosen = new Set(full.map((x) => x.id))
-  // 到点的一律发 —— 这是「15 分钟必走」的底线，情况1/情况2 都一样。
+  // 到点的一律发 —— 这是「窗口到点必走」的底线，情况1/2/3 都一样。
   // 必须单独兜住：到点的批次未必落在同一个窗口里（比如已经等了 40 分钟的那批，
   // 它的锚点远早于当前窗口起点），只靠窗口选择会把它漏掉 → 饿死。
   for (const x of due) chosen.add(x.id)
-  if (situation === 2) {
+  if (isBatchLockSituation(situation)) {
     // 车不够：把窗口内「还没到点」的批次也一起带走
     const anchorBase = (due.find((x) => x.anchor !== null) || {}).anchor
     if (anchorBase !== null && anchorBase !== undefined) {
-      const winEnd = anchorBase + BATCH_HOLD_MS
+      const winEnd = anchorBase + holdMs
       for (const x of rest) {
         if (x.anchor === null) continue // anchor 为 null 的已经在 due 里了
         if (x.anchor >= anchorBase && x.anchor < winEnd) chosen.add(x.id)
@@ -636,15 +695,12 @@ function planAutoLockV2(store, ctx) {
   return list.filter((x) => chosen.has(x.id)).map((x) => x.id)
 }
 
-// 时机层入口（分发）：legacy 返回 null，表示"不走计划，仍逐批判定"，老路径零改动。
-function planAutoLock(store, ctx) {
-  return BATCH_ALGO === 'v2' ? planAutoLockV2(store, ctx) : null
-}
-
 // ---------- 全局不变量自检（收口）----------
 // 把「不该出现的情况」变成可自动检查的断言，跑一遍就知道有没有问题。
 // 分两类：
-//   结构不变量 —— 每个组单中的批次都该满足：件数 ≤12、每趟时长 ≤15分、站点 ≥1
+//   结构不变量 —— 每个批次都该满足：件数 ≤12、每趟时长 ≤15分、站点 ≥1
+//                 （status 0 组单中 与 status 1 已定型未装货 都要查 —— status 1 仍可加单，
+//                   2026-10-14 起这是有意行为，所以它的容量约束同样必须成立）
 //   活性不变量 —— 每张没送完的订单最终一定发得出去（防死锁）
 // 返回 { ok, violations: [{ type, detail, ref }], checked_at }
 // 注意：批次数量级很小（同时最多几十个），这里用逐批查询换可读性，不做批量优化。
@@ -653,17 +709,24 @@ function checkInvariants(store) {
   const add = (type, detail, ref) => v.push({ type, detail, ref: ref || '' })
   const now = Date.now()
 
-  // ---- 结构不变量：组单中的批次 ----
+  // ---- 结构不变量：还会变动内容的批次（组单中 + 已定型未装货）----
   const loading = loadingPointOf(store)
   const loadingPt = lmPoint(loading)
-  for (const b of store.prepare('SELECT * FROM delivery_batches WHERE status = 0').all()) {
+  const openBatches = store.prepare(`
+    SELECT * FROM delivery_batches
+    WHERE status IN (0,1) AND bin_opened_at IS NULL AND loaded_at IS NULL`).all()
+  for (const b of openBatches) {
     const cnt = store.prepare(`
       SELECT COUNT(DISTINCT o.id) c, IFNULL(SUM(oi.quantity),0) items
       FROM orders o LEFT JOIN order_items oi ON oi.order_id = o.id
       WHERE o.batch_id=? AND o.status IN (1,2)`).get(b.id)
     const n = Number((cnt && cnt.c) || 0)
     const items = Number((cnt && cnt.items) || 0)
-    if (n <= 0) { add('EMPTY_BATCH', `组单中批次 ${b.batch_no || '#' + b.id} 没有任何有效订单`, 'batch#' + b.id); continue }
+    // 已定型(1)的批次空了不算错（商家可能把单转走），组单中(0)空了要回收
+    if (n <= 0) {
+      if (Number(b.status) === 0) add('EMPTY_BATCH', `组单中批次 ${b.batch_no || '#' + b.id} 没有任何有效订单`, 'batch#' + b.id)
+      continue
+    }
     if (items > BATCH_MAX_ITEMS) {
       add('OVER_CAPACITY', `批次 ${b.batch_no || '#' + b.id} 装了 ${items} 件，超过上限 ${BATCH_MAX_ITEMS}`, 'batch#' + b.id)
     }
@@ -708,14 +771,6 @@ function checkInvariants(store) {
 
   return { ok: v.length === 0, violations: v, checked_at: new Date().toISOString() }
 }
-// 定型判定入口（分发）：单批次的「到点了吗」。legacy / v2 都可用；
-// v2 的完整时机（情况1/情况2、窗口、优先级）在 planAutoLock 里。
-function shouldAutoLock(store, batch, items, ctx) {
-  return BATCH_ALGO === 'v2'
-    ? shouldAutoLockV2(store, batch, items, ctx)
-    : shouldAutoLockLegacy(store, batch, items, ctx)
-}
-
 // 批次详情（含订单、商品明细与路线），供商家/用户端展示
 function getBatchDetail(store, batchId) {
   const b = getBatch(store, batchId)
@@ -881,22 +936,23 @@ function orderAhead(store, order) {
 }
 
 module.exports = {
-  BATCH_STATUS, BATCH_MAX_ORDERS, BATCH_MAX_ITEMS, BATCH_WAIT_MS, statusText, cleanName, landmarkNameOf,
+  BATCH_STATUS, BATCH_MAX_ORDERS, BATCH_MAX_ITEMS, statusText, cleanName, landmarkNameOf,
   orderItemCount, getBatch, getOrCreateOpenBatch, addOrderToBatch, removeOrderFromBatch,
   countPicked, maybeCompleteBatch, onTaskStatus, planRoute, getBatchDetail,
   registerSummonAdvance,
-  // 算法版本开关：BATCH_ALGO 是实际生效值（v2 未就绪时=legacy）；shouldAutoLock 是定型判定入口。
-  // 两套实现（legacy/v2）一并导出，便于测试直接对照。
-  BATCH_ALGO, BATCH_V2_READY,
-  shouldAutoLock, shouldAutoLockLegacy, shouldAutoLockV2, firstOrderAt,
-  BATCH_HOLD_MS, planAutoLock, planAutoLockV2, openBatchCount, resetSituation, currentSituation,
+  // 组单算法：v2 是唯一实现（legacy 已于 2026-10-14 删除，见文件头注释）。
+  // 时机层对外只有 planAutoLock（本轮该锁哪些批）+ shouldAutoLock（单批到点了吗，兜底路径）。
+  shouldAutoLock, firstOrderAt, BATCH_HOLD_MS, batchHoldMs, BATCH_PRESSURE_K,
+  planAutoLock, openBatchCount, situationOf, isBatchLockSituation, resetSituation, currentSituation,
   checkInvariants,
   // 提前提醒（用户端追踪页轮询读取）
   orderAhead, ADVANCE_STOPS, batchStopsOf, batchCurrentStop, remainingEtaMin,
   loadingPointOf,
   // v2 组批（纯函数层单独导出，便于单测与重放）
-  V2, v2EstimateTripMin, v2ScoreCandidate, v2RouteDistanceM, v2DistM, lmPoint, parseTime,
-  openBatchCandidates, landmarkPointOf,
-  getOrCreateOpenBatchLegacy, getOrCreateOpenBatchV2,
-  planRouteLegacy, planRouteV2
+  V2, v2EstimateTripMin, v2ScoreCandidate, v2RouteDistanceM, v2OrderStops, v2PathDistanceM,
+  v2DistM, lmPoint, parseTime,
+  openBatchCandidates, landmarkPointOf, bestFitOpenBatch, createOpenBatchV2,
+  getOrCreateOpenBatchV2, planRouteV2,
+  // 调试用：把模块级常量暴露给探针，避免"到底是哪个权重生效"靠猜（仅探针使用）
+  __debugRouteWeight: () => ROUTE_COUNT_WEIGHT
 }

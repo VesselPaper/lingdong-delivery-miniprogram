@@ -60,7 +60,10 @@ for (const l of LANDMARKS) {
 db.exec(`CREATE TABLE delivery_batches (
   id INTEGER PRIMARY KEY AUTOINCREMENT, batch_no TEXT, status INTEGER DEFAULT 0,
   status_text TEXT DEFAULT '组单中', device_sn TEXT DEFAULT '', created_at TEXT,
-  dispatched_at TEXT, completed_at TEXT)`)
+  route TEXT DEFAULT '[]', current_stop INTEGER DEFAULT 0, delivery_mode TEXT DEFAULT '',
+  bin_opened_at TEXT, loaded_at TEXT, daily_seq INTEGER, seq_date TEXT,
+  total_orders INTEGER DEFAULT 0, total_items INTEGER DEFAULT 0, picked_orders INTEGER DEFAULT 0,
+  dispatched_at TEXT, completed_at TEXT, updated_at TEXT)`)
 db.exec(`CREATE TABLE orders (
   id INTEGER PRIMARY KEY AUTOINCREMENT, order_no TEXT, batch_id INTEGER, status INTEGER DEFAULT 2,
   landmark_id TEXT, landmark_name TEXT, created_at TEXT)`)
@@ -174,30 +177,29 @@ function main() {
   mkOrder('东苑5栋', 2, 1, 2, badBatch, '也是垃圾')          // 订单 created_at 也是垃圾
   const row = db.prepare('SELECT * FROM delivery_batches WHERE id=?').get(badBatch)
   ok(batch.firstOrderAt(db, row) === null, 'firstOrderAt 返回 null（订单和批次时间都不可解析）')
-  ok(batch.shouldAutoLockV2(db, row, 2) === true, '单批次判定 → true（宁可早发，也不能永远发不出去）')
-  const plan10 = batch.planAutoLockV2(db, { cars: { available: 99 } })
+  ok(batch.shouldAutoLock(db, row, 2) === true, '单批次判定 → true（宁可早发，也不能永远发不出去）')
+  const plan10 = batch.planAutoLock(db, { cars: { available: 99 } })
   ok(plan10.includes(badBatch), `计划里包含它 → ${JSON.stringify(plan10)}`)
 
   // ---------------------------------------------------------------- 11
-  section('11. ★ 防饿死：到点但落在当前窗口【外】的批次，必须照样发')
+  section('11. ★ 防饿死：等了 40 分钟的那批是窗口起点，它后面的批次不许被漏掉')
   clear()
-  const X = mkBatch(40); mkOrder('东苑5栋', 2, 40, 2, X)  // 等了 40 分钟：它是窗口起点
-  const Y = mkBatch(20); mkOrder('东苑2栋', 2, 20, 2, Y)  // 等了 20 分钟：自己早到点了，但落在窗口外
-  const plan11 = batch.planAutoLockV2(db, { cars: { available: 1 } })
-  console.log('     窗口起点 = X 的锚点（40分钟前），窗口 = [T-40, T-25)')
-  console.log('     Y 的锚点 = T-20，落在窗口外，但它自己已经等 20 分钟 → 早就到点了')
+  const X = mkBatch(40); mkOrder('东苑5栋', 2, 40, 2, X)  // 等了 40 分钟：窗口起点由它决定
+  const Y = mkBatch(20); mkOrder('东苑2栋', 2, 20, 2, Y)  // 等了 20 分钟：自己也早过 15 分钟窗口
+  const plan11 = batch.planAutoLock(db, { cars: { available: 1 } })
+  console.log('     X 的锚点 = T-40（窗口起点），Y 的锚点 = T-20 —— 两个都早过了 15 分钟窗口')
   ok(plan11.includes(X) && plan11.includes(Y),
     `X 和 Y 都被锁 → ${JSON.stringify(plan11)}（只按窗口选会漏掉 Y，Y 就被饿死）`)
 
   // ---------------------------------------------------------------- 12
-  section('12. 情况2 正常扫窗口：窗口内还没到点的也一起走')
+  section('12. 成批锁：窗口内还没到自己那个点的批次也一起走')
   clear()
-  const W20 = mkBatch(20); mkOrder('东苑5栋', 2, 20, 2, W20)
-  const W12 = mkBatch(12); mkOrder('东苑2栋', 2, 12, 2, W12)
-  const W3 = mkBatch(3); mkOrder('东苑3栋', 2, 3, 2, W3)
-  const plan12 = batch.planAutoLockV2(db, { cars: { available: 1 } })
+  const W20 = mkBatch(20); mkOrder('东苑5栋', 2, 20, 2, W20)   // 已过 15 分钟 → 到点
+  const W12 = mkBatch(12); mkOrder('东苑2栋', 2, 12, 2, W12)   // 12 分钟 → 已到点
+  const W3 = mkBatch(3); mkOrder('东苑3栋', 2, 3, 2, W3)       // 3 分钟 → 未到点，且落到下一个时间片
+  const plan12 = batch.planAutoLock(db, { cars: { available: 1 } })
   ok(plan12.includes(W20) && plan12.includes(W12) && !plan12.includes(W3),
-    `20分（到点）+ 12分（窗口内未到点）一起走，3分的等下一轮 → ${JSON.stringify(plan12)}`)
+    `20分 + 12分（都到点）一起走，3分的等下一轮 → ${JSON.stringify(plan12)}`)
 
   // ---------------------------------------------------------------- 13
   section('13. 一次巡检能报出全部卡住的订单')

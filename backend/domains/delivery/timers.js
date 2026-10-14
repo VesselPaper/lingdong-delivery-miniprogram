@@ -130,11 +130,12 @@ function start(store, deps) {
   s.scanPickupTimeouts(store, deps).catch(() => {})
 
   // ---------- ④ 批次自动定型（一车多单）+ 模拟配送到达 ----------
-  // 组单中的批次满足任一条件即自动定型（status 0→1，指派设备锁定）：
+  // 组单中的批次「该不该这一轮发出去」由 batch 模块唯一决策（情况1/2/3、动态窗口、优先级），
+  // 本定时器只负责按计划顺序调用 doDispatchBatch。两种触发来源：
   //  1) 达到一车容量上限（BATCH_MAX_ITEMS，默认 12 件）
-  //  2) 批次成立超过 BATCH_WAIT_MS（默认 90s）
-  // 定型后广播 batch_dispatched → 商家端刷新列表，卡面从「组单中」变为「待上货」，
-  // 不再一直停在组单中。手动「上货」/扫码始终可用；并发由 claimDispatch 保证不重复派车。
+  //  2) 攒单窗口到点 —— 窗口长度不是常量：待发批次数 ≥ K × 可用车数时自动缩短（见 batch.batchHoldMs）
+  // 定型后广播 batch_dispatched → 商家端刷新列表，卡面从「组单中」变为「待上货」。
+  // 手动「上货」/扫码始终可用；并发由 claimDispatch 保证不重复派车。
   // 召唤模式（syncLoading=0）下 doDispatchBatch 只定型设备（不建越凡任务），车由看门狗⑤召到上货点待命。
   setInterval(async () => {
     try {
@@ -146,14 +147,10 @@ function start(store, deps) {
       if (shop.business_status !== 'open') return
       const openBatches = store.prepare('SELECT * FROM delivery_batches WHERE status IN (0,1) ORDER BY id ASC').all()
 
-      // v2：先算出本轮该锁哪些批次（情况1/情况2、窗口、优先级都在 batch 模块里决策）。
-      // legacy：planAutoLock 返回 null，仍走逐批 shouldAutoLock 的老路径，且不查平台。
-      let planOrder = null
-      if (deps.batch.BATCH_ALGO === 'v2' && typeof deps.batch.planAutoLock === 'function') {
-        const cars = await carState(store, deps)
-        const plan = deps.batch.planAutoLock(store, { cars }) || []
-        planOrder = new Map(plan.map((id, i) => [Number(id), i]))
-      }
+      // 先问 batch 模块「本轮该锁哪些批次」——情况判定要用实时可用车数，所以要查平台。
+      const cars = await carState(store, deps)
+      const plan = deps.batch.planAutoLock(store, { cars }) || []
+      const planOrder = new Map(plan.map((id, i) => [Number(id), i]))
 
       const todo = []
       for (const b of openBatches) {
@@ -165,15 +162,12 @@ function start(store, deps) {
         if (n <= 0) continue
         // 待上货(1)已定型，只需由看门狗⑤保持在位，这里无事可做
         if (Number(b.status) !== 0) continue
-        const items = Number(cnt && cnt.items || 0)
-        // 定型规则收敛到 batch 模块，本定时器只负责调度。
-        if (planOrder) {
-          if (!planOrder.has(Number(b.id))) continue
-        } else if (!deps.batch.shouldAutoLock(store, b, items)) continue
-        todo.push({ b, items })
+        // 定型规则收敛到 batch 模块：本轮计划里没有它，就是还没到点。
+        if (!planOrder.has(Number(b.id))) continue
+        todo.push({ b, items: Number(cnt && cnt.items || 0) })
       }
       // 按计划顺序执行 = 派车优先级（第一张订单最早的先走，车不够时先发得出去）
-      if (planOrder) todo.sort((x, y) => planOrder.get(Number(x.b.id)) - planOrder.get(Number(y.b.id)))
+      todo.sort((x, y) => planOrder.get(Number(x.b.id)) - planOrder.get(Number(y.b.id)))
 
       for (const { b, items } of todo) {
         const full = items >= Number(deps.batch.BATCH_MAX_ITEMS || 12) // 仅用于下面日志措辞

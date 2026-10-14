@@ -658,7 +658,7 @@ module.exports = {
   unloadingConfirm: httpApi.unloadingConfirm,
   cancelQueueTask: httpApi.cancelQueueTask, closeTask: httpApi.closeTask,
   robotAtLoadingPoint: httpApi.robotAtLoadingPoint, robotAtPoint: httpApi.robotAtPoint,
-  isRobotBusy: httpApi.isRobotBusy,
+  isRobotBusy: httpApi.isRobotBusy, robotMoving: httpApi.robotMoving,
   queryLightTask: httpApi.queryLightTask, stopRobot: httpApi.stopRobot,
   queryDeviceTasks: httpApi.queryDeviceTasks, adminCalibStatus: httpApi.adminCalibStatus,
   syncTaskStatus: callbacks.syncTaskStatus, applyStatus: callbacks.applyStatus,

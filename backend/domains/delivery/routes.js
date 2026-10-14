@@ -427,6 +427,12 @@ module.exports = (store, deps) => {
     // 召唤多单配送：无配送任务，开舱=先召唤到上货点 + 到达门禁(lightTask status=30) + drawerCtrl(1)
     if (deps.runtime.summonDelivery) {
       if (!b.device_sn) return res.status(400).json({ code: 400, msg: '缺少设备编号，请先派车定型' })
+      // 【需求6】① 车在移动 → 不执行开舱（等停稳；否则就是"开仓的时候车走了"）。先于 isRobotBusy：
+      //   isRobotBusy 偏严（含配送/异常等），这条专门把「正在跑」单独挑出来给商家明确的停稳提示。
+      if (!deps.runtime.deviceMock) {
+        const mv = await deps.platform.robotMoving(store, b.device_sn)
+        if (mv.ok && mv.moving) return res.status(400).json({ code: 400, msg: '无人车正在移动，请等待其停稳后再开舱', reason: 'car_moving' })
+      }
       // 问题4门禁兜底：若该车正在做召唤配送（别的批次/本批已在投递），不打断它回上货点，直接提示暂无空闲机器人。
       if (!deps.runtime.deviceMock) {
         const busyGuard = await deps.platform.isRobotBusy(store, b.device_sn)
@@ -449,6 +455,11 @@ module.exports = (store, deps) => {
       q.setBatchBinOpened(store, b.id)
       audit(req, 'device/batch-open', 'batch#' + b.id, '召唤开舱 device_sn=' + b.device_sn)
       return ok(res, { batch_id: b.id, opened: b.total_orders, summoned: true })
+    }
+    // 【需求6】① 车在移动 → 不执行开舱（与召唤路径同一把锁）
+    if (!deps.runtime.deviceMock) {
+      const mv = await deps.platform.robotMoving(store, b.device_sn)
+      if (mv.ok && mv.moving) return res.status(400).json({ code: 400, msg: '无人车正在移动，请等待其停稳后再开舱', reason: 'car_moving' })
     }
     // 需求3门禁：无人车必须已到达上货点才能开舱上货（真实档校验；演示档恒通过）
     const gate = await deps.platform.robotAtLoadingPoint(store, b.device_sn)
@@ -495,6 +506,11 @@ module.exports = (store, deps) => {
     // 这条入口必然卡在关舱，而 drawerCtrl 在演示档本就是假成功（platform-http MOCK 直接 return ok）。
     // 扫码入口会写入 device_sn，但列表入口不该被迫先扫码。
     if (!b.device_sn && !deps.runtime.deviceMock) return res.status(400).json({ code: 400, msg: '缺少设备编号，请先扫码' })
+    // 【需求6】① 车在移动 → 不执行关舱（与开舱同一把锁）
+    if (!deps.runtime.deviceMock) {
+      const mv = await deps.platform.robotMoving(store, b.device_sn)
+      if (mv.ok && mv.moving) return res.status(400).json({ code: 400, msg: '无人车正在移动，请等待其停稳后再关舱', reason: 'car_moving' })
+    }
     const r = await deps.platform.drawerCtrl(b.device_sn, 0)
     if (!r.ok) return res.status(502).json({ code: 502, msg: r.msg })
     // 关舱 = 货已装好，但可能先不回「立即配送」页（稍后/退出）。落 loaded_at 持久化「已上货待配送」，
@@ -511,6 +527,11 @@ module.exports = (store, deps) => {
     const { batch_id } = req.body || {}
     const b = q.batchById(store, batch_id)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
+    // 【需求6】② 舱门开着/正在开 → 任何动作都不得让车移动（防止"开仓的时候就走了"）。
+    // 关舱会清 bin_opened_at，所以正常「关舱 → 立即配送」链路不受影响；这层拦的是跳过关舱/舱门仍开的异常路径。
+    if (b.bin_opened_at) {
+      return res.status(400).json({ code: 400, msg: '舱门未关，请先关舱再开始配送', reason: 'bin_open' })
+    }
     // 召唤多单配送：立即配送 = 按单数加权路线规划 + 召唤到首站 + 该站订单置待取货（不创建越凡配送任务）
     if (deps.runtime.summonDelivery) {
       try {

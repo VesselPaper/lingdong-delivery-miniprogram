@@ -6,7 +6,7 @@
 <title>零栋铺子 · 无人送餐调度大屏</title>
 <meta name="description" content="校园无人送餐机器人实时调度大屏：实时雷达地图、车辆动向、订单与批次状态">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2307142b'/%3E%3Crect x='7' y='12' width='18' height='4' rx='2' fill='%2337e0ff'/%3E%3Crect x='7' y='19' width='11' height='3.5' rx='1.75' fill='%236fe9ff' opacity='.7'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/dashboard.css?v=3d3">
+<link rel="stylesheet" href="css/dashboard.css?v=3d4">
 <link rel="stylesheet" href="vendor/leaflet.css">
 </head>
 <body>
@@ -18,10 +18,6 @@
   <header class="topbar">
         <div class="h-left">
       <img class="brand-logo" src="assets/logo.jpg" alt="零栋集团">
-      <div class="h-text">
-        <b id="subTitle">零栋铺子 · 四川师范大学成龙校区</b>
-        <span class="h-meta"><span id="kvMode">—</span> · <span id="kvPlatform">—</span></span>
-      </div>
     </div><div class="h-title">零栋铺子 · 无人送餐调度大屏</div>
     <div class="h-right">
       <div class="demoBadge" id="demoBadge" hidden>演示数据</div>
@@ -36,7 +32,7 @@
     <section class="colLeft">
 
       <div class="panel">
-        <div class="panel-title">运行状态 <span class="en">SYSTEM</span></div>
+        <div class="panel-title">运行状态</div>
         <ul class="hwinfo">
           <li><span class="k">店铺</span><b id="kvShop">—</b></li>
           <li><span class="k">营业状态</span><b id="kvBusiness">—</b></li>
@@ -45,16 +41,15 @@
       </div>
 
       <div class="panel grow">
-        <div class="panel-title">车辆状态 <span class="en">VEHICLE</span>
+        <div class="panel-title">车辆状态
           <span class="tRight"><span class="badge" id="robotCount">0 台</span><button class="colToggle" id="colLeftToggle" title="收起左栏（车辆），空间让给地图">‹</button></span>
         </div>
-        <div class="sub">点击卡面选中 · 地图同步高亮（不自动跟随）</div>
         <ul class="fleetCards" id="robotList"></ul>
         <div class="empty" id="robotEmpty">暂无车辆数据</div>
       </div>
 
       <div class="panel">
-        <div class="panel-title">无人机器车 <span class="en">ROBOT</span></div>
+        <div class="panel-title">无人机器车</div>
         <div class="robot-show">
           <div class="robot-stage">
             <div class="robot-ring"></div>
@@ -66,7 +61,6 @@
             </div>
             <div class="robot-base"></div>
           </div>
-          <div class="robot-cap">零栋集团 · LING DONG</div>
         </div>
       </div>
 
@@ -83,27 +77,25 @@
             <span><i class="lg lgLoad"></i>上货点</span>
             <span><i class="lg lgSite"></i>充电/取货点</span>
             <span><i class="lg lgCar"></i>无人车</span>
-            <span><i class="lg lgPath"></i>雷达路线</span>
-            <span><i class="lg lgRoad"></i>校园道路</span>
           </div>
           <span class="mapTip" id="mapTip"></span>
         </div>
         <!-- 第二行：控制工具栏（滑块 + 开关按钮，整块不换行、不压缩） -->
         <div class="map3dCtl" id="map3dCtl">
-          <label class="ctlRange" title="俯视角（越小越能看出楼体高度，越大越接近垂直俯视）">俯仰<input type="range" id="m3Tilt" min="3" max="88" value="65"></label>
-          <label class="ctlRange" title="楼栋高度夸张倍数（压低可减少遮挡）">高度<input type="range" id="m3Height" min="20" max="200" value="58"></label>
-          <label class="ctlRange" title="立体 3D 车模的显示倍数（越小贴近真实比例，越大越醒目）">车模<input type="range" id="m3Car" min="20" max="150" value="90"></label>
+          <label class="ctlRange" title="镜头俯仰角">俯仰<input type="range" id="m3Tilt" min="3" max="88" value="65"></label>
+          <label class="ctlRange" title="楼栋高度夸张倍数">高度<input type="range" id="m3Height" min="20" max="200" value="58"></label>
+          <label class="ctlRange" title="3D 车模显示倍数">车模<input type="range" id="m3Car" min="20" max="150" value="90"></label>
           <span class="ctlSep"></span>
           <button id="m3Spin" title="自动环绕旋转">环绕</button>
-          <button id="m3Follow" title="镜头跟随无人车（点击地图上的车辆即可切换跟随目标）">跟随</button>
-          <button id="m3Fade" title="楼体半透明：俯视时看清被楼压住的道路（默认关闭，楼体实心可见）">楼体透明</button>
-          <button id="m3Ground" title="雷达底图：机器人激光测绘的**可通行区（有真实路宽）**，默认关闭；调试对齐时打开可对照">雷达图</button>
+          <button id="m3Follow" title="镜头跟随无人车">跟随</button>
+          <button id="m3Fade" title="楼体半透明（俯视看清道路）">楼体透明</button>
+          <button id="m3Ground" title="雷达激光底图（真实路宽）">雷达图</button>
           <button id="m3Label" class="on" title="楼栋名称">标注</button>
-          <button id="m3Site" class="on" title="配送点标记（平台点位：取货点/上货点/充电点；放大后显示点位名称）">配送点</button>
-          <button id="m3Align" title="3D图层重构：把灰色OSM路网/楼体逐栋逐路校补到雷达激光图真实位置（小车吸附到建模道路上）">重构</button>
+          <button id="m3Site" class="on" title="配送点标记（取货点/上货点/充电点）">配送点</button>
+          <button id="m3Align" title="3D 图层重构（OSM 对齐雷达图）">重构</button>
           <span class="ctlSep"></span>
-          <button id="simToggle" class="on" title="虚拟测试车（后端接口层模拟、不参与真实派车）：运行时开/关整批">虚拟车</button>
-          <button id="simStates" title="手动指定某台虚拟车状态（充电/等待/配送/上货/待取货/返回）">手动</button>
+          <button id="simToggle" class="on" title="虚拟测试车（接口层模拟、不参与真实派车）">虚拟车</button>
+          <button id="simStates" title="手动指定某台虚拟车状态">手动</button>
           <button class="mapReset" id="mapReset" hidden>回到校园</button>
         </div>
       </div>
@@ -193,7 +185,7 @@
 
       <!-- 任务状态：配送任务流水线（原先挂在左栏车辆状态下面，按"左侧车辆 / 右侧订单与任务"重新归位） -->
       <div class="panel">
-        <div class="panel-title">任务状态 <span class="en">TASK FLOW</span>
+        <div class="panel-title">任务状态
           <span class="tRight"><button class="colToggle" id="colRightToggle" title="收起右栏（订单与任务），空间让给地图">›</button></span>
         </div>
         <div class="flow" id="taskFlow">
@@ -213,7 +205,7 @@
       </div>
 
       <div class="panel grow">
-        <div class="panel-title">订单配送看板 <span class="en">ORDERS</span></div>
+        <div class="panel-title">订单配送看板</div>
         <div class="stat-cards">
           <div class="stat"><div class="n" id="mToday">0</div><div class="t">今日订单</div></div>
           <div class="stat"><div class="n" id="mAmount">¥0</div><div class="t">营业额</div></div>
@@ -225,24 +217,17 @@
       </div>
 
       <div class="panel" id="alertPanel" hidden>
-        <div class="panel-title">告警与消息通知 <span class="en">ALERTS</span></div>
+        <div class="panel-title">告警与消息通知</div>
         <ul class="alertList" id="alertList"></ul>
       </div>
 
       <div class="panel grow">
-        <div class="panel-title">实时动态 <span class="en">LIVE</span></div>
+        <div class="panel-title">实时动态</div>
         <ul class="eventList" id="eventList"></ul>
-        <p class="note">仅记录车辆状态变化、新批次与取餐超时</p>
       </div>
 
     </section>
   </main>
-
-  <footer class="footer">
-    <span id="footLeft">零栋铺子 · 无人送餐调度大屏</span>
-    <span class="footMid" id="footMid"></span>
-    <span id="footRight">每 5 秒刷新 · 每日 04:00 自动重载</span>
-  </footer>
 
 </div>
 
@@ -267,8 +252,8 @@
 <!-- 大屏骨架（分件）：共享上下文 → 数据源 → 界面渲染 → 地图 → 编排者/启动 -->
 <script src="js/dashboard/shared.js?v=3d62"></script>
 <script src="js/dashboard/api.js?v=3d61"></script>
-<script src="js/dashboard/views-ui.js?v=3d43"></script>
-<script src="js/dashboard/map.js?v=3d42"></script>
-<script src="js/dashboard/main.js?v=3d63"></script>
+<script src="js/dashboard/views-ui.js?v=3d44"></script>
+<script src="js/dashboard/map.js?v=3d43"></script>
+<script src="js/dashboard/main.js?v=3d64"></script>
 </body>
 </html>

@@ -82,7 +82,7 @@ window.Dash.map = (function (Dash) {
     })
     if (TILE_PROVIDER === 'tianditu') {
       getTiandituTk().then(function (tk) {
-        if (!tk || !mapObj) { txt($('mapTip'), '天地图密钥未配置（backend/.env 的 TIANDITU_TK），自动使用备用底图'); startFallbackTiles(); return }
+        if (!tk || !mapObj) { txt($('mapTip'), '天地图密钥未配置，自动使用备用底图'); startFallbackTiles(); return }
         L.tileLayer(tiandituUrl('vec', tk), { subdomains: '01234567', maxNativeZoom: 18, maxZoom: 20 }).addTo(mapObj)
         L.tileLayer(tiandituUrl('cva', tk), { subdomains: '01234567', maxNativeZoom: 18, maxZoom: 20 }).addTo(mapObj)
       })
