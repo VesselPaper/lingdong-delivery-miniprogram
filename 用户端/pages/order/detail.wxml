@@ -47,6 +47,8 @@
   <view class="card">
     <view class="section-title">配送信息</view>
     <view class="info-row"><text class="info-label">送达点位</text><text>{{order.landmark_name}}</text></view>
+    <view class="info-row" wx:if="{{order.promise && order.promise.busy}}"><text class="info-label">预计送达</text><text>当前繁忙，未承诺时间</text></view>
+    <view class="info-row" wx:elif="{{order.promise && order.promise.minutes}}"><text class="info-label">预计送达</text><text>约 {{order.promise.minutes}} 分钟内送达</text></view>
     <view class="info-row"><text class="info-label">订单编号</text><view class="info-value"><text class="info-text">{{order.order_no}}</text><view class="copy-btn" hover-class="copy-btn-hover" hover-stay-time="80" bindtap="copyText" data-text="{{order.order_no}}">复制</view></view></view>
     <view class="info-row" wx:if="{{order.remark}}"><text class="info-label">备注</text><text>{{order.remark}}</text></view>
     <view class="info-row"><text class="info-label">下单时间</text><text>{{order.created_at}}</text></view>

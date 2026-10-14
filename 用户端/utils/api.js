@@ -22,6 +22,7 @@ const api = {
 
   // 订单
   orderCreate: '/order/create',
+  orderPromise: '/order/promise',   // P4 动态承诺时间（下单确认页按送达点拉取）
   orderPay: '/order/pay',
   orderList: '/order/list',
   orderDetail: '/order/detail',

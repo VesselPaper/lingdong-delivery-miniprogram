@@ -153,6 +153,8 @@ app.use('/api', couponRoutes(store, { runtime }))
 app.use('/api', orderRoutes(store, {
   runtime, wxpay, batch, platform, orderCancel, push,
   goods: goodsService, user: userService, coupon: couponService,
+  // P4 动态承诺时间：读取最近一轮车况扫描的可用车缓存（不阻塞下单/详情）
+  cachedCarState: deliveryTimers.cachedCarState,
   autoLoadHook: (batch) => autoLoad.schedule(store, { runtime, platform }, batch),
   // 「机器人要回去」事件钩子（取消订单等）：查是否还有其他待上货订单，无则等 3 分钟释放返程（不轮询）
   settleRobot: (deviceSn) => deliveryService.settleRobotAtLoading(store, { runtime, platform, batch }, deviceSn)

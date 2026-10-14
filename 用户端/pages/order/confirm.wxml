@@ -29,7 +29,7 @@
     <!-- 第四行：预计送达时间（左右两部分） -->
     <view class="time-row" bindtap="openTimeSheet">
       <view class="time-mode">{{deliveryMode === 'asap' ? '立即送出' : '指定时间'}}</view>
-      <view class="time-val blue">{{deliveryMode === 'asap' ? '预计 ' + asapEta + ' 送达' : scheduledTime}}</view>
+      <view class="time-val blue {{promiseBusy ? 'busy' : ''}}">{{deliveryMode === 'asap' ? asapEtaText : scheduledTime}}</view>
       <t-icon name="edit" size="14" color="#3078C0" />
     </view>
   </view>
@@ -168,7 +168,7 @@
         <view class="picker-title">选择预计送达时间</view>
         <view class="tsheet-opt {{deliveryMode === 'asap' ? 'on' : ''}}" bindtap="chooseAsap">
           <text>尽快送达</text>
-          <text class="tsheet-sub">预计 {{asapEta}} 送达</text>
+          <text class="tsheet-sub">{{asapEtaText}}</text>
         </view>
         <view
           class="tsheet-opt {{deliveryMode === 'scheduled' && scheduledTime === item.value ? 'on' : ''}}"

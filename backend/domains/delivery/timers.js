@@ -64,6 +64,12 @@ function keepFailOf(sn) { return keepFail.get(String(sn)) || null }
 let lastInvariantLog = 0
 
 const BUSY_MACHINE = ['Delivery', 'delivery', 'patrol', 'Patrol', 'exception', 'remoteDevOps', 'update', 'interaction']
+
+// 最近一次 carState 结果缓存（P4 动态承诺时间读取：新鲜度 ≤ 一轮扫描 BATCH_SCAN_MS，
+// 让下单/详情接口不阻塞地拿到"最近已知的可用车数"，而不是每次去查平台）。
+let lastCarState = null
+function cachedCarState() { return lastCarState }
+
 async function carState(store, deps) {
   // 被未完成批次占用的车（含「已派车但还没出发」的待上货批次）
   const byBatch = new Set(store.prepare(`
@@ -92,11 +98,13 @@ async function carState(store, deps) {
     total = Number(process.env.BATCH_TOTAL_CARS || 2)
   }
   const occupiedCount = occupied.size + noSn
-  return {
+  const out = {
     total, occupied: occupiedCount,
     available: Math.max(0, total - occupiedCount),
     source, offline, machine_busy: machineBusy, by_batch: byBatch.size, no_sn: noSn
   }
+  lastCarState = Object.assign({}, out, { ts: Date.now() })
+  return out
 }
 function start(store, deps) {
   // ---------- ① 真实模式任务状态轮询兜底 ----------
@@ -342,4 +350,4 @@ async function keepLoadingSummon(store, deps) {
   } catch (e) { /* meta 不存在（极简测试库）时忽略 */ }
 }
 
-module.exports = { start, BATCH_SCAN_MS, carState, keepLoadingSummon, keepFailOf }
+module.exports = { start, BATCH_SCAN_MS, carState, cachedCarState, keepLoadingSummon, keepFailOf }

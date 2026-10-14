@@ -474,9 +474,11 @@ function createOrder(store, deps, body, userId) {
   deps.user.removeCartItems(store, userId, cartGids)
   if (created.length === 1) {
     const o = created[0]
-    return { data: { order_id: o.order_id, order_no: o.order_no, total_amount: o.total_amount, pickup_code: o.pickup_code } }
+    return { data: { order_id: o.order_id, order_no: o.order_no, total_amount: o.total_amount, pickup_code: o.pickup_code, promise: estimatePromise(store, deps, String(landmark_id)) } }
   }
-  return { data: { orders: created, split: true, split_count: created.length, total_amount: total } }
+  // 拆单：子单共用同一送达点，承诺时间算一次挂到每个子单
+  const promise = estimatePromise(store, deps, String(landmark_id))
+  return { data: { orders: created.map((c) => Object.assign({}, c, { promise })), split: true, split_count: created.length, total_amount: total } }
 }
 
 // ---------- 支付（模拟档 / 真实档） ----------
@@ -514,6 +516,45 @@ async function payOrder(store, deps, order, user) {
   }
 }
 
+// ---------- P4 动态承诺时间（2026-10-14） ----------
+// 承诺 = 攒单剩余 + 排队等车 + 路网行程 + 缓冲。四个分量都取实时数据，与组单算法同一口径：
+//   · 攒单剩余 = batchHoldMs(待发批次, 可用车) —— 窗口压力大会自动缩短（见 batch.js）
+//   · 排队等车 = 待发批次数超出可用车的部分 × 每趟行程（每趟车要先送完前面那批）
+//   · 路网行程 = v2EstimateTripMin(上货点 → 该楼栋)，真实坐标估算（无坐标退固定耗时）
+//   · 缓冲     = PROMISE_BUFFER_MIN（默认 3 分钟，覆盖开舱/关舱/取餐抖动）
+// 超 PROMISE_MAX_MINUTES（默认 30，=「攒单 15 + 行程 15」的承诺上限）**不许撒谎**：
+// 返回 { busy: true }，前端显示「当前繁忙」而不是给一个不靠谱的数字。
+const PROMISE_MAX_MINUTES = Number(process.env.PROMISE_MAX_MINUTES || 30)
+const PROMISE_BUFFER_MIN = Number(process.env.PROMISE_BUFFER_MIN || 3)
+const PROMISE_DEFAULT_CARS = Number(process.env.PROMISE_DEFAULT_CARS || 2)
+function estimatePromise(store, deps, landmarkId) {
+  const batch = deps.batch
+  let holdMin = 15, queueMin = 0, tripMin = 0
+  try {
+    // 可用车：优先最近一轮车况扫描的缓存（≤ BATCH_SCAN_MS 新鲜度，下单/详情不阻塞）；
+    // 还没扫过（刚启动/测试）用配置默认。
+    const cs = (deps.cachedCarState && deps.cachedCarState()) || null
+    const available = cs && Number(cs.available) >= 0 ? Number(cs.available) : PROMISE_DEFAULT_CARS
+    const openCount = batch.openBatchCount(store)
+    holdMin = batch.batchHoldMs(openCount, Math.max(1, available), Date.now()) / 60000
+    const extra = Math.max(0, openCount - available)
+    const loading = batch.loadingPointOf(store)
+    const lm = landmarkId ? store.prepare('SELECT * FROM landmarks WHERE id=?').get(String(landmarkId)) : null
+    const lmPt = lm ? batch.lmPoint(lm) : null
+    if (lmPt) {
+      tripMin = batch.v2EstimateTripMin(batch.lmPoint(loading), [{ pt: lmPt, n: 1 }], 1)
+      queueMin = extra * tripMin
+    } else {
+      // 无坐标（新库/未同步）：行程算不出，按固定 5 分钟/趟粗估排队，避免 queueMin=0 显得"马上就好"
+      tripMin = 0
+      queueMin = extra * 5
+    }
+  } catch (e) { /* 任一分量失败：回固定保守值（15 分钟攒单），不把承诺接口搞挂 */ holdMin = 15 }
+  const minutes = Math.max(1, Math.round(holdMin + queueMin + tripMin + PROMISE_BUFFER_MIN))
+  if (minutes > PROMISE_MAX_MINUTES) return { busy: true, minutes: null, max: PROMISE_MAX_MINUTES }
+  return { busy: false, minutes, max: PROMISE_MAX_MINUTES }
+}
+
 module.exports = {
   // 常量（delivery 域/定时器仍在使用，步骤 3 迁移时从此处引入）
   ORDER_STATUS, REFUND_STATUS, CANCEL_REQ_STATUS, FREE_CANCEL_WINDOW_MS,
@@ -529,5 +570,7 @@ module.exports = {
   canAdvanceOrderStatus, attachTaskToOrder, markOrderStarted, markOrderInBatchStart,
   markOrderDelivered, markOrderException, markOrderPicked, arriveOrder, fulfillOrder,
   // 业务
-  createOrder, payOrder, computeStats
+  createOrder, payOrder, computeStats,
+  // P4 动态承诺时间
+  estimatePromise, PROMISE_MAX_MINUTES, PROMISE_BUFFER_MIN
 }

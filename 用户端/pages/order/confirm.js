@@ -32,6 +32,9 @@ Page({
     submitting: false,
     deliveryMode: 'asap',          // asap=尽快送达；scheduled=指定时间
     asapEta: '',                   // 尽快送达的预计到达时间 HH:MM
+    asapEtaText: '',               // 尽快送达展示文案：「预计 HH:MM 送达」或「当前繁忙」
+    promiseMin: 0,                 // P4 后端承诺分钟数（0 = 还没拿到/接口失败，退 30 分钟兜底）
+    promiseBusy: false,            // 超过承诺上限 → 「当前繁忙」，不给数字
     scheduledTime: '',             // 指定时间的显示值
     timeOptions: [],               // 指定时间候选（依据当前真实时间向后递增生成）
     showTimeSheet: false,
@@ -395,13 +398,14 @@ Page({
 
   noop() {},
 
-  // 选择送达楼栋：同时写回后端，让首页顶部与我的页收货地址跟着变
+  // 选择送达楼栋：同时写回后端，让首页顶部与我的页收货地址跟着变；换点后重算承诺时间
   async choosePoint(e) {
     const point = e.currentTarget.dataset.item
     this.setData({ selectedPoint: point, showPicker: false })
     try {
       await request.put(api.userPoint, { landmark_id: String(point.id) })
     } catch (err) { /* 网络异常不阻塞本单，后端仍会按提交的 landmark_id 校验 */ }
+    this.loadPromise()
   },
 
   // 读取后端记录的当前楼栋（与首页/我的页共用），覆盖地址簿推断出来的点位
@@ -412,6 +416,7 @@ Page({
       const hit = this.data.points.find((x) => Number(x.id) === Number(p.landmark_id))
       if (hit) this.setData({ selectedPoint: hit })
     } catch (e) { /* handled */ }
+    this.loadPromise()
   },
 
   openTimeSheet() {
@@ -422,14 +427,16 @@ Page({
     this.setData({ showTimeSheet: false })
   },
 
-  // 依据当前真实时间向后生成送达时间：默认「尽快送达」（约 30 分钟后），
+  // 依据当前真实时间向后生成送达时间：默认「尽快送达」（后端 P4 动态承诺，不再硬编码 30 分钟），
   // 指定时间从当前时刻起每 30 分钟一档依次递增；只保留落在配送时段 08:00-20:00 内的档位
   buildTimeOptions() {
     const pad = (n) => String(n).padStart(2, '0')
     const fmt = (d) => pad(d.getHours()) + ':' + pad(d.getMinutes())
     const now = new Date()
     const base = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), now.getMinutes(), 0, 0)
-    const asap = new Date(base.getTime() + 30 * 60000)
+    // 尽快送达：用后端承诺分钟数（有则动态，无则退 30 分钟兜底）
+    const promiseMin = this.data.promiseMin
+    const asap = new Date(base.getTime() + (promiseMin > 0 ? promiseMin : 30) * 60000)
     const OPEN = 8 * 60      // 08:00
     const CLOSE = 20 * 60    // 20:00
     const inWindow = (d) => { const m = d.getHours() * 60 + d.getMinutes(); return m >= OPEN && m <= CLOSE }
@@ -440,7 +447,27 @@ Page({
       if (!inWindow(start) || !inWindow(end)) continue
       options.push({ value: fmt(start) + '-' + fmt(end) })
     }
-    this.setData({ deliveryMode: 'asap', asapEta: fmt(asap), scheduledTime: '', timeOptions: options })
+    this.setData({
+      deliveryMode: 'asap',
+      asapEta: fmt(asap),
+      // 超承诺上限（busy）时显示「当前繁忙」而不是给一个不靠谱的时间 —— 后端不撒谎，前端也不撒谎
+      asapEtaText: this.data.promiseBusy ? '当前繁忙' : '预计 ' + fmt(asap) + ' 送达',
+      scheduledTime: '',
+      timeOptions: options
+    })
+  },
+
+  // P4 动态承诺时间：按当前送达点向后端要「预计 X 分钟」，更新尽快送达文案
+  async loadPromise() {
+    const pt = this.data.selectedPoint
+    if (!pt || !pt.id) return
+    try {
+      const p = await request.get(api.orderPromise + '?landmark_id=' + pt.id)
+      const busy = !!(p && p.busy)
+      const min = busy || !p || !p.minutes ? 0 : Number(p.minutes)
+      this.setData({ promiseBusy: busy, promiseMin: min })
+      this.buildTimeOptions()
+    } catch (e) { /* 承诺接口失败不影响下单：退回 30 分钟兜底 */ }
   },
 
   chooseAsap() {

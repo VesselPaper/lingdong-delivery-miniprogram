@@ -80,6 +80,16 @@ module.exports = (store, deps) => {
   })
 
   // ---------- 订单列表 / 红点 / 详情 ----------
+  // P4 动态承诺时间（下单确认页展示用）：按送达点算「预计 X 分钟送达」，超上限 busy=true（显示「当前繁忙」）。
+  // 轻量只读接口：选点/进页各调一次，不落库。
+  router.get('/order/promise', auth, (req, res) => {
+    try {
+      ok(res, s.estimatePromise(store, deps, String(req.query.landmark_id || '')))
+    } catch (e) {
+      res.status(400).json({ code: 400, msg: e.message || '承诺时间计算失败' })
+    }
+  })
+
   router.get('/order/list', auth, (req, res) => {
     const { status = '' } = req.query
     const rows = q.listByUser(store, req.user.id, status).map((o) => ({
@@ -152,7 +162,9 @@ module.exports = (store, deps) => {
       // 待支付随时可取消；待接单/未真正配送在免费窗口内可直接取消
       direct_cancelable: st === 0 || (st === 1 && freeLeft > 0) || (st === 2 && !trulyDelivering && freeLeft > 0),
       // 超过免费窗口的待接单订单：只能提交取消申请
-      request_cancelable: st === 1 && freeLeft <= 0
+      request_cancelable: st === 1 && freeLeft <= 0,
+      // P4 动态承诺时间（下单确认页与订单详情展示同一个口径）
+      promise: s.estimatePromise(store, deps, String(order.landmark_id || ''))
     })
   })
 
