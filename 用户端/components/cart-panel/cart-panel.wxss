@@ -30,12 +30,14 @@
   opacity: 1;
 }
 
-/* 面板本体：从底部滑入。拖动时加 .no-anim 去掉过渡，保证跟手 */
+/* 面板本体：从底部滑入。拖动时加 .no-anim 去掉过渡，保证跟手。
+   ⚠ bottom 不贴屏幕底：下方要给页面「底部购物车栏」留位置 —— 面板底部（去结算脚条）停在购物车横条
+   上方（横条底 116rpx + 高约 120rpx ≈ 顶 236rpx，这里取 248rpx），去结算才不会被横条盖住（2026-10-14）。 */
 .cp-sheet {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: calc(248rpx + env(safe-area-inset-bottom));
   max-height: 78vh;
   background: #ffffff;
   border-radius: 24rpx 24rpx 0 0;

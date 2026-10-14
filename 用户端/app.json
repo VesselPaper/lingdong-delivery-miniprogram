@@ -9,6 +9,7 @@
     "pages/index/index",
     "pages/goods/list",
     "pages/activity/index",
+    "pages/activity/goods",
     "pages/coupon/index",
     "pages/goods/detail",
     "pages/cart/cart",

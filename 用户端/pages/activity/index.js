@@ -58,24 +58,19 @@ Page({
   },
 
   onActivity(e) {
-    // 点活动卡片：有适用商品 → 商城只显示这些商品（活动适用的那批）；
-    // 否则（纯展示活动）跳到商家配置的链接；都没配就明确提示，而不是点了没反应。
+    // 点活动卡片：
+    //   · 打折/满减且有适用商品 → 跳独立「活动商品」页（2026-10-14 改：不再给商城带筛选 ——
+    //     商城是 tabBar 页，外部带筛选会污染 tab 状态，筛选后没有入口回全量、必须重开商城才恢复）
+    //   · 全场活动（无具体商品集合）→ 直接进商城全量
+    //   · 纯展示活动 → 跳到商家配置的链接；都没配就明确提示，而不是点了没反应。
     const a = this.data.activities[Number(e.currentTarget.dataset.index)]
     if (!a) return
     const ids = (a.config && Array.isArray(a.config.goods_ids)) ? a.config.goods_ids : []
     if (a.type !== 'custom' && ids.length) {
-      wx.setStorageSync('goods_id_filter', ids.map(Number))
-      wx.setStorageSync('goods_category', '')
-      wx.setStorageSync('goods_keyword', '')
-      wx.setStorageSync('goods_focus', 0)
-      wx.switchTab({ url: '/pages/goods/list' })
+      wx.navigateTo({ url: '/pages/activity/goods?id=' + a.id })
       return
     }
     if (a.type !== 'custom') {
-      // 全场活动：没有具体商品集合，直接进商城
-      wx.setStorageSync('goods_category', '')
-      wx.setStorageSync('goods_keyword', '')
-      wx.setStorageSync('goods_focus', 0)
       wx.switchTab({ url: '/pages/goods/list' })
       return
     }

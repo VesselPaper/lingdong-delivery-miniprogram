@@ -329,17 +329,15 @@ Page({
     }
   },
 
-  // 点轮播图：规则活动（有适用商品）→ 商城只显示这些商品；否则按商家配置的链接跳转
+  // 点轮播图：有适用商品 → 跳独立「活动商品」页（2026-10-14 改：不再给商城带筛选 ——
+  // 商城是 tabBar 页，外部带筛选会污染 tab 状态，筛选后没有入口回全量、必须重开商城才恢复）；
+  // 否则按商家配置的链接跳转
   onBannerTap(e) {
     const a = this.data.banners[Number(e.currentTarget.dataset.index)]
     if (!a) return
     const ids = (a.config && Array.isArray(a.config.goods_ids)) ? a.config.goods_ids : []
     if (ids.length) {
-      wx.setStorageSync('goods_id_filter', ids.map(Number))
-      wx.setStorageSync('goods_category', '')
-      wx.setStorageSync('goods_keyword', '')
-      wx.setStorageSync('goods_focus', 0)
-      wx.switchTab({ url: '/pages/goods/list' })
+      wx.navigateTo({ url: '/pages/activity/goods?id=' + a.id })
       return
     }
     if (a.link) {

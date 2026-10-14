@@ -55,7 +55,10 @@ Component({
       } catch (e) { /* handled */ }
     },
 
-    // 金额与展示字段的唯一计算入口（与购物车页同一套口径，避免两个入口算出两个数）
+    // 金额与展示字段的唯一计算入口（与购物车页同一套口径，避免两个入口算出两个数）。
+    // ⚠ 不在这里触发 'changed'：本函数被「乐观更新」和「服务端操作落定后」两处调用，
+    //   在乐观更新时就通知页面刷新会读到**还没删完**的旧购物车（清空时角标残留的竞态，2026-10-14）。
+    //   页面刷新统一由各操作在 await 落定后手动 triggerEvent('changed') 触发。
     applyItems(rawItems) {
       const valid = (rawItems || [])
         .filter((it) => it.goods_status === 1)
@@ -78,8 +81,6 @@ Component({
         allSelected: valid.length > 0 && valid.every((it) => it.selected),
         sheetHeight: this.computeSheetHeight(valid.length)
       })
-      // 通知页面刷新底部购物车栏的角标与金额
-      this.triggerEvent('changed')
     },
 
     // 面板高度：商品少时贴合内容，多时封顶屏幕 70%。
@@ -129,6 +130,8 @@ Component({
     },
 
     // ---------- 商品操作 ----------
+    // 四个操作（勾选/全选/数量/清空）都遵循同一节奏：乐观更新 → await 服务端 → 落定后
+    // 通知页面刷新权威购物车（此时服务端已是最终态，页面角标不会读到半途的旧数据）。
     async toggleSelect(e) {
       const id = Number(e.currentTarget.dataset.id)
       const it = this.data.items.find((x) => x.id === id)
@@ -141,6 +144,7 @@ Component({
       } catch (err) {
         this.applyItems(snapshot)
       }
+      this.triggerEvent('changed')
     },
 
     async toggleAll() {
@@ -154,6 +158,7 @@ Component({
       } catch (err) {
         this.applyItems(snapshot)
       }
+      this.triggerEvent('changed')
     },
 
     async onQuantity(e) {
@@ -175,6 +180,7 @@ Component({
         } catch (err) {
           this.applyItems(snapshot)
         }
+        this.triggerEvent('changed')
         return
       }
 
@@ -184,6 +190,7 @@ Component({
       } catch (err) {
         this.applyItems(snapshot)
       }
+      this.triggerEvent('changed')
     },
 
     async clearAll() {
@@ -206,6 +213,8 @@ Component({
       } catch (err) {
         this.applyItems(snapshot)
       }
+      // 清空落定后才通知页面：此时服务端购物车已为空，页面角标会刷成 0、底部栏隐藏
+      this.triggerEvent('changed')
     },
 
     // 去结算：把勾选商品交给页面（由页面写 storage 并跳转，组件不负责导航）
