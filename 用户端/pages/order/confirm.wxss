@@ -568,3 +568,32 @@
 .text-xs {
   font-size: 22rpx;
 }
+
+/* ---------- 优惠券面板 ---------- */
+/* 不可用券：整体置灰压低存在感，但仍完整展示面额与名称，让用户知道手里有哪些券 */
+.coupon-item.disabled {
+  background: #FAFAFA;
+  opacity: 0.6;
+}
+
+.coupon-item.disabled .coupon-info-title {
+  color: #666666;
+}
+
+.coupon-amount.grey {
+  background: #BFBFBF;
+}
+
+/* 券型分组标题（不可用 N 张） */
+.coupon-group-title {
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #999999;
+}
+
+/* 不可用原因：红色小字，如「还差 ¥5.00 可用」「商品不适用」 */
+.coupon-info-reason {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #E64340;
+}

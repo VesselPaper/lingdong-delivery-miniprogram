@@ -1,4 +1,6 @@
 {
   "navigationBarTitleText": "零栋GO",
-  "usingComponents": {}
+  "usingComponents": {
+    "cart-panel": "/components/cart-panel/cart-panel"
+  }
 }

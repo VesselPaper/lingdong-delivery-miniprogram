@@ -84,6 +84,11 @@ Page({
     wx.navigateTo({ url: '/pages/activity/list' })
   },
 
+  // 优惠券（店主专属）：券与活动可叠加，活动先打折/满减、券再抵扣活动后金额
+  goCoupons() {
+    wx.navigateTo({ url: '/pages/coupon/list' })
+  },
+
   goHistory() {
     wx.navigateTo({ url: '/pages/orders/history' })
   },

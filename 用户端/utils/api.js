@@ -45,6 +45,12 @@ const api = {
   // 活动
   activityList: '/activity/list',
 
+  // 优惠券
+  couponList: '/coupon/list',       // 可领券列表（含我已领张数 / 剩余 / 能否领）
+  couponReceive: '/coupon/receive', // 领券
+  couponMine: '/coupon/mine',       // 我的券（未使用 / 已使用 / 已过期）
+  couponUsable: '/coupon/usable',   // 结算页算券：可用券 + 不可用原因 + 最优推荐
+
   // 地址
   addressList: '/address/list',
   addressSave: '/address/save',

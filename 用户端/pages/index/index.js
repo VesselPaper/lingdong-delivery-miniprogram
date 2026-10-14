@@ -38,6 +38,28 @@ const POINT_UNSET = '楼栋未填写'
 const POINT_KEY = 'user_point'          // 楼栋本地缓存（真源在后端 /user/point，未登录时先用它）
 const HISTORY_KEY = 'search_history'    // 历史搜索记录
 const HISTORY_MAX = 8
+const COUPON_SKIP_KEY = 'coupon_popup_skip'   // 首页领券弹窗「今天不再弹」的券 id
+
+function todayStr() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+}
+
+// 今天已点过 × /「暂不领取」的券。只记当天 —— 用户拒绝的只是「今天这一次」，
+// 明天再进来还愿意推一次，不会永久失效（永久屏蔽应该由商家停用券来做）。
+function readSkipped() {
+  const v = wx.getStorageSync(COUPON_SKIP_KEY)
+  if (!v || v.date !== todayStr() || !Array.isArray(v.ids)) return []
+  return v.ids.map(Number)
+}
+
+function markSkipped(ids) {
+  const set = {}
+  readSkipped().forEach((id) => { set[id] = true })
+  ;(ids || []).forEach((id) => { set[Number(id)] = true })
+  wx.setStorageSync(COUPON_SKIP_KEY, { date: todayStr(), ids: Object.keys(set).map(Number) })
+}
 
 Page({
   data: {
@@ -57,6 +79,9 @@ Page({
     banners: [],               // 首页轮播位：商家发布的「纯展示」活动（有图才展示）
     cartCount: 0,
     cartTotal: '0.00',
+    cartPanelShow: false,      // 「已加购商品」底部弹层
+    popupCoupons: [],          // 领券弹窗里当前展示的券（进首页弹一次，×/领取后清空）
+    popupBodyH: 0,             // 弹窗内容区高度（px，按内容算出来给 scroll-view 用）
     flyBall: { show: false, x: 0, y: 0, dx: 0, dy: 0, move: false },  // 加购飞入的小球
     cartBounceCls: '',    // 购物车图标弹跳（与商城页共用一套动画）
     cartBadgeCls: ''      // 角标跳动
@@ -81,8 +106,105 @@ Page({
     this.loadAddress()
     this.loadShopStatus()
     this.loadBanners()
+    this.loadCoupons()
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 0 })
+    }
+  },
+
+  // 首页领券弹窗：进首页弹一次，点 × /「暂不领取」关掉，领取后消失（不占首页图片位）。
+  // 只取「可领取 + 有图」的券：已领/抢光/过期的不弹（弹一张领不了的券没有意义），
+  // 它们仍然完整地留在券页里。
+  async loadCoupons() {
+    try {
+      const list = await request.get(api.couponList, {}, { silent: true })
+      const skipped = readSkipped()
+      const mine = (list || []).filter((c) => c.state === 'ok' && c.image && skipped.indexOf(Number(c.id)) === -1)
+      this.setData({ popupCoupons: mine, popupBodyH: this.popupBodyHeight(mine) })
+    } catch (e) {
+      this.setData({ popupCoupons: [], popupBodyH: 0 })
+    }
+  },
+
+  // 弹窗内容区高度。scroll-view 必须有确定高度才会滚动（只写 max-height 是不滚的，
+  // 购物车面板踩过这个坑），所以这里按内容算：内容矮就贴合内容，内容高才封顶后滚动。
+  // 图还没加载完先按 4:3 估，bindload 拿到真实比例后会用 onCouponImgLoad 重算一次。
+  popupBodyHeight(list) {
+    let sys = null
+    try { sys = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync() } catch (e) { sys = null }
+    if (!sys || !list || !list.length) return 0
+    const rpx = sys.windowWidth / 750
+    // 图片实际宽度 = 屏宽 − 遮罩左右内边距(56rpx×2) − 卡片左右内边距(20rpx×2)
+    const imgW = sys.windowWidth - 152 * rpx
+    let content = 0
+    // 每项 = 图高(按比例) + 领取按钮(76rpx) + 间距(20rpx)
+    list.forEach((c) => { content += imgW * (c.ratio || 0.75) + 96 * rpx })
+    const maxBody = sys.windowHeight * 0.76 - 120 * rpx   // 再给底部按钮条留位置
+    const h = Math.min(content + 20 * rpx, maxBody)
+    // 兜底下限：万一算成 0，scroll-view 会把图压成 0 高，整张券就看不见了
+    return Math.max(Math.round(h), Math.round(sys.windowHeight * 0.3))
+  },
+
+  // 券图加载完拿到真实宽高比 → 重算内容高度（比例没变就跳过，避免无谓抖动）
+  onCouponImgLoad(e) {
+    const id = Number(e.currentTarget.dataset.id)
+    const w = Number(e.detail && e.detail.width) || 0
+    const h = Number(e.detail && e.detail.height) || 0
+    if (!w || !h) return
+    const ratio = h / w
+    const cur = (this.data.popupCoupons || []).find((c) => Number(c.id) === id)
+    if (!cur || Math.abs((cur.ratio || 0) - ratio) < 0.01) return
+    const list = this.data.popupCoupons.map((c) => (Number(c.id) === id ? Object.assign({}, c, { ratio }) : c))
+    this.setData({ popupCoupons: list, popupBodyH: this.popupBodyHeight(list) })
+  },
+
+  noop() {},
+
+  // × / 暂不领取 / 点遮罩：关掉，并把这一批记成「今天不再弹」，
+  // 否则每次从别的页面回首页都会被同一批券再挡一次
+  closeCouponPopup() {
+    markSkipped(this.data.popupCoupons.map((c) => c.id))
+    this.setData({ popupCoupons: [] })
+  },
+
+  // 单张领取：领到的那张从弹窗里摘掉，全领完了弹窗自己消失
+  async receiveCoupon(e) {
+    const id = Number(e.currentTarget.dataset.id)
+    if (!(await this.claimOne(id))) return
+    markSkipped([id])
+    const rest = this.data.popupCoupons.filter((c) => Number(c.id) !== id)
+    this.setData({ popupCoupons: rest, popupBodyH: this.popupBodyHeight(rest) })
+  },
+
+  // 底部「立即领取」：一次把弹窗里能领的都领了（个别失败不打断其余）
+  async receiveAll() {
+    const coupons = this.data.popupCoupons || []
+    if (!coupons.length) return
+    let ok = 0
+    for (const c of coupons) {
+      if (await this.claimOne(Number(c.id), true)) ok++
+    }
+    markSkipped(coupons.map((c) => c.id))
+    this.setData({ popupCoupons: [] })
+    wx.showToast({
+      title: ok ? '已领取 ' + ok + ' 张' : '领取失败',
+      icon: ok ? 'success' : 'none'
+    })
+  },
+
+  // 领一张。silent=true 时不弹单张成功提示（批量领取只在最后汇总一次，否则弹窗连环跳）
+  async claimOne(id, silent) {
+    try {
+      const r = await request.post(api.couponReceive, { coupon_id: id }, { silent: !!silent })
+      if (!silent) {
+        wx.showToast({
+          title: r && r.expire_at ? '已领取，' + String(r.expire_at).slice(0, 10) + ' 到期' : '领取成功',
+          icon: 'none'
+        })
+      }
+      return true
+    } catch (err) {
+      return false
     }
   },
 
@@ -360,8 +482,51 @@ Page({
     wx.navigateTo({ url: '/pages/goods/detail?id=' + e.currentTarget.dataset.id })
   },
 
+  // 进入完整购物车页（保留入口）
   goCart() {
     wx.navigateTo({ url: '/pages/cart/cart' })
+  },
+
+  // 底部购物车栏 → 弹出「已加购商品」面板（美团式：先看再决定）
+  openCartPanel() {
+    this.setData({ cartPanelShow: true })
+  },
+
+  onCartPanelClose() {
+    this.setData({ cartPanelShow: false })
+  },
+
+  // 面板内改了勾选/数量 → 刷新底部栏（首页 loadCart 与面板同一口径）
+  onCartPanelChanged() {
+    this.loadCart()
+  },
+
+  // 面板点「去结算」：用面板给的勾选商品直接进结算
+  onCartCheckout(e) {
+    const items = (e.detail && e.detail.items) || []
+    if (!items.length) return
+    this.setData({ cartPanelShow: false })
+    wx.setStorageSync('checkout_items', items)
+    wx.navigateTo({ url: '/pages/order/confirm' })
+  },
+
+  // 底部栏右侧「去结算」：直接结算当前勾选商品
+  async goCheckoutNow() {
+    try {
+      const list = await request.get(api.cartList)
+      const selected = (list || []).filter((it) => it.selected && it.goods_status === 1)
+      if (!selected.length) {
+        wx.showToast({ title: '请先选择商品', icon: 'none' })
+        return
+      }
+      const soldOut = selected.find((it) => Number(it.goods_stock) <= 0)
+      if (soldOut) {
+        wx.showToast({ title: '「' + soldOut.name + '」已售罄，请先移除', icon: 'none' })
+        return
+      }
+      wx.setStorageSync('checkout_items', selected.map((it) => ({ goods_id: it.goods_id, quantity: it.quantity })))
+      wx.navigateTo({ url: '/pages/order/confirm' })
+    } catch (err) { /* handled */ }
   },
 
   async addCart(e) {

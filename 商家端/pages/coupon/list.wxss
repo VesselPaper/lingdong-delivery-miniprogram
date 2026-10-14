@@ -1,0 +1,209 @@
+.cp-page {
+  min-height: 100vh;
+  background: #FAFAFA;
+  padding: 24rpx 24rpx 48rpx;
+  box-sizing: border-box;
+}
+
+.cp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.cp-head-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111111;
+}
+
+.cp-add {
+  background: #3078C0;
+  color: #ffffff;
+  flex: 0 0 auto;   /* 微信 button 默认参与 flex 拉伸，会把标题顶开 */
+}
+
+/* ===== 筛选行：横向滚动标签 ===== */
+.filter-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.filter-bar {
+  flex: 1;
+  min-width: 0;     /* flex 子项不设 min-width 会把 scroll-view 撑开而不是滚动 */
+  white-space: nowrap;
+}
+
+.filter-tab {
+  display: inline-block;
+  padding: 10rpx 24rpx;
+  margin-right: 14rpx;
+  font-size: 24rpx;
+  color: #666666;
+  background: #F1F3F6;
+  border-radius: 999rpx;
+}
+
+.filter-tab.on {
+  background: #EBF3FB;
+  color: #3078C0;
+  font-weight: 600;
+}
+
+/* ===== 两列网格（与活动列表同一套尺寸，两个页面观感一致） ===== */
+/* 用 calc 定宽 + flex-wrap，比 space-between 更稳：行内数量与间距都可控，
+   不会因为最后一行只剩一张卡而被拉到两端 */
+.cp-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18rpx;
+}
+
+.cp-card {
+  width: calc(50% - 9rpx);
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 1rpx solid #EEF1F5;
+  border-radius: 16rpx;
+  overflow: hidden;      /* 图片要贴到卡片圆角内 */
+}
+
+/* 券图：固定 4:3 的图片区（高度跟随宽度，不会因为券图尺寸不同而参差）。
+   列表里要的是「一眼认出是哪张」，所以用 aspectFill 裁切；用户端才是按原图完整展示 */
+.cp-poster {
+  position: relative;
+  width: 100%;
+  padding-bottom: 75%;
+  background: #F4F7FB;
+  overflow: hidden;
+}
+
+.poster-img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* 没配图：用户端上不了架，这里给一个显眼的占位而不是空白 */
+.poster-ph {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+}
+
+.poster-ph-text {
+  font-size: 20rpx;
+  color: #B9C6D6;
+}
+
+.poster-tag {
+  position: absolute;
+  left: 12rpx;
+  top: 12rpx;
+}
+
+/* 卡片正文 */
+.cp-body {
+  padding: 18rpx 20rpx 16rpx;
+}
+
+.cp-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #111111;
+  /* 券名可能较长，给两行再截断；固定两行高度让同排卡片的下沿对齐 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.35;
+  min-height: 76rpx;
+}
+
+.cp-rule {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #E64340;
+}
+
+.cp-meta {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-top: 10rpx;
+  font-size: 20rpx;
+}
+
+/* 券类型小标记：和时间状态同一行，不额外占高度 */
+.cp-type-mini {
+  flex: 0 0 auto;
+  padding: 2rpx 10rpx;
+  border-radius: 4rpx;
+  background: #EEF3FA;
+  color: #5A7CA6;
+  font-size: 20rpx;
+}
+
+.cp-time-txt {
+  color: #999999;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cp-sub {
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  color: #999999;
+}
+
+.cp-foot {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-top: 16rpx;
+}
+
+.cp-btn {
+  flex: 1;
+  height: 52rpx;
+  line-height: 52rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: #3078C0;
+  border: 2rpx solid #A8C8EA;
+  border-radius: 8rpx;
+  box-sizing: border-box;
+}
+
+.cp-more {
+  flex: 0 0 auto;
+  width: 52rpx;
+  height: 52rpx;
+  line-height: 46rpx;
+  text-align: center;
+  font-size: 26rpx;
+  letter-spacing: 1rpx;
+  color: #999999;
+  border: 2rpx solid #E5E8EE;
+  border-radius: 8rpx;
+  box-sizing: border-box;
+}
+
+/* 时间状态色（全局 st-* 在 app.wxss 里没有，活动列表也是各自定义） */
+.st-green { color: #2BA471; }
+.st-orange { color: #F5A623; }
+.st-gray { color: #999999; }

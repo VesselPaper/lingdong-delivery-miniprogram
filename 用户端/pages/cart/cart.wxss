@@ -5,6 +5,39 @@
   padding-bottom: 180rpx;
 }
 
+/* 优惠预估横幅：暖色系区别于主色蓝，让「能省钱」这件事第一眼被看到 */
+.promo-banner {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin: 16rpx 24rpx 0;
+  padding: 18rpx 24rpx;
+  background: #FFF3EC;
+  border: 1rpx solid #FBD9C6;
+  border-radius: 12rpx;
+}
+
+.promo-tag {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #ffffff;
+  background: #E64340;
+  border-radius: 4rpx;
+  padding: 2rpx 8rpx;
+}
+
+.promo-text {
+  font-size: 26rpx;
+  color: #A8452C;
+}
+
+.promo-num {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #E64340;
+}
+
 .cart-head {
   display: flex;
   align-items: center;
@@ -16,6 +49,19 @@
   font-size: 30rpx;
   font-weight: 600;
   color: #111111;
+}
+
+/* 清空：破坏性操作，用弱化灰字，避免误点 */
+.cart-clear {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  padding: 4rpx 8rpx;
+}
+
+.cart-clear-text {
+  font-size: 24rpx;
+  color: #999999;
 }
 
 /* 卡片：12rpx 圆角 + 描边（对齐商家端历史订单） */
@@ -113,6 +159,13 @@
   padding: 2rpx 10rpx;
 }
 
+/* 规格（商品主单位） */
+.item-spec {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #999999;
+}
+
 /* 售罄置灰加号 */
 .stepper-btn.plus.disabled {
   background: #E3E7EE;
@@ -121,14 +174,21 @@
 }
 
 .item-price {
-  color: var(--brand);
-  font-weight: 600;
-  font-size: 30rpx;
+  display: flex;
+  align-items: baseline;
   margin-top: 8rpx;
+}
+
+/* 「优惠后」前缀：只在真有优惠时出现，避免原价商品也被标成优惠 */
+.price-label {
+  font-size: 22rpx;
+  color: #E64340;
+  margin-right: 6rpx;
 }
 
 .item-price .price-now {
   color: #E64340;
+  font-size: 32rpx;
   font-weight: 700;
 }
 
@@ -138,6 +198,21 @@
   font-weight: 400;
   text-decoration: line-through;
   margin-left: 10rpx;
+}
+
+/* 费用说明：合计之外还有配送费，先说清楚 */
+.fee-tip {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  margin-top: 16rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid #F0F0F0;
+}
+
+.fee-tip-text {
+  font-size: 22rpx;
+  color: #999999;
 }
 
 /* 底部结算栏：描边顶线 + 矩形「去结算」（对齐商家端按钮风格） */
@@ -166,11 +241,29 @@
   margin-right: 0;
 }
 
+/* 合计 + 已优惠 两行：金额与优惠同时可见 */
 .total {
   margin-left: auto;
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2rpx;
+}
+
+.total-line {
+  display: flex;
   align-items: baseline;
   gap: 8rpx;
+}
+
+.total-label {
+  font-size: 24rpx;
+  color: #666666;
+}
+
+.total-save {
+  font-size: 20rpx;
+  color: #E64340;
 }
 
 .price {

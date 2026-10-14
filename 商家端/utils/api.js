@@ -17,7 +17,7 @@ const api = {
   goodsStatus: '/merchant/goods/status',
   goodsCategories: '/merchant/goods/categories',
   goodsStock: '/merchant/goods/stock',
-  // 删除商品（店主专属真删行，2026-10-12 成员新增）：只删 goods 行，历史订单快照/购物车引用不动
+  // 删除商品（店主专属，真删行）：DELETE 单条 body {id}；批量 DELETE 走 goodsBatchDelete
   goodsDelete: '/merchant/goods',
   goodsBatchDelete: '/merchant/goods/batch-delete',
   // 批量录入：一次提交多条新增 / 按条码查商品（扫码识别用）
@@ -29,6 +29,9 @@ const api = {
   activities: '/merchant/activities',
   // 活动上下线：action='publish'（发布到用户端）/ 'offline'（下线）
   activityStatus: '/merchant/activities/status',
+  // 优惠券模板管理（店主专属）
+  coupons: '/merchant/coupons',
+  couponStatus: '/merchant/coupons/status',
   deviceScan: '/merchant/device/scan',
   deviceWxacode: '/merchant/device/wxacode',
   devicePending: '/merchant/device/pending',

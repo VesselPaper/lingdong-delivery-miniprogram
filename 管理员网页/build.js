@@ -27,6 +27,8 @@ const TARGETS = [
       'js/parts/admin/04-overview-ws.js',    // 总览渲染 + 机器人卡片 + WebSocket 事件驱动 + 导航计数
       // 2026-10-12 移除：05-render-cards（配送数据页渲染）与 07-drawer（详情抽屉）——
       // 管理员网页细分后只管机器人事务，订单/任务管理只在商家端进行（见《git交接文档23》）。
+      // 2026-10-14 合并说明：远端那条线仍把 07-drawer 留在清单里（他们的抽屉还在用）。
+      // 本次按本地口径（更新的一方：整页删除「配送数据」）保持移除，残留的 07-drawer.js 只留说明注释。
       'js/parts/admin/06-refresh-token.js',  // 刷新与认证 + 账号页
       'js/parts/admin/08-audit.js',          // 操作日志（服务端 audit_logs：成功与失败都在）
       'js/parts/admin/09a-merchants.js',     // 商家管理（商家入驻邀请码：创建/列表/吊销/启用/解绑）
@@ -49,7 +51,7 @@ const TARGETS = [
 // 注意：cut_i = 前 i 个 parts 的行数之和（拼接时用 '\n' 相连，分隔符被行边界吸收，不再额外 +1）。
 // 仅 `--gen` 用到；正向构建只依赖 TARGETS。改过 parts 后若要用 --gen，请先按上式刷新本表。
 const CUTS = {
-  'admin.js': [143, 281, 432, 552, 782, 900, 1089, 1181, 1413],
+  'admin.js': [119, 193, 282, 389, 514, 723, 944, 1156, 1381],
   'admin-map.js': [100, 158, 220, 273, 382],
 }
 

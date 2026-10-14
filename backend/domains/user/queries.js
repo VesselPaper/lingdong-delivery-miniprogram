@@ -70,9 +70,10 @@ module.exports = {
     .run(String(landmarkId || ''), String(landmarkName || ''), id),
 
   // ---------- cart ----------
-  // 列表 JOIN goods 取名称/价格/库存（跨域只读；写权限仍只在 cart 表）
+  // 列表 JOIN goods 取名称/价格/库存/规格（跨域只读；写权限仍只在 cart 表）
+  // g.unit = 主单位（袋/盒/瓶），购物车用来显示「规格」一行
   cartList: (store, userId) => store.prepare(`
-    SELECT c.id, c.goods_id, c.quantity, c.selected, g.name, g.price, g.image, g.status AS goods_status, g.stock AS goods_stock
+    SELECT c.id, c.goods_id, c.quantity, c.selected, g.name, g.price, g.image, g.unit, g.status AS goods_status, g.stock AS goods_stock
     FROM cart c LEFT JOIN goods g ON c.goods_id = g.id
     WHERE c.user_id=? ORDER BY c.id DESC`).all(userId),
   cartFind: (store, userId, goodsId) => store.prepare('SELECT * FROM cart WHERE user_id=? AND goods_id=?').get(userId, Number(goodsId)),

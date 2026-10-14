@@ -4,20 +4,18 @@
    本文件是 IIFE 的第一片（01-core）：头部注释、常量、基础工具。
    收尾（启动 + `})()`）在最后一片 09-ops.js。
 
-   页面结构（2026-09 重构；2026-10-07 起「配送数据」只读）：
+   页面结构（2026-09 重构；2026-10-12 起导航三项）：
    · 总览：机器人（卡片 + 校园实时地图 + 异常告警）/ 操作日志（服务端审计 + 状态字典 + 会话回显）
-   · 配送数据：批次 / 订单 / 任务 三标签 × 活跃 / 历史 / 全部 三分段，卡片式展示（**只读**）
-   · 设置：账号 / 危险操作（机器人控制页 2026-09-26 移除：控制权与点位同步均由业务自动管理）
    · 商家管理：创建账号 / 已创建列表（编辑弹窗：改用户名 / 改权限 / 重置密码 / 删除账号）
+   · 设置：账号 / 危险操作（机器人控制页 2026-09-26 移除：控制权与点位同步均由业务自动管理）
 
    交互约定（铁律）：
-   · 破坏性操作（关闭并作废 / 仅作废）只从右键菜单进入，无行内按钮；
-     卡片整卡点击 = 打开详情抽屉。
-   · **2026-10-07 权限迁移**：「删除订单」「清理批次」改由商家端小程序执行
-     （店主专属 + 二次确认），管理员网页只保留机器人本体相关的配置与监控，不再维护订单批次。
-     因此本页批次/订单菜单里没有删除项——不是漏了，是权限不在管理员这边了。
-   · 保留下来的任务级操作（关闭并作废 / 仅作废）仍走后端统一落账
-     （作废任务 + 回补库存 + 摘批次 + 平台召回），保证机器人状态、用户端、商家端同步，杜绝死锁。
+   · **2026-10-12：订单相关操作一律在商家端小程序**。「配送数据」页（批次 / 订单 / 任务三类卡片的
+     搜索、状态筛选、右键操作）已整页删除；随页面一起下线的还有它仅剩的任务级「关闭并作废 / 仅作废」
+     （同属订单相关操作）。后端接口保留（回归测试与「一键初始化」复用），管理页不再提供入口。
+   · 管理员侧只保留机器人本体相关的监控与配置：总览 / 商家管理 / 设置。
+   · 机器人卡的破坏性动作（停止并取消任务）仍走后端统一落账：未送达订单取消并自动退款
+     （用户端以「配送小车异常」售后记录可见），双端一致，杜绝死锁。
    · 操作日志读服务端 audit_logs（成功与失败都在），前端内存日志只作会话回显。
    ============================================================ */
 (function () {
@@ -42,7 +40,9 @@
 
   var $ = function (id) { return document.getElementById(id) }
   var state = null                // GET /api/admin/state 的聚合结果
-  var liveRobots = []             // 最近一次 WS live 推送的机器人位置（供地图小车/机器人卡显示）
+  // WS live 推送的机器人位置。当前**只赋值、无人读取**（渲染改走 window.mapOnLive 直推地图，
+  // 读它的唯一消费者 07-drawer 已随「配送数据」页一并移除）——留作兜底，别当成在用。
+  var liveRobots = []
   var toastTimer = null
   var busy = false                // 状态拉取防重入
   var currentAdmin = null         // 当前登录的管理员（方案A：账号密码登录）
@@ -111,31 +111,6 @@
       + (isError ? '<span class="hint">请重新登录后再操作</span>' : '')
   }
 
-  // ---------- 状态色（不同状态不同颜色） ----------
-  function tag(text, cls) { return '<span class="tag ' + (cls || '') + '">' + esc(text) + '</span>' }
-
-  function orderTag(o) {
-    var s = Number(o.status)
-    var cls = s === 2 ? 'blue' : s === 3 ? 'violet' : s === 4 ? 'green' : s === 6 ? 'red' : (s === 1 ? 'orange' : 'gray')
-    return tag(ORDER_STATUS[s] || ('状态 ' + s), cls)
-  }
-  function batchTag(b) {
-    var s = Number(b.status)
-    var cls = s === 0 || s === 1 ? 'orange' : s === 2 ? 'blue' : s === 3 ? 'green' : 'gray'
-    return tag(b.status_text && [3, 4].indexOf(s) >= 0 ? b.status_text : (BATCH_STATUS[s] || ('状态 ' + s)), cls)
-  }
-  function taskTag(t) {
-    var s = Number(t.task_status !== undefined ? t.task_status : t.taskStatus)
-    var txt = t.status_text || TASK_STATUS[s] || ('状态 ' + s)
-    var cls = s === 80 ? 'green' : ([90, 100, 120].indexOf(s) >= 0 ? 'red' : ([1, 110, 150].indexOf(s) >= 0 ? 'gray' : (s >= 50 && s < 80 ? 'blue' : 'orange')))
-    return tag(txt, cls)
-  }
-
-  // 批次卡整行头部的底色（按状态取色；与 .bcard-head 的 --bh 变量配合）
-  function batchHeadColor(b) {
-    var s = Number(b.status)
-    return s === 2 ? 'var(--blue)' : s === 3 ? 'var(--ok)' : (s === 0 || s === 1) ? 'var(--amber)' : 'var(--ink-3)'
-  }
   // 时间线节点圆点配色
   function statusDotClass(type, status) {
     var s = Number(status)
@@ -144,14 +119,9 @@
     return s === 80 ? 'ok' : [90, 100, 120].indexOf(s) >= 0 ? 'bad' : [1, 110, 150].indexOf(s) >= 0 ? 'bad' : (s >= 50 && s < 80 ? 'wait' : 'busy')
   }
 
-  // 「最近变更」摘要：来自 status_events 的最新一条
-  function lastEventText(e) {
-    if (!e) return '—'
-    return esc(e.created_at || '') + ' · ' + esc(e.status_text || '')
-  }
 
-
-  // ---------- 导航（总览 / 商家管理 / 设置；2026-10-12 起移除「配送数据」，订单/任务管理只在商家端） ----------
+  // ---------- 导航（总览 / 商家管理 / 设置） ----------
+  // 2026-10-12：「配送数据」整页删除（订单相关操作全在商家端小程序），导航从 4 项回到 3 项
   var PAGE_META = {
     overview: { title: '总览', sub: '机器人状态、异常与死锁监控' },
     merchants: { title: '商家管理', sub: '商家账号的创建、角色与状态维护' },
@@ -195,7 +165,7 @@
     if (!root) return
     root.querySelectorAll('.tab').forEach(function (t) { t.classList.toggle('active', t.dataset.tab === key) })
   }
-  // 面板切换：prefix + 首字母大写的 key → 匹配 id（如 dataPanel+batch = dataPanelBatch）
+  // 面板切换：prefix + 首字母大写的 key → 匹配 id（如 merchantsPanel+list = merchantsPanelList）
   function showPanel(prefix, key, allKeys) {
     allKeys.forEach(function (k) {
       var p = $(prefix + k.charAt(0).toUpperCase() + k.slice(1))
@@ -212,7 +182,7 @@
     if (tab === 'log') loadAudit()
   })
 
-  // ---------- 设置页标签（账号） ----------
+  // ---------- 设置页标签（账号 / 危险操作；机器人控制页已移除：控制权与点位同步均由业务自动管理） ----------
   wireTabs('settingsTabs', function (tab) {
     showPanel('settingsPanel', tab, ['account'])
   })
@@ -225,9 +195,9 @@
 
 
   // ---------- 右键上下文菜单 ----------
-  // 破坏性操作（关闭并作废 / 仅作废）只在这里出现，卡片上没有行内按钮，
-  // 避免同一操作存在多处入口；非破坏性项（复制编号 / 在地图查看）也一并放这里。
-  // 2026-10-07：删除订单 / 清理批次已迁到商家端小程序（配送数据页改为只读），本页不再提供这两个入口。
+  // 2026-10-12：配送数据页整页删除后，本菜单只剩机器人卡的「更多操作」；
+  // 批次 / 订单 / 任务卡的右键菜单已随页面一起删除 ——
+  // 订单相关操作一律在商家端小程序，管理员侧不再留入口。
   var ctxOpen = false
   function showCtx(x, y, title, items) {
     var m = $('ctxMenu')
@@ -495,7 +465,8 @@
     currentAdmin = null
     state = null
     if (ws) { try { ws.close() } catch (e) {} ws = null }
-    closeDrawer()
+    // 2026-10-14 修：这里原先调 closeDrawer()，但抽屉（07 片）已在 2026-10-12 随「配送数据」页被删除，
+    // 函数不存在 → 退出登录时会抛 ReferenceError，把后面的 showLogin()/日志一起中断（表现为点了退出没反应）。
     showLogin()
     log('已退出登录', 'warn')
   }
@@ -1037,16 +1008,10 @@
       function () { run(label, p, body, successMsg) })
   }
 
-  // 2026-10-07：「删除订单」「清理批次」已迁到商家端小程序，本页不再有这两个动作，
-  // 对应的 actCancelOrder / actCancelBatch 一并删除（后端 /admin/order/cancel、/admin/batch/cancel 保留，
-  // 供回归测试与「一键初始化」复用，只是管理页不再提供入口）。
-  // 关闭平台任务 + 本地作废（一键）
-  window.actCloseVoid = function (tid) {
-    confirmRun('关闭并作废任务 ' + tid, '/task/close-void', { task_id: tid },
-      '关闭平台任务并作废本地任务 ' + tid + '？', '任务 ' + tid + ' 已删除')
-  }
-  // 仅本地作废（不动平台任务）
-  window.actVoid = function (tid) { run('本地作废任务 ' + tid, '/task/void', { task_id: tid }) }
+  // 2026-10-07：「删除订单」「清理批次」已迁到商家端小程序；
+  // 2026-10-12：管理员「配送数据」整页删除，任务级的「关闭并作废 / 仅作废」随页面一起下线
+  // （同属订单相关操作）。对应后端接口（/admin/task/close-void、/admin/task/void）全部保留，
+  // 供回归测试复用，只是管理页不再提供入口 —— 订单相关操作一律在商家端小程序。
 
   // ---------- 选择弹窗（召唤目标点 / 开关舱） ----------
   var pickCtx = null
@@ -1132,13 +1097,29 @@
     confirmRun('恢复机器人 ' + sn, '/robot/recover', { device_sn: sn },
       '确定让机器人 ' + sn + ' 继续工作？将恢复其当前任务执行。', '已发送恢复指令')
   }
-  // 停止并取消任务：关闭该设备全部活跃平台任务 + 关联本地订单统一落账 + 批次置 4
+  // 停止并取消任务：关闭该设备全部活跃平台任务 + 未送达订单取消并**自动退款**（写售后记录，
+  // 用户端「退款」列表可见「配送小车异常…」）+ 已送达订单跳过（交取餐超时流程）+ 批次置 4。
+  // 先 dry_run 预演拿影响范围，再让管理员看着「N 单 / ¥X / 已送达 M 单」按确认 —— 一车多单时
+  // 不能只写一句「取消关联订单」，否则管理员不知道会退掉多少钱。
   window.actStopCancel = function () {
     var sn = state && state.robot ? state.robot.device_sn : ''
     if (!sn) { toast('当前无机器人信息', 'err'); return }
-    confirmRun('取消机器人 ' + sn + ' 的全部任务', '/robot/cancel-tasks', { device_sn: sn },
-      '确定取消机器人 ' + sn + ' 当前的全部任务？\n将关闭其全部平台任务、取消关联订单（回补库存、摘批次），不可撤销。',
-      '已取消该机器人的全部任务')
+    api('/robot/cancel-tasks', 'POST', { device_sn: sn, dry_run: true }).then(function (d) {
+      var n = Number((d && d.refundable) || 0)
+      var amt = Number((d && d.refund_amount) || 0)
+      var m = Number((d && d.delivered) || 0)
+      var html = '<p class="confirm-body warn">确定取消机器人 ' + esc(sn) + ' 当前的全部任务？</p>'
+        + '<p class="confirm-body">将取消并<strong>自动退款</strong> <b>' + n + '</b> 单，合计 <b>¥' + amt.toFixed(2) + '</b>；'
+        + '退款记录同步到用户端，说明为「配送小车异常」。</p>'
+      if (m) {
+        html += '<p class="confirm-body">另有 <b>' + m + '</b> 单已送达（餐已在舱内或用户手上），不自动退款，按取餐超时流程处理。</p>'
+      }
+      html += '<p class="confirm-body warn">不可撤销。</p>'
+      window.openConfirmModal('确认操作', html, function () {
+        run('取消机器人 ' + sn + ' 的全部任务', '/robot/cancel-tasks', { device_sn: sn },
+          '已取消该机器人的全部任务：未送达订单已自动退款')
+      })
+    }).catch(function (e) { opFail(e, '查询待取消订单') })
   }
 
   // ---------- 设置页：控制权 / 点位 ----------

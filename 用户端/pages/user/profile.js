@@ -25,7 +25,8 @@ Page({
     roleText: '',
     phoneText: '',
     orderBadge: { unread: false, count: 0, paying: 0, delivering: 0, arrived: 0, finished: 0 },
-    pointName: ''   // 当前配送楼栋（与首页顶部、结算页楼栋是同一份后端数据）
+    pointName: '',  // 当前配送楼栋（与首页顶部、结算页楼栋是同一份后端数据）
+    couponCount: 0  // 未使用券张数（入口右侧显示，让用户知道手里有券没用）
   },
 
   onShow() {
@@ -34,6 +35,7 @@ Page({
     this.load()
     this.loadBadge()
     this.loadPoint()
+    this.loadCoupons()
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 3 })
     }
@@ -115,6 +117,20 @@ Page({
 
   goRefundList() {
     wx.navigateTo({ url: '/pages/refund/list' })
+  },
+
+  goCoupons() {
+    wx.navigateTo({ url: '/pages/coupon/index' })
+  },
+
+  // 未使用券张数：接口失败就显示「暂无可用」，不阻塞整个页面
+  async loadCoupons() {
+    try {
+      const m = await request.get(api.couponMine, {}, { silent: true })
+      this.setData({ couponCount: Number((m && m.count) || 0) })
+    } catch (e) {
+      this.setData({ couponCount: 0 })
+    }
   },
 
   showInfo() {

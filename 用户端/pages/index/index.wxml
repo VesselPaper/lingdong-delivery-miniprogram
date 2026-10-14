@@ -143,23 +143,57 @@
     </view>
   </view>
 
-  <view class="cart-bar" wx:if="{{cartCount}}" bindtap="goCart">
-    <view class="cart-bar-icon {{cartBounceCls}}" id="cart-bar-icon">
+  <view class="cart-bar" wx:if="{{cartCount}}">
+    <!-- 点图标或金额区 → 弹出「已加购商品」面板（下滑收起可继续挑）。
+         不额外包一层容器：保持原来的 icon + info + 按钮三段结构，布局最稳 -->
+    <view class="cart-bar-icon {{cartBounceCls}}" id="cart-bar-icon" bindtap="openCartPanel">
       <t-icon name="robot-1" size="24" color="#3078C0" />
       <view class="cart-bar-badge {{cartBadgeCls}}">{{cartCount}}</view>
     </view>
-    <view class="cart-bar-info">
+    <view class="cart-bar-info" bindtap="openCartPanel">
       <view class="cart-bar-price">¥{{cartTotal}}</view>
       <view class="cart-bar-fee">配送费 ¥{{deliveryFee}} · 明细</view>
     </view>
-    <view class="go-cart">去结算</view>
+    <!-- 只有这里才进结算页 -->
+    <view class="go-cart" catchtap="goCheckoutNow">去结算</view>
   </view>
+
+  <!-- 已加购商品底部弹层 -->
+  <cart-panel visible="{{cartPanelShow}}"
+    bind:close="onCartPanelClose"
+    bind:changed="onCartPanelChanged"
+    bind:checkout="onCartCheckout" />
 
   <!-- 加购飞入的小球（与商城页同一套样式和时长，见 app.wxss / utils/flyCart.js） -->
   <view class="fly-layer" wx:if="{{flyBall.show}}">
     <view class="fly-x" style="left:{{flyBall.x}}px; top:{{flyBall.y}}px; transform: translateX({{flyBall.move ? flyBall.dx : 0}}px);">
       <view class="fly-y" style="transform: translateY({{flyBall.move ? flyBall.dy : 0}}px);">
         <view class="fly-ball"></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 领券弹窗：进首页弹一次，点 × 或「暂不领取」关掉，领取后消失。
+       放在最后 = 盖在购物车栏等所有固定层之上；不占首页的图片位（那块只放活动图）。 -->
+  <view class="cp-pop-mask" wx:if="{{popupCoupons.length}}" bindtap="closeCouponPopup">
+    <view class="cp-pop" catchtap="noop">
+      <view class="cp-pop-close" bindtap="closeCouponPopup">
+        <t-icon name="close" size="20" color="#ffffff" />
+      </view>
+      <!-- 每张券一张图（图里就是优惠信息），图下各自一个领取按钮；多张时可上下滑。
+           高度由 JS 按内容算（scroll-view 没有确定高度是不会滚的） -->
+      <scroll-view class="cp-pop-body" scroll-y style="height: {{popupBodyH}}px;">
+        <view class="cp-pop-item" wx:for="{{popupCoupons}}" wx:key="id">
+          <image class="cp-pop-img" src="{{item.image}}" mode="widthFix" lazy-load
+            bindload="onCouponImgLoad" data-id="{{item.id}}" />
+          <view class="cp-pop-item-btn" bindtap="receiveCoupon" data-id="{{item.id}}">立即领取</view>
+        </view>
+      </scroll-view>
+      <view class="cp-pop-foot">
+        <view class="cp-pop-cancel" bindtap="closeCouponPopup">暂不领取</view>
+        <view class="cp-pop-all" bindtap="receiveAll">
+          立即领取{{popupCoupons.length > 1 ? '（' + popupCoupons.length + '）' : ''}}
+        </view>
       </view>
     </view>
   </view>

@@ -1,0 +1,61 @@
+<view class="cp-page">
+  <!-- 一级切换：领券 / 我的券 -->
+  <view class="cp-tabs">
+    <view class="cp-tab {{tab === 'receive' ? 'on' : ''}}" bindtap="setTab" data-tab="receive">领券</view>
+    <view class="cp-tab {{tab === 'mine' ? 'on' : ''}}" bindtap="setTab" data-tab="mine">我的券{{mine.count ? ' ' + mine.count : ''}}</view>
+  </view>
+
+  <!-- 领券：与首页/活动页一致，券就是一张图，下面只留「领取」按钮 -->
+  <block wx:if="{{tab === 'receive'}}">
+    <view class="cp-img-item" wx:for="{{list}}" wx:key="id">
+      <image wx:if="{{item.image}}" class="cp-img" src="{{item.image}}" mode="widthFix" lazy-load />
+      <!-- 兜底：启用必须配图之后不会再产生没图的券，但历史数据可能没有，别让它直接消失 -->
+      <view wx:else class="cp-fallback">
+        <view class="cp-fb-face">{{item.faceText}}</view>
+        <view class="cp-fb-info">
+          <view class="cp-fb-title ellipsis">{{item.title}}</view>
+          <view class="cp-fb-rule">{{item.desc}}</view>
+        </view>
+      </view>
+      <view class="cp-img-btn {{item.button.cls}} {{item.button.disabled ? 'disabled' : ''}}"
+        bindtap="receive" data-id="{{item.id}}">{{item.button.text}}</view>
+    </view>
+    <view wx:if="{{!loading && !list.length}}" class="cp-empty">
+      <t-icon name="discount" size="44" color="#C9D2DE" />
+      <view class="cp-empty-text">暂无可领取的优惠券</view>
+    </view>
+  </block>
+
+  <!-- 我的券：同样是图片，右侧给「去使用」；到期日是随人算的（相对有效期），
+       图里不会有，所以必须单独标出来，否则用户不知道什么时候会作废 -->
+  <block wx:else>
+    <view class="cp-subtabs">
+      <view class="cp-subtab {{mineTab === item.key ? 'on' : ''}}"
+        wx:for="{{mineTabs}}" wx:key="key"
+        bindtap="setMineTab" data-key="{{item.key}}">{{item.label}} {{item.count}}</view>
+    </view>
+
+    <view class="cp-img-item" wx:for="{{mine[mineTab]}}" wx:key="id">
+      <image wx:if="{{item.image}}" class="cp-img {{mineTab === 'unused' ? '' : 'off'}}"
+        src="{{item.image}}" mode="widthFix" lazy-load />
+      <view wx:else class="cp-fallback {{mineTab === 'unused' ? '' : 'off'}}">
+        <view class="cp-fb-face">{{item.faceText}}</view>
+        <view class="cp-fb-info">
+          <view class="cp-fb-title ellipsis">{{item.title}}</view>
+          <view class="cp-fb-rule">{{item.desc}}</view>
+        </view>
+      </view>
+      <view class="cp-bar">
+        <text class="cp-bar-date">{{item.expireTxt}}</text>
+        <view class="cp-bar-btn" wx:if="{{mineTab === 'unused'}}" bindtap="goMall">去使用</view>
+        <text class="cp-bar-state" wx:else>{{mineTab === 'used' ? '已使用' : '已过期'}}</text>
+      </view>
+    </view>
+
+    <view wx:if="{{!loading && !mine[mineTab].length}}" class="cp-empty">
+      <t-icon name="discount" size="44" color="#C9D2DE" />
+      <view class="cp-empty-text">{{mineTab === 'unused' ? '还没有可用的优惠券' : (mineTab === 'used' ? '还没有使用过优惠券' : '没有已过期的优惠券')}}</view>
+      <view class="cp-empty-btn" wx:if="{{mineTab === 'unused'}}" bindtap="setTab" data-tab="receive">去领券</view>
+    </view>
+  </block>
+</view>

@@ -73,7 +73,8 @@
     currentAdmin = null
     state = null
     if (ws) { try { ws.close() } catch (e) {} ws = null }
-    closeDrawer()
+    // 2026-10-14 修：这里原先调 closeDrawer()，但抽屉（07 片）已在 2026-10-12 随「配送数据」页被删除，
+    // 函数不存在 → 退出登录时会抛 ReferenceError，把后面的 showLogin()/日志一起中断（表现为点了退出没反应）。
     showLogin()
     log('已退出登录', 'warn')
   }

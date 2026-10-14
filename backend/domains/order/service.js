@@ -267,6 +267,36 @@ function recordAutoRefund(store, f) {
   })
 }
 
+// 取消并退款 + 写自动售后记录（供「配送异常退款」「管理员取消机器人全部任务」等自动退款路径复用）。
+// 顺序是硬要求：**先真实退款，成功后才落库置 7** —— 退款失败时订单保持原状，
+// 绝不出现「订单显示已退款但钱没退」这种无法对账的状态（与商家同意退款同一条规则）。
+// 售后记录是用户端唯一能看到「为什么被取消」的通道（用户端「退款」列表显示申请原因 + 商家处理）。
+async function cancelAndRefundOrder(store, deps, order, opts) {
+  const o = opts || {}
+  if (!order) return { ok: false, stage: 'order', msg: '订单不存在' }
+  const amount = Number(o.amount != null ? o.amount : order.total_amount) || 0
+  const ref = await realRefundOrLocal(store, deps, order, o.refundId || null, amount)
+  if (!ref.ok) return { ok: false, stage: 'refund', msg: ref.msg }
+  const c = await applyOrderCancelled(store, deps, order, { finalStatus: 7, reason: o.reason || '取消并退款' })
+  if (!c.claimed) {
+    // 抢占失败=订单已被别处处理成终态：此时钱已退，必须显式暴露出来，不能静默吞掉
+    return { ok: false, stage: 'claim', msg: '订单状态已变更，未落库', refundNo: ref.refundNo || '', local: !!ref.local }
+  }
+  q.insertAutoRefund(store, {
+    orderId: order.id,
+    userId: order.user_id,
+    reason: o.reason || '取消并退款',
+    amount,
+    reply: o.reply || '已自动退款',
+    refundNo: ref.refundNo || ''
+  })
+  return {
+    ok: true, claimed: true, amount,
+    local: !!ref.local, refundNo: ref.refundNo || '',
+    finalStatus: c.finalStatus, tasks: c.tasks || []
+  }
+}
+
 // 订单拆单：按 maxItems 件上限把购物车行贪心拆成多个子订单行块（每块 ≤ maxItems 件）
 function splitOrderChunks(lineItems, maxItems) {
   const chunks = []
@@ -326,7 +356,7 @@ function createOrder(store, deps, body, userId) {
   const deliveryFee = feeRaw === undefined || feeRaw === null || isNaN(Number(feeRaw))
     ? 1
     : Math.max(0, Math.round(Number(feeRaw) * 100) / 100)
-  const { landmark_id, landmark_name, remark = '', items = [], contact_name = '', contact_phone = '', address_id, activity_id } = body || {}
+  const { landmark_id, landmark_name, remark = '', items = [], contact_name = '', contact_phone = '', address_id, activity_id, user_coupon_id } = body || {}
   if (!Array.isArray(items) || !items.length) return { error: { status: 400, msg: '订单不能为空' } }
   // 安全审计 L6：限制单笔订单商品行数，防超大请求空耗（每行数量另有 1~99 校验）
   if (items.length > 30) return { error: { status: 400, msg: '单笔订单商品行数不能超过 30' } }
@@ -360,6 +390,27 @@ function createOrder(store, deps, body, userId) {
   }
   const chunks = totalItems > deps.batch.BATCH_MAX_ITEMS ? splitOrderChunks(lineItems, deps.batch.BATCH_MAX_ITEMS) : [lineItems]
   const created = []
+
+  // ---------- 优惠券：先算总抵扣 +「按商品原价比例」的分摊 ----------
+  // 券作用于**活动后**金额（先折扣、后用券，与美团一致，也避免券把活动价再打一遍折）。
+  // 分摊结果挂到 lineItems 上：下面的 chunk 循环按子订单汇总，并逐件写入 order_items.coupon_share，
+  // 这样部分退款时能直接算出「这件商品实际付了多少」，不用回头重算历史活动。
+  let couponUsedId = null
+  if (user_coupon_id) {
+    if (!deps.coupon) return { error: { status: 500, msg: '优惠券服务不可用' } }
+    const noPromoPick = activity_id === 0 || activity_id === '0' || activity_id === 'none'
+    const activeActs = promotion.loadActive(store)
+    const couponRows = lineItems.map((it) => {
+      const base = noPromoPick
+        ? Number(it.goods.price) * it.quantity
+        : Number(promotion.resolve([{ goods: it.goods, quantity: it.quantity }], activeActs).payable)
+      return { goods: it.goods, quantity: it.quantity, amount: Math.round(base * 100) }
+    })
+    const cr = deps.coupon.consume(store, userId, user_coupon_id, couponRows)
+    if (cr.error) return { error: { status: 400, msg: cr.error } }
+    couponUsedId = cr.user_coupon_id
+    lineItems.forEach((li, i) => { li.couponShareFen = cr.shares.get(i) || 0 })
+  }
   // 取餐码：4 位随机，在「未结束订单(0待支付/1待接单/2配送中/3待取货)」范围内查重，撞了重摇；
   // 极端情况下兜底用当日序号派生（当日序号唯一 → 兜底码也唯一）。它是平台 loading/unloading 校验码与开舱凭据，必须唯一。
   const pickupCodeNew = (seq) => {
@@ -387,8 +438,11 @@ function createOrder(store, deps, body, userId) {
           : promotion.resolve(chunk.map((it) => ({ goods: it.goods, quantity: it.quantity })), ordersActivePromos))
     const chunkFee = feeAssigned ? 0 : deliveryFee
     feeAssigned = true
-    // 实付 = 商品活动后金额 + 配送费（配送费不参与活动折扣，也不进 discount_amount）
-    const chunkTotal = Math.round((Number(promo.payable) + chunkFee) * 100) / 100
+    // 本子订单分摊到的券优惠（元）：按行汇总（分摊已按商品原价比例算好）
+    const chunkCouponFen = chunk.reduce((s, it) => s + (it.couponShareFen || 0), 0)
+    const chunkCoupon = Math.round(chunkCouponFen) / 100
+    // 实付 = 商品活动后金额 − 券抵扣 + 配送费（配送费不参与任何优惠）
+    const chunkTotal = Math.round((Number(promo.payable) - chunkCoupon + chunkFee) * 100) / 100
     const discountAmount = promo.discount
     // 编号：日期 + 当日序号（原子取号）。拆单时每个子单各占一个连号。
     const { day: seqDay, seq } = seqSvc.nextSeq(store, 'order')
@@ -400,14 +454,20 @@ function createOrder(store, deps, body, userId) {
       originalAmount: Number(originalTotal).toFixed(2), discountAmount: Number(discountAmount).toFixed(2),
       activityId: promo.activity ? promo.activity.id : null,
       deliveryFee: Number(chunkFee).toFixed(2),
-      remark: cleanRemark, pickupCode, seq, seqDate: seqDay
+      remark: cleanRemark, pickupCode, seq, seqDate: seqDay,
+      userCouponId: chunkCouponFen > 0 ? couponUsedId : null,
+      couponAmount: Number(chunkCoupon).toFixed(2)
     })
-    for (const { goods, quantity } of chunk) {
-      q.insertItem(store, { orderId, goodsId: goods.id, goodsName: goods.name, goodsImage: goods.image, price: goods.price, quantity })
+    for (const { goods, quantity, couponShareFen } of chunk) {
+      q.insertItem(store, { orderId, goodsId: goods.id, goodsName: goods.name, goodsImage: goods.image, price: goods.price, quantity, couponShare: Math.round(couponShareFen || 0) / 100 })
       // 条件更新扣库存（P1-5）：校验与扣减原子，扣不到即超卖
       if (!deps.goods.deductStock(store, goods.id, quantity)) throw new Error('「' + goods.name + '」库存不足')
     }
     created.push({ order_id: orderId, order_no: orderNo, total_amount: chunkTotal, pickup_code: pickupCode, items: chunk.length })
+  }
+  // 券标记为已使用：放在订单全部落库之后，避免下单中途失败却把券烧掉
+  if (couponUsedId && created.length && deps.coupon && deps.coupon.markUsed) {
+    deps.coupon.markUsed(store, couponUsedId, created[0].order_id)
   }
   // 购物车只删本次订单实际包含的商品（P1-6）：不再无条件清空整张购物车
   const cartGids = [...new Set(lineItems.map((it) => it.goods.id))]
@@ -461,7 +521,9 @@ module.exports = {
   DELIVERY_TIMEOUT_MS, DELIVERY_SCAN_MS,
   // 状态机辅助
   orderTrulyDelivering, orderStuckDelivering, maybeAutoAccept, withinFreeCancelWindow,
-  applyOrderCancelled, realRefundOrLocal, splitOrderChunks,
+  // 自动退款与取消：两侧各自新增，别丢任何一个 ——
+  // `recordAutoRefund`（本地：异常管理清理入口复用）、`cancelAndRefundOrder`（远端：取消并退款+售后记录）
+  applyOrderCancelled, realRefundOrLocal, cancelAndRefundOrder, splitOrderChunks,
   orderStatusText, recordAutoRefund,
   // 状态推进收口（orders 状态迁移唯一入口：守卫 + 收口函数族，跨域经 deps.order 或 server 注入钩子调用）
   canAdvanceOrderStatus, attachTaskToOrder, markOrderStarted, markOrderInBatchStart,

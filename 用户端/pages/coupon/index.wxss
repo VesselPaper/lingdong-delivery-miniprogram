@@ -1,0 +1,204 @@
+.cp-page {
+  min-height: 100vh;
+  background: #F6F8FB;
+  padding: 20rpx 24rpx 60rpx;
+  box-sizing: border-box;
+}
+
+/* ===== 一级切换 ===== */
+.cp-tabs {
+  display: flex;
+  gap: 40rpx;
+  padding: 8rpx 8rpx 24rpx;
+}
+
+.cp-tab {
+  font-size: 30rpx;
+  color: #666666;
+  padding-bottom: 10rpx;
+  border-bottom: 4rpx solid transparent;
+}
+
+.cp-tab.on {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #111111;
+  border-bottom-color: #E64340;
+}
+
+/* ===== 我的券：二级切换 ===== */
+.cp-subtabs {
+  display: flex;
+  gap: 18rpx;
+  margin-bottom: 20rpx;
+}
+
+.cp-subtab {
+  flex: 1;
+  text-align: center;
+  padding: 14rpx 0;
+  font-size: 26rpx;
+  color: #666666;
+  background: #ffffff;
+  border: 2rpx solid #EEF1F5;
+  border-radius: 999rpx;
+}
+
+.cp-subtab.on {
+  background: #FDEEEE;
+  border-color: #E64340;
+  color: #E64340;
+  font-weight: 600;
+}
+
+/* ===== 券图：用户端券的呈现形态，与首页/活动页的券图同一套长相 ===== */
+.cp-img-item {
+  background: #ffffff;
+  border-radius: 16rpx;
+  overflow: hidden;
+  margin-bottom: 24rpx;
+}
+
+/* 按原图比例完整展示，不裁内容（图里就是商家设计好的优惠信息） */
+.cp-img {
+  width: 100%;
+  display: block;
+  background: #FDEEEE;
+}
+
+/* 已使用 / 已过期：整图降透明度压低存在感，但仍看得清是哪张券 */
+.cp-img.off {
+  opacity: 0.5;
+}
+
+/* 领券按钮：图的正下方，一屏一个动作 */
+.cp-img-btn {
+  height: 80rpx;
+  line-height: 80rpx;
+  text-align: center;
+  font-size: 28rpx;
+  font-weight: 600;
+  background: #E64340;
+  color: #ffffff;
+}
+
+/* 已领取 / 已抢光 / 已过期：按钮还在但不可点，用户一眼知道状态 */
+.cp-img-btn.grey {
+  background: #F0F0F0;
+  color: #AAAAAA;
+}
+
+.cp-img-btn.disabled {
+  pointer-events: none;
+}
+
+/* 我的券底部条：左到期日 / 右动作。到期日是随人算的（相对有效期），图里不会有 */
+.cp-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 0 24rpx;
+  height: 80rpx;
+}
+
+.cp-bar-date {
+  flex: 1;
+  min-width: 0;
+  font-size: 24rpx;
+  color: #999999;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cp-bar-btn {
+  flex: 0 0 auto;
+  padding: 0 36rpx;
+  height: 56rpx;
+  line-height: 56rpx;
+  border-radius: 999rpx;
+  background: #E64340;
+  color: #ffffff;
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.cp-bar-state {
+  flex: 0 0 auto;
+  font-size: 24rpx;
+  color: #BBBBBB;
+}
+
+/* ===== 兜底文字卡（历史数据里可能有没有图的券） ===== */
+.cp-fallback {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 24rpx;
+}
+
+.cp-fallback.off {
+  opacity: 0.55;
+}
+
+.cp-fb-face {
+  flex: 0 0 auto;
+  width: 132rpx;
+  height: 132rpx;
+  border-radius: 14rpx;
+  background: #E64340;
+  color: #ffffff;
+  font-size: 38rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cp-fallback.off .cp-fb-face {
+  background: #BFBFBF;
+}
+
+.cp-fb-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.cp-fb-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #111111;
+}
+
+.cp-fb-rule {
+  margin-top: 6rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #E64340;
+}
+
+/* ===== 空态 ===== */
+.cp-empty {
+  text-align: center;
+  padding: 140rpx 0 80rpx;
+}
+
+.cp-empty-text {
+  margin-top: 20rpx;
+  font-size: 26rpx;
+  color: #999999;
+}
+
+.cp-empty-btn {
+  display: inline-block;
+  margin-top: 28rpx;
+  padding: 0 48rpx;
+  height: 64rpx;
+  line-height: 64rpx;
+  border-radius: 999rpx;
+  background: #E64340;
+  color: #ffffff;
+  font-size: 26rpx;
+  font-weight: 600;
+}

@@ -1,5 +1,6 @@
 
-  // ---------- 导航（总览 / 商家管理 / 设置；2026-10-12 起移除「配送数据」，订单/任务管理只在商家端） ----------
+  // ---------- 导航（总览 / 商家管理 / 设置） ----------
+  // 2026-10-12：「配送数据」整页删除（订单相关操作全在商家端小程序），导航从 4 项回到 3 项
   var PAGE_META = {
     overview: { title: '总览', sub: '机器人状态、异常与死锁监控' },
     merchants: { title: '商家管理', sub: '商家账号的创建、角色与状态维护' },
@@ -43,7 +44,7 @@
     if (!root) return
     root.querySelectorAll('.tab').forEach(function (t) { t.classList.toggle('active', t.dataset.tab === key) })
   }
-  // 面板切换：prefix + 首字母大写的 key → 匹配 id（如 dataPanel+batch = dataPanelBatch）
+  // 面板切换：prefix + 首字母大写的 key → 匹配 id（如 merchantsPanel+list = merchantsPanelList）
   function showPanel(prefix, key, allKeys) {
     allKeys.forEach(function (k) {
       var p = $(prefix + k.charAt(0).toUpperCase() + k.slice(1))
@@ -60,7 +61,7 @@
     if (tab === 'log') loadAudit()
   })
 
-  // ---------- 设置页标签（账号） ----------
+  // ---------- 设置页标签（账号 / 危险操作；机器人控制页已移除：控制权与点位同步均由业务自动管理） ----------
   wireTabs('settingsTabs', function (tab) {
     showPanel('settingsPanel', tab, ['account'])
   })

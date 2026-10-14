@@ -58,6 +58,8 @@ const userRoutes = require('./domains/user/routes')
 const userService = require('./domains/user/service')
 const goodsRoutes = require('./domains/goods/routes')
 const goodsService = require('./domains/goods/service')
+const couponRoutes = require('./domains/coupon/routes')
+const couponService = require('./domains/coupon/service')
 const orderRoutes = require('./domains/order/routes')
 const orderService = require('./domains/order/service')
 const deliveryRoutes = require('./domains/delivery/routes')
@@ -146,9 +148,11 @@ app.use('/api', auditMw)
 // admin 域：/api/dashboard/*（大屏只读聚合，免登录）+ /api/admin/*（管理员工具，adminGuard）（domains/admin/routes.js）
 app.use('/api', userRoutes(store, { runtime, goods: goodsService }))
 app.use('/api', goodsRoutes(store, { runtime }))
+// coupon 域：/api/coupon/*（可领券/领券/我的券/结算可用券）、/api/merchant/coupons*（券管理，店主专属）
+app.use('/api', couponRoutes(store, { runtime }))
 app.use('/api', orderRoutes(store, {
   runtime, wxpay, batch, platform, orderCancel, push,
-  goods: goodsService, user: userService,
+  goods: goodsService, user: userService, coupon: couponService,
   autoLoadHook: (batch) => autoLoad.schedule(store, { runtime, platform }, batch),
   // 「机器人要回去」事件钩子（取消订单等）：查是否还有其他待上货订单，无则等 3 分钟释放返程（不轮询）
   settleRobot: (deviceSn) => deliveryService.settleRobotAtLoading(store, { runtime, platform, batch }, deviceSn)

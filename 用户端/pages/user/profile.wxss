@@ -4,6 +4,12 @@
   box-sizing: border-box;
 }
 
+/* 优惠券入口右侧的「N 张可用」：用品牌红点出「有便宜可占」，与灰字无力形成对比 */
+.cell-red {
+  color: #E64340;
+  font-weight: 600;
+}
+
 /* 身份卡：白底 + 1rpx 描边 + 12rpx 圆角，与全站卡片同一套 token */
 .id-card {
   display: flex;

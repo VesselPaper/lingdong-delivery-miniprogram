@@ -154,6 +154,43 @@ function init() {
       end_at TEXT,                     -- 失效时间（空=不设限）
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
+    -- 优惠券模板（券的「定义」）：满减 / 折扣 / 无门槛，可限定适用范围与有效期
+    --   valid_type=absolute 用 start_at/end_at；relative 用 relative_days（领取后 N 天，过期时间写在 user_coupons.expire_at）
+    --   scope=all 全场 / category 指定分类 / goods 指定商品（scope_ids 存 JSON 数组）
+    --   image：券在用户端的呈现形态。用户端首页与活动页都是「图片列表」，
+    --          券和折扣/满减活动一样必须配图才能上架（图片本身就是优惠信息的载体）
+    CREATE TABLE IF NOT EXISTS coupons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT,
+      type TEXT DEFAULT 'full_reduce',      -- full_reduce 满减 / discount 折扣 / no_threshold 无门槛
+      threshold REAL DEFAULT 0,             -- 满减门槛（元）；无门槛为 0
+      reduce REAL DEFAULT 0,                -- 抵扣金额（元）；折扣券为 0
+      discount REAL DEFAULT 0,              -- 折扣率（0.85 = 85 折）；满减/无门槛为 0
+      max_reduce REAL DEFAULT 0,            -- 折扣券最高抵扣（0 = 不限）
+      image TEXT DEFAULT '',                -- 券图（/uploads/xxx），用户端按原图比例展示
+      valid_type TEXT DEFAULT 'absolute',   -- absolute 绝对时间 / relative 领取后 N 天
+      start_at TEXT,
+      end_at TEXT,
+      relative_days INTEGER DEFAULT 0,
+      scope TEXT DEFAULT 'all',             -- all 全场 / category 指定分类 / goods 指定商品
+      scope_ids TEXT DEFAULT '[]',          -- 适用范围 id 列表（JSON）
+      total_qty INTEGER DEFAULT 0,          -- 发放总量（0 = 不限）
+      issued INTEGER DEFAULT 0,             -- 已发放数量
+      per_user_limit INTEGER DEFAULT 1,     -- 每人限领（0 = 不限）
+      status INTEGER DEFAULT 1,             -- 1 启用 / 0 停用
+      created_at TEXT DEFAULT (datetime('now','localtime'))
+    );
+    -- 用户领券记录：状态 0 未使用 / 1 已使用 / 2 已过期
+    CREATE TABLE IF NOT EXISTS user_coupons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      coupon_id INTEGER,
+      status INTEGER DEFAULT 0,
+      received_at TEXT DEFAULT (datetime('now','localtime')),
+      expire_at TEXT,                       -- 本券到期时间（相对有效期按领取时间推算，便于按人不同）
+      used_at TEXT,
+      order_id INTEGER
+    );
     CREATE TABLE IF NOT EXISTS refunds (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER,
@@ -209,6 +246,17 @@ function migrate(db) {
   if (!orderCols.includes('daily_seq')) db.exec("ALTER TABLE orders ADD COLUMN daily_seq INTEGER")
   // orders：配送异常处理标记（'' 未处理 / 'retry 时间' 已重新配送 / 'refund 时间' 已退款）
   if (!orderCols.includes('exception_handled')) db.exec("ALTER TABLE orders ADD COLUMN exception_handled TEXT DEFAULT ''")
+  // orders：优惠券（用了哪张领券记录 + 券实际抵扣金额）。
+  // 与 discount_amount（活动优惠）分开存：券与活动可同时享受，部分退款时要能分别追溯
+  if (!orderCols.includes('user_coupon_id')) db.exec("ALTER TABLE orders ADD COLUMN user_coupon_id INTEGER DEFAULT NULL")
+  if (!orderCols.includes('coupon_amount')) db.exec("ALTER TABLE orders ADD COLUMN coupon_amount REAL DEFAULT 0")
+  // order_items：券优惠分摊到该商品的金额（按原价比例分摊）。
+  // 落库的意义：部分退款时能直接算出「这件商品实际付了多少」，不必回头重算历史活动折扣
+  const itemCols = db.prepare('PRAGMA table_info(order_items)').all().map((c) => c.name)
+  if (!itemCols.includes('coupon_share')) db.exec("ALTER TABLE order_items ADD COLUMN coupon_share REAL DEFAULT 0")
+  // coupons：券图（老库没有这一列，用户端图片列表要用）。空值表示还没配图，这类券不上架
+  const couponCols = db.prepare('PRAGMA table_info(coupons)').all().map((c) => c.name)
+  if (!couponCols.includes('image')) db.exec("ALTER TABLE coupons ADD COLUMN image TEXT DEFAULT ''")
   // delivery_batches：当日序号（商家端卡面展示「批次 N」）
   const batchCols = db.prepare('PRAGMA table_info(delivery_batches)').all().map((c) => c.name)
   if (!batchCols.includes('daily_seq')) db.exec("ALTER TABLE delivery_batches ADD COLUMN daily_seq INTEGER")
@@ -535,8 +583,8 @@ function migrate(db) {
 }
 
 // 离线演示档首次建库写入的「演示种子商品」（零栋热卤/饮品那套）。
-// 抽成模块级常量（2026-10-12 成员 hsy 提取）：门店商品导入之后这些种子商品就是需要清掉的
-// 「旧测试商品」，tools/goods_cleanup.js 要按同一份名单去识别它们 —— 两处各写一份名单，迟早改一处漏一处。
+// 抽成模块级常量（2026-10-12）：门店商品导入之后这些种子商品就是需要清掉的「旧测试商品」，
+// tools/goods_cleanup.js 要按同一份名单去识别它们 —— 两处各写一份名单，迟早改一处漏一处。
 // 行格式（与 seed() 里 insGoods 的列顺序一致）：[名称, 售价, 原价, 图片, 分类, 库存, 描述, 销量]
 const DEMO_GOODS = [
   ['零小栋热卤盲盒套餐（含卤串）', 10.9, 12.9, '', '热卤', 100, '卤味盲盒，含素菜、卤串、主食，随机搭配，惊喜开盒', 326],
@@ -679,9 +727,9 @@ function importStoreGoods(db) {
 // 商品种子图回填（幂等）：门店商品数据源自 Excel，不含图片列，所以同步进来的商品 image 是空的，
 // 用户端/商家端商品图会空白。这里在每次启动后，为「图片为空但有同名种子图」的商品填上
 // /store-img/<文件名>，其余（无种子图）保持为空、留待商家后台自行上传。
-// 幂等：只更新 image 为空的商品；已有图片（商家后台上传过 /uploads/...、或上一轮填过的）绝不覆盖。
 // 2026-10-06 起 importStoreGoods 已改为按条码更新、不再删行，商家上传的图不会再被清掉，
 // 本函数只负责「补上还缺图的商品」，与导入不再有先后依赖。
+//
 // 2026-10-12 增加第二种情况：**image 指向的 /store-img/ 文件已经不存在**（历史遗留的错扩展名，
 // 例如库里写着 .png 而仓库里其实是 .jpg；或那张种子图后来被换名/删掉）。这种商品界面上显示的是
 // 破图，比「空图」更糟，所以只要同名的种子图存在就顺手修正路径；商家后台上传的 /uploads/... 一律不碰。

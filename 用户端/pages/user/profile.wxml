@@ -79,6 +79,12 @@
       <view class="cell-value {{pointName ? '' : 'text-weak'}}">{{pointName || '未设置楼栋'}}</view>
       <t-icon name="chevron-right" size="14" color="#C0C0C0" />
     </view>
+    <view class="cell" bindtap="goCoupons">
+      <t-icon name="discount" size="18" color="#111111" />
+      <view class="cell-label" style="margin-left:16rpx;">优惠券</view>
+      <view class="cell-value {{couponCount ? 'cell-red' : 'text-weak'}}">{{couponCount ? couponCount + ' 张可用' : '暂无可用'}}</view>
+      <t-icon name="chevron-right" size="14" color="#C0C0C0" />
+    </view>
     <view class="cell" bindtap="goRefundList">
       <t-icon name="service" size="18" color="#111111" />
       <view class="cell-label" style="margin-left:16rpx;">售后记录</view>

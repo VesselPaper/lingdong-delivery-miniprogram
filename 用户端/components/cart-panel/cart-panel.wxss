@@ -1,0 +1,381 @@
+/* 已加购商品底部弹层（美团式） */
+.cp-root {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 300;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.cp-root.show {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.cp-mask {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.cp-root.show .cp-mask {
+  opacity: 1;
+}
+
+/* 面板本体：从底部滑入。拖动时加 .no-anim 去掉过渡，保证跟手 */
+.cp-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 78vh;
+  background: #ffffff;
+  border-radius: 24rpx 24rpx 0 0;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.28s ease;
+  will-change: transform;
+}
+
+.cp-sheet.no-anim {
+  transition: none;
+}
+
+/* 把手：下滑关闭的拖拽区 */
+.cp-handle {
+  flex: 0 0 auto;
+  padding: 18rpx 0 10rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cp-handle-bar {
+  width: 72rpx;
+  height: 8rpx;
+  border-radius: 4rpx;
+  background: #E0E4EA;
+}
+
+/* 优惠提示 */
+.cp-promo {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin: 8rpx 28rpx 4rpx;
+  padding: 16rpx 20rpx;
+  background: #FFF3EC;
+  border: 1rpx solid #FBD9C6;
+  border-radius: 12rpx;
+}
+
+.cp-promo-tag {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #ffffff;
+  background: #E64340;
+  border-radius: 4rpx;
+  padding: 2rpx 8rpx;
+}
+
+.cp-promo-text {
+  font-size: 26rpx;
+  color: #A8452C;
+}
+
+.cp-promo-num {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #E64340;
+}
+
+.cp-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 28rpx 8rpx;
+}
+
+.cp-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #111111;
+}
+
+.cp-clear {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  padding: 4rpx 8rpx;
+}
+
+.cp-clear-text {
+  font-size: 24rpx;
+  color: #999999;
+}
+
+/* 商品列表：必须有确定高度才能滚动。
+   flex:1 在只设 max-height 的容器里拿不到高度，所以配合 height:0 让它吃掉剩余空间 */
+.cp-body {
+  flex: 1 1 auto;
+  height: 0;
+  min-height: 0;
+  padding: 0 28rpx;
+  box-sizing: border-box;
+}
+
+.cp-item {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #F5F5F5;
+}
+
+.cp-check {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  border: 2rpx solid #D8D8D8;
+  box-sizing: border-box;
+  margin-right: 16rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cp-check.on {
+  background: #3078C0;
+  border-color: #3078C0;
+}
+
+.cp-img {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 8rpx;
+  background: #F5F5F5;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.cp-info {
+  flex: 1;
+  margin: 0 18rpx;
+  overflow: hidden;
+}
+
+.cp-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-width: 0;
+}
+
+.cp-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  color: #111111;
+}
+
+.cp-soldout {
+  flex-shrink: 0;
+  font-size: 18rpx;
+  color: #ffffff;
+  background: #E64340;
+  border-radius: 6rpx;
+  padding: 2rpx 10rpx;
+}
+
+.cp-spec {
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #999999;
+}
+
+.cp-price {
+  display: flex;
+  align-items: baseline;
+  margin-top: 6rpx;
+}
+
+.cp-price-label {
+  font-size: 22rpx;
+  color: #E64340;
+  margin-right: 6rpx;
+}
+
+.cp-price-now {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #E64340;
+}
+
+.cp-price-orig {
+  font-size: 24rpx;
+  color: #AAAAAA;
+  text-decoration: line-through;
+  margin-left: 10rpx;
+}
+
+.cp-stepper {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.cp-step {
+  width: 52rpx;
+  height: 52rpx;
+  line-height: 48rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: #F2F4F8;
+  color: #333333;
+  font-size: 32rpx;
+  box-sizing: border-box;
+}
+
+.cp-step.plus {
+  background: #3078C0;
+  color: #ffffff;
+}
+
+.cp-step.plus.disabled {
+  background: #E3E7EE;
+  color: #999999;
+}
+
+.cp-num {
+  min-width: 56rpx;
+  text-align: center;
+  font-size: 28rpx;
+  color: #111111;
+}
+
+.cp-empty {
+  padding: 80rpx 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.cp-empty-text {
+  font-size: 26rpx;
+  color: #999999;
+}
+
+.cp-fee {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 20rpx 0 24rpx;
+}
+
+.cp-fee-text {
+  font-size: 22rpx;
+  color: #999999;
+}
+
+/* 底部结算条 */
+.cp-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 16rpx 28rpx calc(16rpx + env(safe-area-inset-bottom));
+  border-top: 1rpx solid #F0F0F0;
+  background: #ffffff;
+}
+
+.cp-all {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  font-size: 26rpx;
+  color: #666666;
+}
+
+.cp-all .cp-check {
+  margin-right: 0;
+}
+
+.cp-total {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2rpx;
+}
+
+.cp-total-line {
+  display: flex;
+  align-items: baseline;
+}
+
+.cp-total-label {
+  font-size: 24rpx;
+  color: #666666;
+  margin-right: 8rpx;
+}
+
+.cp-symbol {
+  font-size: 24rpx;
+  color: #3078C0;
+}
+
+.cp-total-num {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #3078C0;
+}
+
+.cp-total-save {
+  font-size: 20rpx;
+  color: #E64340;
+}
+
+.cp-go {
+  height: 72rpx;
+  padding: 0 40rpx;
+  border-radius: 8rpx;
+  background: #3078C0;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  margin-left: 24rpx;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.cp-foot-empty {
+  justify-content: center;
+}
+
+.cp-go-ghost {
+  height: 72rpx;
+  padding: 0 48rpx;
+  border-radius: 8rpx;
+  border: 2rpx solid #3078C0;
+  color: #3078C0;
+  font-size: 28rpx;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}

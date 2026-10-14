@@ -1,0 +1,50 @@
+<view class="cp-page">
+  <view class="cp-head">
+    <view class="cp-head-title">优惠券</view>
+    <view class="btn btn-sm cp-add" wx:if="{{isOwner}}" bindtap="add">新建优惠券</view>
+  </view>
+
+  <!-- 状态筛选：标签带计数，一眼看出有几张停用的 -->
+  <view class="filter-row" wx:if="{{all.length}}">
+    <scroll-view class="filter-bar" scroll-x>
+      <view class="filter-tab {{filter === item.key ? 'on' : ''}}"
+        wx:for="{{tabs}}" wx:key="key"
+        bindtap="setFilter" data-key="{{item.key}}">{{item.label}} {{item.count}}</view>
+    </scroll-view>
+  </view>
+
+  <!-- 两列网格：与活动管理同一套卡片骨架，券图就是主视觉（用户端也是这么呈现券的） -->
+  <view class="cp-grid">
+    <view class="cp-card" wx:for="{{coupons}}" wx:key="id" bindtap="edit" data-id="{{item.id}}">
+      <view class="cp-poster">
+        <image wx:if="{{item.image}}" class="poster-img" src="{{item.image}}" mode="aspectFill" lazy-load />
+        <view wx:else class="poster-ph">
+          <t-icon name="discount" size="34" color="#C6D6E8" />
+          <text class="poster-ph-text">未配图</text>
+        </view>
+        <!-- 启用状态压在图片上，不占额外高度 -->
+        <view class="tag poster-tag {{item.statusClass}}">{{item.statusText}}</view>
+      </view>
+
+      <view class="cp-body">
+        <view class="cp-title">{{item.title}}</view>
+        <view class="cp-rule ellipsis">{{item.ruleText}}</view>
+        <view class="cp-meta">
+          <text class="cp-type-mini">{{item.typeLabel}}</text>
+          <text class="{{item.stateClass}}">{{item.state_txt}}</text>
+          <text class="cp-time-txt">{{item.timeTxt}}</text>
+        </view>
+        <view class="cp-sub ellipsis">{{item.stockText}}</view>
+        <view class="cp-foot" catchtap="noop">
+          <view class="cp-btn" bindtap="edit" data-id="{{item.id}}">编辑</view>
+          <view class="cp-more" bindtap="onMore" data-id="{{item.id}}">···</view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{!loading && !coupons.length}}" class="empty">
+    <view class="empty-icon"><t-icon name="discount" size="40" color="#C9D2DE" /></view>
+    <view class="empty-text">{{all.length ? '没有该状态的优惠券' : '暂无优惠券，点击右上角新建'}}</view>
+  </view>
+</view>
