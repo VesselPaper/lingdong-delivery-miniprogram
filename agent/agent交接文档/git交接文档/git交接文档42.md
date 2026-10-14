@@ -73,19 +73,25 @@
 
 ## 六、提交号
 
-`（提交后回填）`
+`8ff0604`
 
 ## 七、是否已推送
 
-否。
+**是**。2026-10-14 已推到 `origin/main`（推送范围 `21909c3..f45883f`）。
 
 ## 八、遗留待办
 
-1. 合并 `origin/main`，解剩余 **11 个代码冲突**：
-   - `backend/db.js`（两侧都在动商品删除/券相关列）
-   - `backend/domains/order/service.js`（本地 +20 行，远端 +74 行）
-   - `商家端/utils/api.js`（两侧都 +6 行，疑似同一处改动）
-   - `管理员网页/*` 8 个（两侧都在删「配送数据」页）
-2. 冲突解法要**用测试证明**，不能只看 diff：`node tools/selfcheck.js` + `backend/tests/`
-   全部通过 + 真实打开 `/admin/` 确认无白屏、无 console 报错。
+1. ~~合并 `origin/main`，解剩余 **11 个代码冲突**。~~
+   **已完成**（2026-10-14，提交 `f45883f`）。实际冲突与预估的差异：
+   - `backend/db.js`：2 处**都是注释**（`DEMO_GOODS` 说明、种子图回填说明），不是「券相关列」，取远端措辞即可。
+   - `backend/domains/order/service.js`：2 处，两侧各自新增 `recordAutoRefund`（本地）与
+     `cancelAndRefundOrder`（远端），**必须全要**（已核实二者都有调用点）。
+   - `商家端/utils/api.js`：1 处，确实是同一处改动的注释，取远端。
+   - `管理员网页/*`：预估 8 个、实际 **7 个文件**（admin.js、build.js、index.html、
+     01-core.js、02-nav.js、03-menu.js、07-drawer.js）+ `05-render-cards.js` 的 modify/delete 冲突。
+     `admin.js` 是 `build.js` 的构建产物，不手工改，解完 parts 后跑 `node build.js` 重新生成。
+2. ~~冲突解法要用测试证明~~ **已完成**：16/16 后端测试 + `test_batch_v2_e2e.js`（8 项）+
+   selfcheck 0 项 ✗ + 三入口 200 + 管理端真实浏览器探针（0 console 报错）+ 大屏两个探针（校验一致 true）。
 3. 编号规范（取号前先 fetch）待负责人拍板后另开提交。
+4. **本次合并顺带修掉一个本地线漏掉的 bug**：`管理员网页/js/parts/admin/06-refresh-token.js` 的
+   `logout()` 调用已被删除的 `closeDrawer()` → 抛 `ReferenceError` 中断退出登录。已删除该行。

@@ -42,16 +42,18 @@
 
 ## 五、提交号
 
-`（提交后回填）`
+`49d5d43`
 
 ## 六、是否已推送
 
-否。
+**是**。2026-10-14 已推到 `origin/main`（推送范围 `21909c3..f45883f`）。
 
 ## 七、遗留待办
 
-1. 合并 `origin/main` 并解 13 个代码冲突（`backend/db.js`、`backend/domains/order/service.js`、
-   `商家端/utils/api.js`、`管理员网页/*` 10 个）。
+1. ~~合并 `origin/main` 并解 13 个代码冲突（`backend/db.js`、`backend/domains/order/service.js`、
+   `商家端/utils/api.js`、`管理员网页/*` 10 个）。~~
+   **已完成**（2026-10-14，提交 `f45883f`，实际是 **11 个**代码冲突：4 个文档撞号冲突已在本提交前后先解掉，
+   详见《git交接文档40》《git交接文档42》《git交接文档43》）。
 2. `AGENTS.md` §8.4 现在写的是"推送前先 `git pull --rebase`"，但这次合并**必须用 merge 而不是
    rebase**（两侧是同一份成员功能的两个独立实现，rebase 要在多个提交里反复解同一批冲突）。
    这条是否需要补一句例外说明，**需要负责人同意**，本次未改 AGENTS.md 这一节。
