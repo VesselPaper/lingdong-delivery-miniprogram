@@ -14,7 +14,6 @@
     <view class="save-wrap">
       <view class="btn btn-block" bindtap="save">保存修改</view>
     </view>
-    <view class="hint text-weak text-sm">昵称与手机号用于配送时联系你；点击昵称框可直接选用微信昵称。</view>
   </view>
 
   <!-- 账号：退出登录唯一入口（我的页已移除重复入口） -->

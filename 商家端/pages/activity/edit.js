@@ -29,6 +29,8 @@ Page({
   data: {
     id: null,
     typeList: TYPE_LIST,
+    typeLabels: TYPE_LIST.map((t) => t.label),   // 类型下拉的选项文案（picker range）
+    typeIndex: 0,                                 // 类型下拉当前选中项下标
     type: 'discount',
     form: { title: '', subtitle: '', link: '', sort: '0', start_at: '', end_at: '' },
     // 长期活动：不设起止日期（用户端显示「长期有效」）。
@@ -36,7 +38,6 @@ Page({
     longTerm: true,
     image: '',                     // 活动海报（/uploads/xxx.jpg），三种类型都可配
     discount: '',
-    discountCalcHint: '',
     scope: 'all',
     goodsList: [],                 // 全部商品（含 category）
     selectedGoods: [],
@@ -138,6 +139,7 @@ Page({
       const type = item.type === 'full_reduce' ? 'full_reduce' : (item.type === 'discount' ? 'discount' : 'custom')
       const patch = {
         type,
+        typeIndex: Math.max(0, TYPE_LIST.findIndex((t) => t.value === type)),   // 下拉选中项与类型保持一致
         image: item.image || '',
         status: Number(item.status),
         statusText: STATUS_TEXT[Number(item.status)] || '草稿',
@@ -153,7 +155,6 @@ Page({
       if (type === 'discount') {
         // 库里存的是乘数(0.85)，界面用「几折」(8.5)
         patch.discount = cfg.discount !== undefined ? String(Math.round(Number(cfg.discount) * 100) / 10) : ''
-        patch.discountCalcHint = this.calcHint(patch.discount)
       }
       if (type === 'full_reduce') {
         patch.tiers = (Array.isArray(cfg.tiers) && cfg.tiers.length)
@@ -175,8 +176,12 @@ Page({
   },
 
   // ---------- 基础字段 ----------
-  chooseType(e) {
-    this.setData({ type: e.currentTarget.dataset.type }, () => this.refreshPreview())
+  // 活动类型下拉（2026-10-14 改：从三个并排方框改成下拉，见 wxml 注释）
+  onTypeChange(e) {
+    const idx = Number(e.detail.value)
+    const t = TYPE_LIST[idx]
+    if (!t) return
+    this.setData({ type: t.value, typeIndex: idx }, () => this.refreshPreview())
   },
 
   // 排序下拉：第 N 项对应排序值 N（小 → 靠前，后端 ORDER BY sort 就是这么排的）
@@ -207,16 +212,7 @@ Page({
   },
 
   onDiscountInput(e) {
-    this.setData(
-      { discount: e.detail.value, discountCalcHint: this.calcHint(e.detail.value) },
-      () => this.refreshPreview()
-    )
-  },
-
-  calcHint(val) {
-    const d = Number(val)
-    if (!(d > 0) || !(d < 10)) return ''
-    return '示例：¥10 商品按 ' + d + ' 折 ≈ ¥' + d.toFixed(2)
+    this.setData({ discount: e.detail.value }, () => this.refreshPreview())
   },
 
   // ---------- 活动海报 ----------

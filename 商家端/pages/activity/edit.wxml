@@ -4,13 +4,6 @@
     <view class="tag {{status === 1 ? 'tag-green' : (status === 2 ? 'tag-orange' : 'tag-gray')}}">{{statusText}}</view>
   </view>
 
-  <!-- 历史数据没有配图：用户端是纯图片列表，没图等于用户看不到。
-       提前说清楚，否则商家改完文案点保存会被「发布需要图片」拦住，却不知道为什么 -->
-  <view class="warn-bar" wx:if="{{id && status === 1 && !image}}">
-    <t-icon name="info-circle" size="16" color="#E37318" />
-    <text class="warn-text">该活动已发布但没有配图，用户端当前看不到它。需先上传图片，才能保存修改或重新发布。</text>
-  </view>
-
   <!-- 实时预览：把用户端会看到的样子先给商家看，是减少「配错活动」最有效的办法 -->
   <view class="preview-card">
     <view class="preview-head" bindtap="togglePreview">
@@ -33,16 +26,16 @@
     </view>
   </view>
 
-  <!-- 活动类型 -->
+  <!-- 活动类型：下拉选择（2026-10-14 改）。原来把 打折/满减/纯展示 三个并排摆出来用高亮选中，
+       商家反馈太冗杂；真实小程序的活动编辑器一般是一个选择行 + 箭头。 -->
   <view class="card form-card">
     <view class="field-label big">活动类型</view>
-    <view class="type-row">
-      <view wx:for="{{typeList}}" wx:key="value"
-        class="type-item {{type === item.value ? 'type-on' : ''}}"
-        bindtap="chooseType" data-type="{{item.value}}">
-        <view class="type-name">{{item.label}}</view>
+    <picker class="type-select" mode="selector" range="{{typeLabels}}" value="{{typeIndex}}" bindchange="onTypeChange">
+      <view class="picker-value picker-picked">
+        <text>{{typeLabels[typeIndex]}}</text>
+        <t-icon name="chevron-down" size="14" color="#999999" />
       </view>
-    </view>
+    </picker>
   </view>
 
   <!-- 优惠设置（跟着类型变）：放在靠前的位置，因为商家来建活动时最先想清楚的是优惠本身 -->
@@ -51,9 +44,6 @@
     <view class="field">
       <view class="field-label">折扣</view>
       <input class="field-input" type="digit" placeholder="例如：8.5" value="{{discount}}" bindinput="onDiscountInput" />
-    </view>
-    <view class="calc-hint" wx:if="{{discountCalcHint}}">
-      <text>{{discountCalcHint}}</text>
     </view>
   </view>
 

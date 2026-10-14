@@ -10,11 +10,6 @@
   margin-top: 32rpx;
 }
 
-.hint {
-  margin-top: 16rpx;
-  line-height: 1.6;
-}
-
 /* 退出登录属危险操作，用红色文字与普通设置项区分 */
 .cell-danger .danger-text {
   color: #E64340;
