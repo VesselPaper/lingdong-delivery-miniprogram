@@ -42,5 +42,6 @@
 
 ## 六、是否已推送
 
-否（2026-10-14 提交时 GitHub 443 网络抖动，推送被 `Connection reset` 挡住；提交 `0ca9a03` 安全在本地，
-推送成功后把本节改为「是」并回填推送范围。其余历史提交 32f577b / 9df74bb 均已推送）。
+是（`git config --global http.proxy/https.proxy = http://127.0.0.1:7890` 走代理推送；
+`git rev-list --left-right --count origin/main...HEAD` = `0  0`。⚠ 本机网络**必须走 7890 代理**推 GitHub，
+直连在传输阶段会被重置，详见 git交接文档48）。
