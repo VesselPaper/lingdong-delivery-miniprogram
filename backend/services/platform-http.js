@@ -137,7 +137,27 @@ function formatLocalDt(ts) {
 // 就沿用 meta 里上一次的值，仍然取不到则返回空串（下游一律退回旧的「按 sort 第一条」行为）。
 const ACTIVE_MAP_TTL_MS = Number(process.env.ACTIVE_MAP_TTL_MS || 120 * 1000)
 let activeMapCache = { ts: 0, id: '' }
+
+// 强制指定运营图（PLATFORM_ACTIVE_MAP_ID）：非空时**不再自动跟随车所在图**。
+// 存在理由（2026-10-19 真机）：越凡正在扩建校区地图，平台上同时挂着两张图 ——
+//   小图 …_1d-99（5786x5406，与可视化大屏底图标定同尺寸，当前业务在用）
+//   大图 …_1d-98（16042x16677，扩建中，尚未投用）
+// 唯一的真车被技术人员挂到了大图上，于是「车所在图即运营图」的规则把大屏切到了大图：
+// 大屏底图仍是小图的标定，却拿到大图 802m 见方的 meta，按 kw/kh 硬拉伸后**所有点位整体错位**
+// （两方向比例 2.77 / 3.08 还不等比，越远偏得越多）。扩建完成要正式切图时，改这个环境变量即可。
+const FORCED_ACTIVE_MAP_ID = String(process.env.PLATFORM_ACTIVE_MAP_ID || '').trim()
+
 async function resolveActiveMapId(store) {
+  // ① 显式锁定优先：锁定期间不受车所在图影响
+  if (FORCED_ACTIVE_MAP_ID) {
+    if (activeMapCache.id !== FORCED_ACTIVE_MAP_ID) {
+      pointsSvc.setActiveMapId(store, FORCED_ACTIVE_MAP_ID)
+      console.log('[platform] 当前运营图 = ' + FORCED_ACTIVE_MAP_ID + '（PLATFORM_ACTIVE_MAP_ID 锁定）')
+      activeMapCache = { ts: Date.now(), id: FORCED_ACTIVE_MAP_ID }
+    }
+    return FORCED_ACTIVE_MAP_ID
+  }
+  // ② 未锁定时沿用旧规则：在线车所在图即运营图
   if (activeMapCache.id && Date.now() - activeMapCache.ts < ACTIVE_MAP_TTL_MS) return activeMapCache.id
   try {
     const r = await getDeviceList()          // 纯业务判定：不带虚拟测试车
@@ -293,6 +313,11 @@ async function getPlatformLandmarks(store) {
     // 「充电点A」「商铺上货」等同名文字竖排重复。去重键：landmarkId 优先，再按 name|x|y 兜底。
     const seenId = new Set()
     const seenPos = new Set()
+    // 只取「当前运营图」上的点位：扩建期间 landmarkInfo 会把两张图的同名点位一起下发
+    // （实测东苑 11 个点在两张图上各有一份，坐标只差几厘米，按坐标去重抓不住），
+    // 不去掉就会在图上叠两个标记、右侧列表也重复。运营图未知时不过滤，保持旧行为。
+    const actMap = pointsSvc.activeMapId(store)
+    let skippedOtherMap = 0
     for (const type of ['deliverPoint', 'patrolPoint']) {
       const r = await requestPlatform('GET', '/open-api/v1/building/landmarkInfo?buildingId=' + encodeURIComponent(buildingId) + '&type=' + type)
       const pts = (r && r.data) || []
@@ -301,6 +326,7 @@ async function getPlatformLandmarks(store) {
         if (!p || !p.landmarkName) continue
         const pose = Array.isArray(p.pose) ? p.pose : []
         if (pose.length < 2) continue
+        if (actMap && p.mapId && String(p.mapId) !== String(actMap)) { skippedOtherMap++; continue }
         const x = Number(pose[0]), y = Number(pose[1])
         const lmId = p.landmarkId || ''
         const keyPos = p.landmarkName + '|' + x + '|' + y
@@ -316,6 +342,9 @@ async function getPlatformLandmarks(store) {
           y: y
         })
       }
+    }
+    if (skippedOtherMap > 0) {
+      console.log('[platform] 点位同步：跳过 ' + skippedOtherMap + ' 个属于其它地图的点位（当前运营图 ' + actMap + '）')
     }
     if (out.length) landmarkCache = { ts: Date.now(), data: out }
     return out.length ? out : (landmarkCache.data || out)
@@ -415,17 +444,47 @@ async function getMapOverview(store) {
     chargeSeen.add(uniq)
     landmarks.push({ id: p.id || k, name, type: 'chargePoint', x: cx, y: cy })
   }
+  // 雷达图像素映射元数据（ROS map 惯例：origin=图片左下角世界坐标，resolution=米/像素，width/height=像素数）
+  // 必须在使用它的「点位过滤」之前算出来 —— const 有暂时性死区，放后面会直接抛错。
+  const md = detail.metadata || {}
+  const meta = (md.width && md.height && md.resolution) ? {
+    width: Number(md.width),
+    height: Number(md.height),
+    resolution: Number(md.resolution),
+    origin: Array.isArray(md.origin) && md.origin.length >= 2 ? [Number(md.origin[0]), Number(md.origin[1])] : [0, 0]
+  } : null
   // 最终去重：不管点位来自 landmarkInfo 还是地图内嵌 landmarks，**同一物理点（同名同坐标）只保留一条**。
   // 实测「充电点A」会同时出现在两个来源里、平台上部分楼栋也有两条记录；不去重大屏就会画两个图标、
   // 用户端列表也会出现重复项。这里统一按 名称+坐标 收敛（与前端去重同一套身份）。
+  //
+  // 同时**剔除非本图点位**：扩建期间 landmarkInfo 会把另一张图的点位一起下发（实测在用的小图
+  // 之外还有西苑 4 个点，坐标属于扩建中的大图）。这些点按本图 meta 换算会落到画布外，表现为
+  // "地图上飘着几个点"或直接画到远处。判定标准就是本图 meta 的像素范围 —— 落不进就丢弃。
+  const pixelInside = (() => {
+    if (!meta) return () => true
+    const res = Number(meta.resolution)
+    const ox = Number(meta.origin[0]), oy = Number(meta.origin[1])
+    if (!(res > 0) || !isFinite(ox) || !isFinite(oy)) return () => true
+    const W = Number(meta.width), H = Number(meta.height)
+    return (x, y) => {
+      const px = (Number(x) - ox) / res
+      const py = H - (Number(y) - oy) / res
+      return px >= 0 && px <= W && py >= 0 && py <= H
+    }
+  })()
+  let droppedOutOfMap = 0
   const uniqSeen = new Set()
   landmarks = landmarks.filter((L) => {
     if (!L || !isFinite(Number(L.x)) || !isFinite(Number(L.y))) return false
+    if (!pixelInside(L.x, L.y)) { droppedOutOfMap++; return false }
     const key = String(L.name || '').replace(/\s+/g, '') + '|' + Number(L.x).toFixed(3) + '|' + Number(L.y).toFixed(3)
     if (uniqSeen.has(key)) return false
     uniqSeen.add(key)
     return true
   })
+  if (droppedOutOfMap > 0) {
+    console.log('[platform] 点位过滤：丢弃 ' + droppedOutOfMap + ' 个不属于当前图的点位（坐标落在本图像素范围外）')
+  }
   // 路网（固定路径 graph）
   const graph = { nodes: [], edges: [] }
   const line = pts['固定路径'] || Object.values(pts).find((p) => p && p.graph)
@@ -442,14 +501,6 @@ async function getMapOverview(store) {
   // bbox：点位 + 路网节点 的外包框（前端按此把坐标映射到图片像素）
   const bbox = computeMapBbox(data)
   if (!bbox) return { ok: false, msg: '地图无点位数据' }
-  // 雷达图像素映射元数据（ROS map 惯例：origin=图片左下角世界坐标，resolution=米/像素，width/height=像素数）
-  const md = detail.metadata || {}
-  const meta = (md.width && md.height && md.resolution) ? {
-    width: Number(md.width),
-    height: Number(md.height),
-    resolution: Number(md.resolution),
-    origin: Array.isArray(md.origin) && md.origin.length >= 2 ? [Number(md.origin[0]), Number(md.origin[1])] : [0, 0]
-  } : null
     // 活跃批次路线（批次状态=配送中，route 停靠点坐标来自本地 landmarks）
     const routes = []
     const activeBatches = store.prepare('SELECT id FROM delivery_batches WHERE status=2 ORDER BY id DESC LIMIT 10').all()
@@ -469,6 +520,9 @@ async function getMapOverview(store) {
     const robots = []
     try {
       const devList = await getDeviceList({ withVirtual: true })   // 展示：大屏地图要能画出虚拟测试车
+      // 当前地图的图 id：车若不在图上，前端不能把它画在地图里（坐标是另一张图的），
+      // 只能标记出来、在车辆卡面注记「不在此地图」。见 services/points.js 的运营图口径。
+      const curMapId = pointsSvc.activeMapId(store)
       if (devList.ok && Array.isArray(devList.robots)) {
         for (const dev of devList.robots) {
           if (!dev.online || !dev.device_sn) continue
@@ -478,10 +532,14 @@ async function getMapOverview(store) {
           if (!isNaN(ax) && !isNaN(ay)) {
             const raw = Array.isArray(pos.raw) && pos.raw.length >= 2 && isFinite(Number(pos.raw[0])) && isFinite(Number(pos.raw[1]))
               ? [Number(pos.raw[0]), Number(pos.raw[1])] : null
+            // 虚拟车没有平台侧 curr_map_id（不在平台上），永远算「在此地图」。
+            const devMapId = String(dev.curr_map_id || '')
+            const notOnMap = !!(curMapId && devMapId && devMapId !== curMapId)
             robots.push({
               device_sn: dev.device_sn, x: ax, y: ay,
               px: raw ? raw[0] : null, py: raw ? raw[1] : null,   // 地图像素坐标（权威）
-              theta: Number(pos.theta || 0), text: pos.text || '', raw: pos.raw
+              theta: Number(pos.theta || 0), text: pos.text || '', raw: pos.raw,
+              map_id: devMapId, not_on_map: notOnMap
             })
           }
         }
