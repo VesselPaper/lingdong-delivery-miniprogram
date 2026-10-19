@@ -46,7 +46,10 @@ window.Map3DGL = (function () {
     ground: false,
     // 配送点标记（平台 landmarks：取货点/上货点/充电点）—— 默认开，工具栏「配送点」按钮可关
     sites: true,
-    spin: false, follow: false, roofFade: false,
+    // 楼体透明：**默认开启**（2026-10-19 负责人要求）。楼顶色 alpha 是 0.92（接近实心），
+    // 打开后乘一个系数，让屋顶半透 → 能看见压在下方的道路、路线与车。
+    // 墙体本来就只有 0.26 的 alpha（见 scene3d/math.js THEME.wall），所以"挡路"的主要是楼顶。
+    roofFade: true,
     // 车体"穿透幽灵"：被楼/屋顶挡住时，同色再画一遍（35% 混合）→ 看得见车的轮廓与朝向。
     // 2026-10-12 曾默认开（库房窄、车被楼吃掉）；负责人看后要求"车不要透明的"→ 默认关。
     // 代码与开关保留：需要时控制台 window.Map3DGL.getOpts().carXray = true 可临时打开。
@@ -785,8 +788,14 @@ window.Map3DGL = (function () {
 
   function resetView() {
     view.az = S.principalAzimuth(calib ? calib.buildings : null)
-    view.el = 45   //「回到校园」用 45° 俯仰（不压迫：既看得到楼顶高度，又不会太垂直）
-    view.zoom = 1
+    //「回到校园」= 打开网页时的默认视角（首次构建后也会调它，见 initialViewApplied）。
+    // el：俯仰角。2026-10-19 先由 45° → 30°，再按负责人要求 → 22°（更平视、楼的立体感更强）。
+    //     下限 3°，22° 仍能看清校园整体布局，同时接近"站在校园里看"。
+    // zoom：1 是"整校园刚好铺满"；0.75 是拉近一档，后又按要求缩回一点 → 0.85。
+    //     注意 zoom 越小＝越放大；且 T2（充电点/上货点名）只在 zoom ≤ 1.00 时显示，
+    //     0.85 仍在范围内，标注不会因为这次缩小而消失（超过 1.00 才会掉）。
+    view.el = 22
+    view.zoom = 0.85
     view.panX = 0; view.panY = 0
     if (scene) view.target = scene.bounds.center.slice()
     updateCamera(true)
@@ -1053,7 +1062,12 @@ window.Map3DGL = (function () {
     var fo = document.getElementById('m3Follow')
     if (fo) fo.addEventListener('click', function () { setFollow(!opts.follow) })
     var fd = document.getElementById('m3Fade')
-    if (fd) fd.addEventListener('click', function () { opts.roofFade = !opts.roofFade; fd.classList.toggle('on', opts.roofFade) })
+    if (fd) {
+      // 默认值可能已经是"开"（opts.roofFade 默认 true），按钮必须同步亮起。
+      // 不同步的话会出现「效果开着、按钮却显示关」——用户第一次点反而把效果关掉，像失灵。
+      fd.classList.toggle('on', !!opts.roofFade)
+      fd.addEventListener('click', function () { opts.roofFade = !opts.roofFade; fd.classList.toggle('on', opts.roofFade) })
+    }
     var rst = document.getElementById('mapReset')
     if (rst) { rst.hidden = false; rst.onclick = resetView }
     // 重构面板控制器已拆到独立文件 gl3d/recon.js（经 host/recon 桥，低耦合）
@@ -1198,11 +1212,11 @@ window.Map3DGL = (function () {
   var snapRevision = 0
   // 车辆入场动画时长（秒）：原地"生长"，替代从旧位置飘移进场
   var APPEAR_SEC = 0.45
-  // 标注分层（view.zoom 越小＝越放大；「回到校园」= zoom 1.00）：
+  // 标注分层（view.zoom 越小＝越放大；「回到校园」= zoom 0.75，2026-10-19 由 1.00 拉近）：
   //   T1 楼栋名（含食堂/餐厅/铺子，**同一层级同样式**）：zoom ∈ (0.50, 1.25)
   //        —— 缩到最小(≥1.25)才消失；放大到 T3(取货点名)出现时隐藏（同一位置由 T3 接手）
-  //   T2 充电点/上货点名：zoom ≤ 1.00 —— 「回到校园」大小刚好显示，再缩小就不显示
-  //   T3 取货点名：zoom ≤ 0.50 —— 放大到「回到校园」的一半时显示
+  //   T2 充电点/上货点名：zoom ≤ 1.00 —— 「回到校园」(0.75) 仍在范围内，显示正常
+  //   T3 取货点名：zoom ≤ 0.50 —— 再放大一档（约 0.5）才出现
   var TIER_T3_ZOOM = 0.50, TIER_T2_ZOOM = 1.00, TIER_T1_HIDE_OUT = 1.25
   // 各层字号基准（zoom=1 时的像素）：楼栋 12 / 第二层 10 / 第三层 9
   var LABEL_BASE_PX = { 1: 12, 2: 10, 3: 9 }
@@ -1598,16 +1612,18 @@ window.Map3DGL = (function () {
     drawMesh(bufs.opaque, null)
     if (opts.ground) drawGround()
 
-    // 屋顶默认**实心可见**（楼必须看得见）；只有打开「楼体透明」时才随俯角淡出，
-    // 用于临时看清被楼压住的道路。淡出时关闭 depthMask，让楼后的车也能透出来。
+    // 楼体透明（默认开）：楼顶乘一个透明度系数，让下方道路/路线/车透出来。
+    // 历史：2026-10-12 这里踩过坑 —— 淡出起点写成 45°，而当时默认视角恰好 45°，
+    //       于是默认视角下系数恒为 0、点按钮毫无变化，被当成"功能坏了"。
+    // 2026-10-19 起默认俯仰角降到 22°，如果继续用「按俯角淡出」的老公式
+    //       （(el-20)/25 → 22° 只有 8%），会**原样复现同一个坑**。
+    // 所以改成「固定基础透明度 + 少量随俯角加强」：打开就一定看得出透明，
+    //       抬头看屋顶时再额外透一点。系数相乘到楼顶自身 alpha(0.92) 上：
+    //       22° → 0.92×0.56 ≈ 0.51；45° → ≈0.45；80° → ≈0.39。
     var roofAlpha = 1
     if (opts.roofFade) {
-      // 2026-10-12 修：淡出起点原来是 45°，而**启动视角恰好就是 45°**（resetView 里 view.el = 45）
-      // → 默认视角下 t2 恒为 0、屋顶照样写深度、照样把车吃掉，表现为"点了楼体透明没反应"。
-      // 像素实测：45° 点按钮只变 0.34%（= 动画噪声），75° 变 5.81%。改成 20° 起步后，
-      // 45° 即淡到 34% 且不写深度（车透出来），20° 以内的极低视角仍保持楼体实心。
-      var t2 = Math.max(0, Math.min(1, (view.el - 20) / 25))
-      roofAlpha = 1 - 0.66 * t2
+      var t2 = Math.max(0, Math.min(1, (view.el - 8) / 60))
+      roofAlpha = 0.60 - 0.18 * t2
     }
     gl.depthMask(roofAlpha > 0.985)
     drawMesh(bufs.roofs, null, roofAlpha)
