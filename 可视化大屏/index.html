@@ -6,7 +6,7 @@
 <title>零栋铺子 · 无人送餐调度大屏</title>
 <meta name="description" content="校园无人送餐机器人实时调度大屏：实时雷达地图、车辆动向、订单与批次状态">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2307142b'/%3E%3Crect x='7' y='12' width='18' height='4' rx='2' fill='%2337e0ff'/%3E%3Crect x='7' y='19' width='11' height='3.5' rx='1.75' fill='%236fe9ff' opacity='.7'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/dashboard.css?v=3d4">
+<link rel="stylesheet" href="css/dashboard.css?v=3d65">
 <link rel="stylesheet" href="vendor/leaflet.css">
 </head>
 <body>
@@ -88,7 +88,7 @@
           <span class="ctlSep"></span>
           <button id="m3Spin" title="自动环绕旋转">环绕</button>
           <button id="m3Follow" title="镜头跟随无人车">跟随</button>
-          <button id="m3Fade" title="楼体半透明（俯视看清道路）">楼体透明</button>
+          <button id="m3Fade" class="on" title="楼体半透明（默认开；关掉则楼顶恢复实心）">楼体透明</button>
           <button id="m3Ground" title="雷达激光底图（真实路宽）">雷达图</button>
           <button id="m3Label" class="on" title="楼栋名称">标注</button>
           <button id="m3Site" class="on" title="配送点标记（取货点/上货点/充电点）">配送点</button>
@@ -247,13 +247,13 @@
 <script src="assets/map-recon-default.js?v=3d60"></script>
 <!-- WebGL 着色器定义（纯 GLSL，不依赖 gl 实例，可在 map3d-gl.js 之前加载） -->
 <script src="js/render/gl3d/shaders.js?v=3d42"></script>
-<script src="js/map3d-gl.js?v=3d91"></script>
+<script src="js/map3d-gl.js?v=3d92"></script>
 <script src="js/map3d-entry.js?v=3d43"></script>
 <!-- 大屏骨架（分件）：共享上下文 → 数据源 → 界面渲染 → 地图 → 编排者/启动 -->
-<script src="js/dashboard/shared.js?v=3d62"></script>
+<script src="js/dashboard/shared.js?v=3d64"></script>
 <script src="js/dashboard/api.js?v=3d61"></script>
-<script src="js/dashboard/views-ui.js?v=3d44"></script>
+<script src="js/dashboard/views-ui.js?v=3d46"></script>
 <script src="js/dashboard/map.js?v=3d43"></script>
-<script src="js/dashboard/main.js?v=3d64"></script>
+<script src="js/dashboard/main.js?v=3d66"></script>
 </body>
 </html>

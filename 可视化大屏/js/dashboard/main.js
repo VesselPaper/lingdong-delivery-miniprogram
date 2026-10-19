@@ -23,6 +23,18 @@ window.Dash.main = (function (Dash) {
     })
   }
 
+  // 车不在「当前地图」上时（例如越凡扩建期间被挂到了另一张图上），
+  // 它的像素坐标属于**另一张图**，画到本图上必然错位 —— 所以：
+  //   ① 车队列表（右侧卡面）照常显示，但标注「不在此地图」；
+  //   ② 地图上的车标只画在本图上的车。
+  // 标记由后端下发（robot.not_on_map），前端只做分流，不重复判定。
+  function splitRobots(d) {
+    var list = (d && d.robots) || []
+    var onMap = [], offMap = []
+    list.forEach(function (r) { (r && r.not_on_map ? offMap : onMap).push(r) })
+    return { onMap: onMap, offMap: offMap }
+  }
+
   function demoPatch(d) {
     var lms = (d.map && d.map.landmarks) || []
     if (lms.length < 2) return d
@@ -68,9 +80,15 @@ window.Dash.main = (function (Dash) {
     Dash.views.renderRobots(d.robots, d.robots_error)
     Dash.views.renderBatches(d.batches)
     Dash.views.renderAlerts(d.pickup_alerts)
-    Dash.map.renderMap(d)
+    // 地图只画「在本图上」的车；不在此地图的车坐标属于别的图，画上去必然错位。
+    // 复制一份 map 再替换 robots，避免污染 state.lastData（卡面/动态栏还要用全量）。
+    var split = splitRobots(d)
+    state.offMapRobots = split.offMap
+    var mapForDraw = d.map ? Object.assign({}, d.map, { robots: split.onMap }) : d.map
+    Dash.map.renderMap(Object.assign({}, d, { map: mapForDraw }))
     bindMapHooks()          // 首轮 renderMap 之后渲染器已就绪：把地图事件接回大屏（只接一次）
-    Dash.views.diffEvents(d)   // 对比上一轮快照 → 实时动态；state.prev 的写回在 diffEvents 内部（2026-10-14 修复）
+    // 实时动态改读后端持久化日志（status_events），刷新不丢；不再由前端对比快照现算。
+    Dash.views.applyEvents(d)
   }
 
   /* ---------------- 选中车辆（左侧车辆卡面 ↔ 地图车辆 双向同步） ----------------

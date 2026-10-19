@@ -27,8 +27,9 @@ window.Dash = (function () {
     HEADING_OFFSET: 90,
     MAX_ROBOTS: 6,
     MAX_BATCHES: 4,
-    MAX_ALERTS: 3,
-    MAX_EVENTS: 8
+    MAX_ALERTS: 3
+    // 注：MAX_EVENTS 已移除。实时动态改由后端下发条数（DASHBOARD_EVENTS_LIMIT，默认 20 条），
+    // 前端不再自己截断 —— 两处各截一次只会让实际显示条数变得难以预测。
   }
   // file:// 直接双击打开时，接口指向本机后端；否则走同源相对路径
   C.API = location.protocol === 'file:'
@@ -65,8 +66,7 @@ window.Dash = (function () {
     sigRoutes: '',
     cars: {},          // device_sn -> element
     stopEls: [],
-    events: [],
-    prev: null,
+    events: [],        // 最近一次后端下发的实时动态（log_events），刷新后由后端重新灌满
     lastData: null,
     lastOkTs: 0,
     reloadDay: '',
@@ -74,6 +74,7 @@ window.Dash = (function () {
     // ---- 交互状态（选中 / 看板收缩 / 地图全屏）----
     fleet: [],         // 最近一次车队快照（overview.robots）：选中变化时用它重渲染卡面
     fleetError: '',
+    offMapRobots: [],  // 不在「当前地图」上的车（如被挂到扩建中的另一张图）：只列卡面、不画在地图上
     selectedSn: null,  // 当前选中的车：左侧卡面高亮 + 地图展开数据牌（两处共用同一份状态）
     leftHidden: false, // 左栏（车辆）收起
     rightHidden: false,// 右栏（订单与任务）收起

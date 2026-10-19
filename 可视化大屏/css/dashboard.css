@@ -196,6 +196,10 @@ main.grid.hideRight .colRight{ transform:translateX(110%); opacity:0; pointer-ev
 .robotStatus.s-busy{ color:#4da6ff; border-color:rgba(22,119,255,.55); background:rgba(22,119,255,.12); }
 .robotStatus.s-charging{ color:var(--green); border-color:rgba(82,196,26,.5); background:rgba(82,196,26,.10); }
 .robotStatus.s-bad{ color:var(--red); border-color:rgba(245,34,45,.6); background:rgba(245,34,45,.12); }
+.robotStatus.s-warn{ color:#faad14; border-color:rgba(250,173,20,.55); background:rgba(250,173,20,.12); }
+/* 车不在当前地图上：整体弱化（它没坏，只是画不到本图上），但保留可读 */
+.vcard.offmap{ opacity:.72; }
+.vcard.offmap .vcSn{ text-decoration:line-through; text-decoration-color:rgba(250,173,20,.6); }
 
 /* ===== 任务状态：配送任务流水线（待接单 → 待上货 → 配送中 → 待取货） ===== */
 .flow{ display:flex; align-items:stretch; gap:4px; flex:none; }
@@ -381,6 +385,14 @@ main.grid.hideRight .colRight{ transform:translateX(110%); opacity:0; pointer-ev
 .eventList time{
   flex:none; font-family:Consolas,monospace; font-size:11.5px; color:var(--txt-faint); padding-top:2px;
 }
+.eventList .eTime{
+  flex:none; font-family:Consolas,monospace; font-size:11.5px; color:var(--txt-faint); padding-top:2px;
+  min-width:52px; letter-spacing:-.2px;
+}
+/* 非当天的历史记录：时间带「月-日」且整体压暗，避免被误读成刚发生的事 */
+.eventList li.old{ opacity:.55; }
+.eventList li.old .eTime{ color:rgba(255,255,255,.28); }
+.eventList .eText{ flex:1; min-width:0; color:var(--txt-dim); word-break:break-word; }
 .eventList span{ color:var(--txt-dim); }
 
 /* ===== 滚动条 ===== */

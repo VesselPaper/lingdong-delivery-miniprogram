@@ -114,10 +114,13 @@ window.Dash.views = (function (Dash) {
       var li = list.children[i]
       var sn = String(r.device_sn || '')
       var online = !!r.online
+      var offMap = !!r.not_on_map
       var on = !!state.selectedSn && sn === state.selectedSn
-      setClass(li, 'vcard' + (on ? ' on' : '') + (online ? '' : ' offline'))
+      setClass(li, 'vcard' + (on ? ' on' : '') + (online ? '' : ' offline') + (offMap ? ' offmap' : ''))
       li.setAttribute('data-sn', sn)
-      li.title = on ? '已选中（再点取消；地图上同步高亮）' : '点击选中这台车（地图同步高亮）'
+      li.title = offMap
+        ? '这台车不在当前地图上（可能被挂到了扩建中的另一张图），因此不显示在地图中'
+        : (on ? '已选中（再点取消；地图上同步高亮）' : '点击选中这台车（地图同步高亮）')
       li.onclick = function () {
         if (Dash.main && Dash.main.selectCar) Dash.main.selectCar(on ? null : sn)
       }
@@ -126,8 +129,14 @@ window.Dash.views = (function (Dash) {
       txt(li.querySelector('.vcSn'), sn)
 
       var st = li.querySelector('.robotStatus')
-      setClass(st, 'robotStatus ' + (online ? statusClass(r.machine_status) : 's-bad'))
-      txt(st, online ? (r.machine_text || '在线') : '离线')
+      if (offMap) {
+        // 不在此地图：电网状态无意义（画不上去），直接把原因写在状态位，避免误判成"离线/故障"
+        setClass(st, 'robotStatus s-warn')
+        txt(st, '不在此地图')
+      } else {
+        setClass(st, 'robotStatus ' + (online ? statusClass(r.machine_status) : 's-bad'))
+        txt(st, online ? (r.machine_text || '在线') : '离线')
+      }
 
       var bat = r.battery === null || r.battery === undefined ? null : num(r.battery)
       var bar = li.querySelector('.batteryBar')
@@ -194,72 +203,41 @@ window.Dash.views = (function (Dash) {
     })
   }
 
-  /* ---------------- 渲染：实时动态（对比上一轮快照，固定 MAX_EVENTS 条） ---------------- */
-
-  function pushEvent(time, text) {
-    state.events.unshift({ t: time, s: text })
-    if (state.events.length > C.MAX_EVENTS) state.events.length = C.MAX_EVENTS
-  }
-
-  function diffEvents(d) {
-    var p = state.prev
-    var now = hhmmss(new Date())
-    if (!p) {
-      // 首帧：没有上一轮快照可对比，只补一条「已连接」，不做全量对比 ——
-      // 否则会把第一轮里的每台车都刷成「新发现车辆」，动态栏开局刷屏。
-      pushEvent(now, '大屏已连接后端，开始接收实时数据')
-      renderEvents()
-      state.prev = d
-      return
-    }
-    // 车辆状态变化
-    var prevRobots = {}
-    ;(p.robots || []).forEach(function (r) { prevRobots[r.device_sn] = r })
-    ;(d.robots || []).forEach(function (r) {
-      var old = prevRobots[r.device_sn]
-      if (!old) pushEvent(now, '发现车辆 ' + (r.name || r.device_sn) + ' 在线')
-      else if (old.machine_text !== r.machine_text) {
-        pushEvent(now, (r.name || r.device_sn) + ' 状态 ' + (old.machine_text || '未知') + ' → ' + (r.machine_text || '未知'))
-      }
-    })
-    // 新批次
-    var prevBatch = {}
-    ;(p.batches || []).forEach(function (b) { prevBatch[b.id] = b })
-    ;(d.batches || []).forEach(function (b) {
-      if (!prevBatch[b.id]) pushEvent(now, '新建配送批次 ' + (b.batch_no || b.id) + '，共 ' + num(b.active_orders) + ' 单')
-      else if (prevBatch[b.id].status !== b.status) {
-        pushEvent(now, '批次 ' + (b.batch_no || b.id) + ' 进入「' + (b.status_text || b.status) + '」')
-      }
-    })
-    // 新取餐超时
-    var prevAlert = {}
-    ;(p.pickup_alerts || []).forEach(function (a) { prevAlert[a.id] = a })
-    ;(d.pickup_alerts || []).forEach(function (a) {
-      var old = prevAlert[a.id]
-      if (!old) pushEvent(now, '取餐超时告警：' + (a.landmark_name || '') + ' ' + (a.order_no || ''))
-      else if (num(old.pickup_timeout_stage) !== num(a.pickup_timeout_stage)) {
-        pushEvent(now, (a.order_no || '') + ' 取餐超时进入第 ' + num(a.pickup_timeout_stage) + ' 段')
-      }
-    })
-    renderEvents()
-    // ★ 2026-10-14 修复：此前从未写回，p 恒为 null，上面整段对比永不执行 → 右侧实时动态永远为空。
-    // 原版 dashboard.js（分件前）在循环末尾有 state.prev = d，分件时弄丢了。
-    state.prev = d
-  }
+  /* ---------------- 渲染：实时动态（读后端 status_events，刷新不丢） ----------------
+   * 2026-10-19 改口径：以前这里是**在浏览器内存里现算差异** —— 前端对比上一轮轮询快照，
+   * 拼出「发现车辆 X 在线」「批次进入某某」这类文案存进 state.events。问题：
+   *   · 只活在当前标签页，刷新/关页即清空，等于没有日志；
+   *   · 多块屏各算各的，同一时刻内容不一致；
+   *   · 事后无法追溯（谁在什么时候改了什么，全丢了）。
+   * 现在改为后端在 overview 里下发 log_events（读 status_events 表），前端只负责摆位置。
+   * 后端返回的已经是拼好的人读文案 { id, t, s }，前端不再维护状态字典。
+   * ------------------------------------------------------------- */
 
   function renderEvents() {
     var list = $('eventList')
-    while (list.children.length < state.events.length) list.appendChild(document.createElement('li'))
-    while (list.children.length > state.events.length) list.removeChild(list.lastChild)
-    state.events.forEach(function (e, i) {
-      list.children[i].innerHTML = '<span class="eTime">' + e.t + '</span><span class="eText">' + e.s + '</span>'
+    if (!list) return
+    var evs = state.events || []
+    while (list.children.length < evs.length) list.appendChild(document.createElement('li'))
+    while (list.children.length > evs.length) list.removeChild(list.lastChild)
+    evs.forEach(function (e, i) {
+      var li = list.children[i]
+      // old = 非当天。时间已由后端格式化成「MM-DD HH:MM」，这里只负责压暗，不再做日期计算。
+      li.className = e.old ? 'old' : ''
+      li.innerHTML = '<span class="eTime">' + (e.t || '') + '</span><span class="eText">' + (e.s || '') + '</span>'
     })
+  }
+
+  // 解析后端下发的日志。失败时保留上一轮内容（网络抖动不该把墙上日志清空）。
+  function applyEvents(d) {
+    var evs = d && d.log_events
+    if (Array.isArray(evs)) state.events = evs
+    renderEvents()
   }
 
   return {
     tickClock: tickClock, setConn: setConn,
     renderRunState: renderRunState, renderStats: renderStats,
     renderRobots: renderRobots, renderBatches: renderBatches,
-    renderAlerts: renderAlerts, diffEvents: diffEvents, renderEvents: renderEvents
+    renderAlerts: renderAlerts, applyEvents: applyEvents, renderEvents: renderEvents
   }
 })(window.Dash)

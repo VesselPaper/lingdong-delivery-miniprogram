@@ -114,5 +114,16 @@ module.exports = {
   recentEvents: (store, limit = 800) => store.prepare(
     `SELECT entity_type, entity_id, to_status, status_text, actor_type, actor_name, created_at
      FROM status_events ORDER BY id DESC LIMIT ?`
-  ).all(Math.min(Math.max(Number(limit) || 800, 1), 3000))
+  ).all(Math.min(Math.max(Number(limit) || 800, 1), 3000)),
+
+  // 大屏「实时动态」：全站最近 N 条业务状态流水，跨订单/批次/任务。
+  // 与上面 recentEvents 的区别：这里必须带 from_status —— 大屏要显示「待接单 → 配送中」的迁移方向；
+  // recentEvents 只给最终状态，是给「最新状态摘要」用的。
+  // 排序按 created_at 而不是 id：日志给**人**看，时间顺序才是直觉；id 只是插入顺序，
+  // 一旦库里存有不同批次导入/补录的数据（id 顺序与时间顺序可能不一致），按 id 排会出现
+  // 「上面 15:21、下面 15:57」这种看着像乱序的版面。同一秒内再用 id 兜底保证稳定。
+  recentEventsForBoard: (store, limit = 20) => store.prepare(
+    `SELECT id, entity_type, entity_id, from_status, to_status, status_text, actor_type, actor_name, note, created_at
+     FROM status_events ORDER BY created_at DESC, id DESC LIMIT ?`
+  ).all(Math.min(Math.max(Number(limit) || 20, 1), 200))
 }
