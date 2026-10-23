@@ -8,6 +8,8 @@ const fs = require('fs')
 const { createShared, toStock } = require('../_shared')
 const q = require('./queries')
 const service = require('./service')
+// 店铺上下文：公开接口的 ?shop_id= 归一化、店铺列表（多店铺地基，见 services/shops.js）
+const shopSvc = require('../../services/shops')
 // 外部条码库查询适配器（可替换）：扫到本地没有的条码时用它去外部查商品信息。
 // 现在还没拿到商铺接口，它是占位实现；接口到位后只改那一个文件。
 const goodsLookup = require('../../services/goodsLookup')
@@ -70,29 +72,50 @@ module.exports = (store, deps) => {
   const runtime = deps.runtime
   const router = express.Router()
 
+  // 公开接口的店铺口径：?shop_id= 传了就用，不传落 1 号店（老版本小程序不传，行为不变）
+  const publicShopId = (req) => shopSvc.normalizeShopId((req.query || {}).shop_id)
+
   // ---------- 商品（公开） ----------
-  router.get('/goods/categories', (req, res) => ok(res, q.categories(store)))
+  router.get('/goods/categories', (req, res) => ok(res, q.categories(store, publicShopId(req))))
 
   // 商品列表附折后价/命中折扣（sale_price/discount_info，展示用；真实金额以 order/create 权威计算）
-  router.get('/goods/list', (req, res) => ok(res, service.withPromoPrices(store, q.list(store, req.query))))
+  router.get('/goods/list', (req, res) => ok(res,
+    service.withPromoPrices(store, q.list(store, req.query, publicShopId(req)))))
 
+  // 商品详情：按店铺校验存在性 —— 别家店的商品 id 直接 404，不返回任何字段
   router.get('/goods/detail', (req, res) => {
-    const row = q.findById(store, req.query.id || 0)
+    const row = q.findById(store, req.query.id || 0, publicShopId(req))
     if (!row) return res.status(404).json({ code: 404, msg: '商品不存在' })
     ok(res, service.withPromoPrices(store, row)[0])
   })
 
   // ---------- 活动（公开） ----------
   // 类型化活动列表：附 type/config(已解析)/起止时间/state（active|pending|ended）
-  router.get('/activity/list', (req, res) => ok(res, service.listActivitiesTyped(store)))
+  router.get('/activity/list', (req, res) => ok(res,
+    service.listActivitiesTyped(store, publicShopId(req))))
+
+  // ---------- 店铺（公开） ----------
+  // 店铺列表：用户端多店入口用（一期只有 1 家店，前端可继续只读 /shop/status）
+  router.get('/shop/list', (req, res) => ok(res, shopSvc.listShops(store).map((s) => ({
+    id: Number(s.id),
+    name: s.name || '',
+    code: s.code || '',
+    logo: s.logo || '',
+    category: s.category || '',
+    address: s.address || '',
+    business_status: s.business_status || 'open',
+    min_order: Number(s.min_order || 0),
+    delivery_fee: s.delivery_fee === undefined || s.delivery_fee === null ? 1 : s.delivery_fee
+  }))))
 
   // ---------- 店铺状态 ----------
-  router.get('/merchant/shop', merchantGuard, (req, res) => ok(res, service.shopWithRuntime(q.getShop(store), runtime)))
+  router.get('/merchant/shop', merchantGuard, (req, res) => ok(res,
+    service.shopWithRuntime(q.getShop(store, req.shopId), runtime)))
 
-  // 店铺设置（营业状态/自动接单/配送费）：店主专属（店员不开放，避免误操作歇业/改价）
+  // 店铺设置（营业状态/自动接单/配送费/取货点等）：店主专属（店员不开放，避免误操作歇业/改价）
   router.put('/merchant/shop', ownerGuard, (req, res) => {
-    const { business_status, auto_accept, delivery_fee } = req.body || {}
-    const cur = q.getShop(store)
+    const { business_status, auto_accept, delivery_fee, code, logo, category, address, pickup_landmark_id, min_order, pack_fee } = req.body || {}
+    const cur = q.getShop(store, req.shopId)
     // 未传的字段保留原值（此前 business_status 缺省会被强制成 open，导致单改配送费会把歇业店改回营业）
     const st = business_status === undefined ? (cur.business_status || 'open') : (business_status === 'closed' ? 'closed' : 'open')
     const aa = auto_accept === undefined ? cur.auto_accept : (auto_accept ? 1 : 0)
@@ -102,13 +125,37 @@ module.exports = (store, deps) => {
       const n = Number(delivery_fee)
       if (!isNaN(n) && n >= 0 && n <= 999) df = Math.round(n * 100) / 100
     }
-    q.updateShop(store, st, aa, df)
-    audit(req, 'shop/update', 'shop#1', 'business_status=' + st + ' auto_accept=' + aa + ' delivery_fee=' + df)
-    ok(res, q.getShop(store))
+    // 取货点：必须是一个真实存在的点位 id（空串=沿用全局上货点，兼容只有一家店的老配置）
+    let pickup = cur.pickup_landmark_id || ''
+    if (pickup_landmark_id !== undefined) {
+      const pid = String(pickup_landmark_id || '').trim()
+      if (pid) {
+        const hit = store.prepare('SELECT id FROM landmarks WHERE id=?').get(Number(pid))
+        if (!hit) return res.status(400).json({ code: 400, msg: '取货点不存在' })
+      }
+      pickup = pid
+    }
+    const numOr = (v, fallback, max) => {
+      if (v === undefined) return fallback
+      const n = Number(v)
+      return isNaN(n) || n < 0 || n > max ? fallback : Math.round(n * 100) / 100
+    }
+    q.updateShop(store, req.shopId, st, aa, df, {
+      code: code === undefined ? cur.code : cleanText(code || '', 40),
+      logo: logo === undefined ? cur.logo : (safeImageUrl(logo) === null ? cur.logo : safeImageUrl(logo)),
+      category: category === undefined ? cur.category : cleanText(category || '', 40),
+      address: address === undefined ? cur.address : cleanText(address || '', 200),
+      pickup_landmark_id: pickup,
+      min_order: numOr(min_order, Number(cur.min_order || 0), 9999),
+      pack_fee: numOr(pack_fee, Number(cur.pack_fee || 0), 999)
+    })
+    audit(req, 'shop/update', 'shop#' + req.shopId, 'business_status=' + st + ' auto_accept=' + aa + ' delivery_fee=' + df + ' pickup=' + pickup)
+    ok(res, q.getShop(store, req.shopId))
   })
 
   // 店铺状态（公开，用户端判断是否可下单 / 展示歇业标签）
-  router.get('/shop/status', (req, res) => ok(res, service.shopWithRuntime(q.getShop(store), runtime)))
+  router.get('/shop/status', (req, res) => ok(res,
+    service.shopWithRuntime(q.getShop(store, publicShopId(req)), runtime)))
 
   // ---------- 商家商品图片上传（base64，避免引入 multipart 依赖） ----------
   router.post('/merchant/upload', merchantGuard, (req, res) => {
@@ -125,11 +172,11 @@ module.exports = (store, deps) => {
     ok(res, { url: '/uploads/' + fname })
   })
 
-  // ---------- 商家商品管理 ----------
-  router.get('/merchant/goods', merchantGuard, (req, res) => ok(res, q.merchantList(store)))
+  // ---------- 商家商品管理（一律按 req.shopId 过滤，见 services/shops.js） ----------
+  router.get('/merchant/goods', merchantGuard, (req, res) => ok(res, q.merchantList(store, req.shopId)))
 
   // 商品分类列表（供新增/编辑商品时选择或新增）
-  router.get('/merchant/goods/categories', merchantGuard, (req, res) => ok(res, q.merchantCategories(store)))
+  router.get('/merchant/goods/categories', merchantGuard, (req, res) => ok(res, q.merchantCategories(store, req.shopId)))
 
   // 单独调整库存（标记售空=置0 / 恢复库存），不触碰其它字段
   router.put('/merchant/goods/stock', merchantGuard, (req, res) => {
@@ -137,12 +184,12 @@ module.exports = (store, deps) => {
     if (!id) return res.status(400).json({ code: 400, msg: '缺少商品 id' })
     if (stock === undefined || stock === null || stock === '') return res.status(400).json({ code: 400, msg: '缺少库存值' })
     try {
-      const g = q.findById(store, id)
+      const g = q.findById(store, id, req.shopId)
       if (!g) return res.status(404).json({ code: 404, msg: '商品不存在' })
       const newStock = toStock(stock, 0)
-      q.updateStock(store, id, newStock)
+      q.updateStock(store, id, newStock, req.shopId)
       audit(req, 'goods/stock', 'goods#' + id, 'stock ' + g.stock + '→' + newStock)
-      ok(res, q.findById(store, id))
+      ok(res, q.findById(store, id, req.shopId))
     } catch (e) {
       console.error('[goods/stock] ERROR', e && e.stack)
       res.status(500).json({ code: 500, msg: e.message })
@@ -156,11 +203,12 @@ module.exports = (store, deps) => {
     const v = nv.value
     // 条码唯一：先查再插，好告诉商家「和哪个商品撞了」。不先查的话会撞唯一索引抛 500，
     // 商家只看到一句「服务器错误」，完全不知道怎么办。
+    // 多店铺后唯一性是「一店一条码」，所以查重也在本店范围内查。
     if (v.barcode) {
-      const dup = q.findByBarcode(store, v.barcode)
+      const dup = q.findByBarcode(store, v.barcode, req.shopId)
       if (dup) return res.status(400).json({ code: 400, msg: '条码已存在（商品：' + dup.name + '）' })
     }
-    const id = q.insert(store, v)
+    const id = q.insert(store, Object.assign({}, v, { shop_id: req.shopId }))
     audit(req, 'goods/create', 'goods#' + id, 'name=' + v.name + ' price=' + v.price + ' stock=' + v.stock)
     ok(res, { id })
   })
@@ -169,7 +217,7 @@ module.exports = (store, deps) => {
   router.put('/merchant/goods', ownerGuard, (req, res) => {
     const { id, name, price, original_price, image, category, stock, description, status, barcode, unit } = req.body || {}
     if (!id) return res.status(400).json({ code: 400, msg: '缺少商品 id' })
-    const cur = q.findById(store, id)
+    const cur = q.findById(store, id, req.shopId)
     if (!cur) return res.status(404).json({ code: 404, msg: '商品不存在' })
     // 未传字段保留原值；传了则按新值校验
     const n = name === undefined ? cur.name : String(name || '').trim()
@@ -188,7 +236,7 @@ module.exports = (store, deps) => {
     // 商家只看到「服务器错误」，不知道是条码重复。
     const bcNew = String(barcode !== undefined ? barcode : (cur.barcode || '')).trim()
     if (bcNew && bcNew !== String(cur.barcode || '').trim()) {
-      const dup = q.findByBarcode(store, bcNew)
+      const dup = q.findByBarcode(store, bcNew, req.shopId)
       if (dup && Number(dup.id) !== Number(id)) {
         return res.status(400).json({ code: 400, msg: '条码已存在（商品：' + dup.name + '）' })
       }
@@ -203,13 +251,14 @@ module.exports = (store, deps) => {
       status: status !== undefined ? Number(status) : 1,
       barcode: bcNew,
       unit: unit !== undefined ? unit : (cur.unit || '')
-    })
+    }, req.shopId)
     audit(req, 'goods/update', 'goods#' + id, 'name=' + n + ' price=' + p + ' stock=' + st + ' status=' + (status !== undefined ? status : 1))
     ok(res)
   })
 
   router.put('/merchant/goods/status', merchantGuard, (req, res) => {
-    q.updateStatus(store, req.body.id, req.body.status)
+    const changed = q.updateStatus(store, req.body.id, req.body.status, req.shopId)
+    if (!changed) return res.status(404).json({ code: 404, msg: '商品不存在' })
     audit(req, 'goods/status', 'goods#' + req.body.id, 'status=' + Number(req.body.status))
     ok(res)
   })
@@ -222,13 +271,13 @@ module.exports = (store, deps) => {
   //   · 只删 goods 行：order_items 是下单快照（名称/图/价格都在行内），历史订单照样显示明细；
   //   · cart 残留行不动：用户端购物车按 g.status=1 过滤（LEFT JOIN 后为 NULL），既不显示也进不了结算。
   // 单次上限与批量录入一致（BATCH_MAX），避免一个请求把整张商品表删掉。
-  function removeGoods(ids) {
+  function removeGoods(ids, shopId) {
     const uniq = [...new Set((ids || []).map(Number).filter((n) => Number.isInteger(n) && n > 0))]
-    const hit = uniq.map((id) => q.findById(store, id)).filter(Boolean)
+    const hit = uniq.map((id) => q.findById(store, id, shopId)).filter(Boolean)
     if (hit.length) {
       store.exec('BEGIN')
       try {
-        for (const g of hit) q.deleteById(store, g.id)
+        for (const g of hit) q.deleteById(store, g.id, shopId)
         store.exec('COMMIT')
       } catch (e) {
         store.exec('ROLLBACK')
@@ -244,7 +293,7 @@ module.exports = (store, deps) => {
     // 但个别客户端/网关会把 DELETE 的 body 丢掉，多认一个查询串成本极低。
     const id = (req.body || {}).id || req.query.id
     if (!id) return res.status(400).json({ code: 400, msg: '缺少商品 id' })
-    const r = removeGoods([id])
+    const r = removeGoods([id], req.shopId)
     if (!r.hit.length) return res.status(404).json({ code: 404, msg: '商品不存在' })
     audit(req, 'goods/delete', 'goods#' + r.ids.join(','), 'name=' + r.hit.map((g) => g.name).join('、').slice(0, 200) + ' 删除 ' + r.hit.length + ' 条')
     ok(res, { deleted: r.hit.length, ids: r.ids })
@@ -256,7 +305,7 @@ module.exports = (store, deps) => {
     const ids = (req.body || {}).ids
     if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ code: 400, msg: '缺少 ids 数组' })
     if (ids.length > BATCH_MAX) return res.status(400).json({ code: 400, msg: '一次最多删除 ' + BATCH_MAX + ' 个商品' })
-    const r = removeGoods(ids)
+    const r = removeGoods(ids, req.shopId)
     audit(req, 'goods/batch-delete', 'goods+' + r.hit.length, '删除=' + r.hit.length + ' 不存在=' + r.missing.length + ' ids=' + r.ids.join(',').slice(0, 150))
     ok(res, { deleted: r.hit.length, ids: r.ids, missing: r.missing })
   })
@@ -298,7 +347,7 @@ module.exports = (store, deps) => {
           return
         }
         seenBarcode.set(v.barcode, line)
-        const cur = q.findByBarcode(store, v.barcode)
+        const cur = q.findByBarcode(store, v.barcode, req.shopId)
         if (cur) {
           if (ifExists === 'skip') {
             skipped++
@@ -320,11 +369,11 @@ module.exports = (store, deps) => {
       try {
         for (const w of writes) {
           if (w.kind === 'insert') {
-            const id = q.insert(store, w.v)
+            const id = q.insert(store, Object.assign({}, w.v, { shop_id: req.shopId }))
             created++
             results.push({ index: w.i, line: w.line, name: w.v.name, barcode: w.v.barcode, result: 'created', id })
           } else {
-            const cur = q.findById(store, w.id)
+            const cur = q.findById(store, w.id, req.shopId)
             // q.update 是全字段覆盖：这里没提供的图片/描述/原价/状态沿用原值，
             // 免得「只想改个价」把商家上传的图和描述一起清空。
             q.update(store, w.id, {
@@ -333,7 +382,7 @@ module.exports = (store, deps) => {
               category: w.v.category, stock: w.v.stock,
               description: cur.description, status: cur.status,
               barcode: w.v.barcode, unit: w.v.unit
-            })
+            }, req.shopId)
             updated++
             results.push({ index: w.i, line: w.line, name: w.v.name, barcode: w.v.barcode, result: 'updated', id: w.id })
           }
@@ -357,7 +406,7 @@ module.exports = (store, deps) => {
   router.get('/merchant/goods/by-barcode', merchantGuard, async (req, res) => {
     const code = String(req.query.code || '').trim()
     if (!code) return res.status(400).json({ code: 400, msg: '缺少条码' })
-    const hit = q.findByBarcode(store, code)
+    const hit = q.findByBarcode(store, code, req.shopId)
     if (hit) {
       return ok(res, {
         found: true, source: 'local',
@@ -377,7 +426,16 @@ module.exports = (store, deps) => {
   })
 
   // ---------- 商家端活动管理（发布/编辑/上下线/删除）——店主专属 ----------
-  router.get('/merchant/activities', ownerGuard, (req, res) => ok(res, q.merchantActivities(store)))
+  // 多店铺：列表只给本店活动（+平台级 shop_id=0）；改/删必须校验活动属于本店，
+  // 否则拿别家店的 activity id 就能改别人的活动 —— 这是多店后最容易漏的一类越权。
+  function activityOfShop(id, shopId) {
+    const a = q.findActivityById(store, id)
+    if (!a) return null
+    if (Number(a.shop_id || 1) !== Number(shopId)) return null
+    return a
+  }
+
+  router.get('/merchant/activities', ownerGuard, (req, res) => ok(res, q.merchantActivities(store, req.shopId)))
 
   // 新建活动：status_action='draft'（默认，只保存不上架）/ 'publish'（保存并发布）
   router.post('/merchant/activities', ownerGuard, (req, res) => {
@@ -398,6 +456,7 @@ module.exports = (store, deps) => {
     }
     const cfgJson = typeof config === 'string' ? config : JSON.stringify(config || {})
     const id = q.insertActivity(store, {
+      shop_id: req.shopId,
       title: t,
       subtitle: cleanText(subtitle, 120),
       image: img,
@@ -413,7 +472,7 @@ module.exports = (store, deps) => {
   router.put('/merchant/activities', ownerGuard, (req, res) => {
     const { id, title, subtitle, image, link, sort, type, config, start_at, end_at, status_action } = req.body || {}
     if (!id) return res.status(400).json({ code: 400, msg: '缺少活动ID' })
-    const cur = q.findActivityById(store, id)
+    const cur = activityOfShop(id, req.shopId)
     if (!cur) return res.status(404).json({ code: 404, msg: '活动不存在' })
     const t = title === undefined ? cur.title : String(title || '').trim()
     if (!t) return res.status(400).json({ code: 400, msg: '活动标题不能为空' })
@@ -454,7 +513,7 @@ module.exports = (store, deps) => {
   router.put('/merchant/activities/status', ownerGuard, (req, res) => {
     const { id, status, action } = req.body || {}
     if (!id) return res.status(400).json({ code: 400, msg: '缺少活动ID' })
-    const cur = q.findActivityById(store, id)
+    const cur = activityOfShop(id, req.shopId)
     if (!cur) return res.status(404).json({ code: 404, msg: '活动不存在' })
     // 兼容旧调用（只传 status：1 发布 / 0 下线），新代码建议传 action
     const act = action !== undefined ? action : (Number(status) === 1 ? 'publish' : 'offline')
@@ -466,8 +525,10 @@ module.exports = (store, deps) => {
   })
 
   router.delete('/merchant/activities', ownerGuard, (req, res) => {
-    q.deleteActivity(store, req.body.id)
-    audit(req, 'activity/delete', 'activity#' + req.body.id, '')
+    const cur = activityOfShop((req.body || {}).id, req.shopId)
+    if (!cur) return res.status(404).json({ code: 404, msg: '活动不存在' })
+    q.deleteActivity(store, cur.id)
+    audit(req, 'activity/delete', 'activity#' + cur.id, '')
     ok(res)
   })
 

@@ -1,60 +1,99 @@
 // goods 域专属表：goods / shops / activities
 // 全部写操作只碰本域三张表。goodsStats（settleSales/restoreStock）归本域，但下单/结算入口在
 // order/delivery 域逻辑里，由 goods.service 对外暴露（步骤 2/3 迁移时接入）。
+//
+// 多店铺（2026-10-23）：goods / activities 都带 shop_id。
+//   · 用户端（公开）查询：按传入店铺过滤；不传就是 1 号店（老接口行为不变）
+//   · 商家端（管理）查询：一律按 req.shopId 过滤，绝不返回全表 —— 否则就是「B 店能改 A 店商品」
+//   · 活动/券的 shop_id=0 表示「平台级」，对全部店铺可见（一期不用，先留语义，避免以后再加一列）
+
+const shopSvc = require('../../services/shops')
+
+const sid = (v) => shopSvc.normalizeShopId(v)
 
 module.exports = {
   // ---------- goods（公开） ----------
-  categories: (store) => store.prepare('SELECT DISTINCT category FROM goods WHERE status=1 ORDER BY id').all().map((r) => r.category),
-  list: (store, query) => {
+  categories: (store, shopId) => store.prepare('SELECT DISTINCT category FROM goods WHERE status=1 AND shop_id=? ORDER BY id')
+    .all(sid(shopId)).map((r) => r.category),
+  list: (store, query, shopId) => {
     const { category = '', keyword = '' } = query || {}
-    let sql = 'SELECT * FROM goods WHERE status=1'
-    const args = []
+    let sql = 'SELECT * FROM goods WHERE status=1 AND shop_id=?'
+    const args = [sid(shopId)]
     if (category) { sql += ' AND category=?'; args.push(category) }
     if (keyword) { sql += ' AND name LIKE ?'; args.push('%' + keyword + '%') }
     sql += ' ORDER BY sales DESC'
     return store.prepare(sql).all(...args)
   },
-  findById: (store, id) => store.prepare('SELECT * FROM goods WHERE id=?').get(Number(id)),
+  // shopId 传了就只在该店范围内找（商家端编辑/删除必须先过这一关），不传按 id 全局找（历史调用方/跨域）
+  findById: (store, id, shopId) => {
+    if (shopId === undefined || shopId === null || shopId === '') {
+      return store.prepare('SELECT * FROM goods WHERE id=?').get(Number(id))
+    }
+    return store.prepare('SELECT * FROM goods WHERE id=? AND shop_id=?').get(Number(id), sid(shopId))
+  },
   // 按条码精确查（扫码录入用）。空条码不参与查询：否则所有「没填条码的商品」会互相匹配上。
-  findByBarcode: (store, code) => {
+  // 多店铺后条码唯一性是「一店一条码」，所以查询也必须带店铺，否则会扫到别家店的商品。
+  findByBarcode: (store, code, shopId) => {
     const c = String(code === undefined || code === null ? '' : code).trim()
     if (!c) return undefined
-    return store.prepare('SELECT * FROM goods WHERE barcode=?').get(c)
+    return store.prepare('SELECT * FROM goods WHERE barcode=? AND shop_id=?').get(c, sid(shopId))
   },
 
   // ---------- goods（商家管理） ----------
-  merchantList: (store) => store.prepare('SELECT * FROM goods ORDER BY id DESC').all(),
-  merchantCategories: (store) => store.prepare("SELECT category FROM goods WHERE category != '' GROUP BY category ORDER BY MIN(id)").all().map((r) => r.category),
-  updateStock: (store, id, stock) => store.prepare('UPDATE goods SET stock=? WHERE id=?').run(stock, Number(id)),
+  merchantList: (store, shopId) => store.prepare('SELECT * FROM goods WHERE shop_id=? ORDER BY id DESC').all(sid(shopId)),
+  merchantCategories: (store, shopId) => store.prepare("SELECT category FROM goods WHERE shop_id=? AND category != '' GROUP BY category ORDER BY MIN(id)")
+    .all(sid(shopId)).map((r) => r.category),
+  updateStock: (store, id, stock, shopId) => store.prepare('UPDATE goods SET stock=? WHERE id=? AND shop_id=?')
+    .run(Number(stock), Number(id), sid(shopId)).changes,
   insert: (store, f) => {
-    const info = store.prepare('INSERT INTO goods (name, price, original_price, image, category, stock, description, barcode, unit) VALUES (?,?,?,?,?,?,?,?,?)')
-      .run(f.name, Number(f.price), Number(f.original_price || 0), f.image || '', f.category || '其他', f.stock, f.description || '', String(f.barcode || '').trim(), String(f.unit || '').trim())
+    const info = store.prepare('INSERT INTO goods (shop_id, name, price, original_price, image, category, stock, description, barcode, unit) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(sid(f.shop_id), f.name, Number(f.price), Number(f.original_price || 0), f.image || '', f.category || '其他', f.stock, f.description || '', String(f.barcode || '').trim(), String(f.unit || '').trim())
     return Number(info.lastInsertRowid)
   },
-  update: (store, id, f) => store.prepare('UPDATE goods SET name=?, price=?, original_price=?, image=?, category=?, stock=?, description=?, status=?, barcode=?, unit=? WHERE id=?')
-    .run(f.name, Number(f.price), Number(f.original_price || 0), f.image || '', f.category || '其他', f.stock, f.description || '', f.status, String(f.barcode !== undefined ? f.barcode : '').trim(), String(f.unit !== undefined ? f.unit : '').trim(), Number(id)),
-  updateStatus: (store, id, status) => store.prepare('UPDATE goods SET status=? WHERE id=?').run(Number(status), Number(id)),
+  update: (store, id, f, shopId) => store.prepare('UPDATE goods SET name=?, price=?, original_price=?, image=?, category=?, stock=?, description=?, status=?, barcode=?, unit=? WHERE id=? AND shop_id=?')
+    .run(f.name, Number(f.price), Number(f.original_price || 0), f.image || '', f.category || '其他', f.stock, f.description || '', f.status, String(f.barcode !== undefined ? f.barcode : '').trim(), String(f.unit !== undefined ? f.unit : '').trim(), Number(id), sid(shopId)).changes,
+  updateStatus: (store, id, status, shopId) => store.prepare('UPDATE goods SET status=? WHERE id=? AND shop_id=?')
+    .run(Number(status), Number(id), sid(shopId)).changes,
 
   // 真删一行商品（商家端「删除商品」/运维清理用）。
   // 只删 goods：order_items 存的是下单时的快照（goods_name/goods_image/price 都在行内），历史订单
   // 照样显示明细；cart 的残留行不动 —— 用户端购物车按 g.status=1 过滤（LEFT JOIN 后为 NULL），
   // 残留行不会显示成空白条目，也进不了结算（下单前会再查商品是否存在）。
-  deleteById: (store, id) => store.prepare('DELETE FROM goods WHERE id=?').run(Number(id)),
+  deleteById: (store, id, shopId) => store.prepare('DELETE FROM goods WHERE id=? AND shop_id=?')
+    .run(Number(id), sid(shopId)).changes,
 
   // ---------- shops ----------
-  getShop: (store) => store.prepare('SELECT * FROM shops WHERE id=1').get() || {},
-  updateShop: (store, business_status, auto_accept, delivery_fee) => store.prepare(
-    "UPDATE shops SET business_status=?, auto_accept=?, delivery_fee=?, updated_at=datetime('now','localtime') WHERE id=1").run(business_status, auto_accept, delivery_fee),
+  getShop: (store, shopId) => store.prepare('SELECT * FROM shops WHERE id=?').get(sid(shopId)) || {},
+  // 店铺设置整行更新：未传的可选字段由调用方从当前行带入（见 routes 里的 PUT /merchant/shop）
+  updateShop: (store, shopId, business_status, auto_accept, delivery_fee, f) => {
+    const x = f || {}
+    return store.prepare(`UPDATE shops SET business_status=?, auto_accept=?, delivery_fee=?,
+        code=?, logo=?, category=?, address=?, pickup_landmark_id=?, min_order=?, pack_fee=?,
+        updated_at=datetime('now','localtime') WHERE id=?`).run(
+      business_status, auto_accept, delivery_fee,
+      String(x.code || ''),
+      String(x.logo || ''),
+      String(x.category || ''),
+      String(x.address || ''),
+      String(x.pickup_landmark_id || ''),
+      Number(x.min_order || 0),
+      Number(x.pack_fee || 0),
+      sid(shopId)
+    ).changes
+  },
 
   // ---------- activities ----------
-  listActivities: (store) => store.prepare('SELECT * FROM activities WHERE status=1 ORDER BY sort, id DESC').all(),
-  merchantActivities: (store) => store.prepare('SELECT * FROM activities ORDER BY sort, id DESC').all(),
+  // 公开：本店活动 + 平台级活动（shop_id=0）
+  listActivities: (store, shopId) => store.prepare('SELECT * FROM activities WHERE status=1 AND shop_id IN (0,?) ORDER BY sort, id DESC')
+    .all(sid(shopId)),
+  merchantActivities: (store, shopId) => store.prepare('SELECT * FROM activities WHERE shop_id IN (0,?) ORDER BY sort, id DESC')
+    .all(sid(shopId)),
   findActivityById: (store, id) => store.prepare('SELECT * FROM activities WHERE id=?').get(Number(id)),
   // status 由调用方决定：0=草稿（保存但不上架）/ 1=已发布。此前这里硬编码 1，
   // 导致「保存」等于「上架」，商家无法先存草稿再发布。
   insertActivity: (store, f) => {
-    const info = store.prepare('INSERT INTO activities (title, subtitle, image, link, status, sort, type, config, start_at, end_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
-      .run(f.title, f.subtitle, f.image, f.link, Number(f.status) === 1 ? 1 : 0, Number(f.sort || 0), String(f.type || 'custom'), String(f.config || '{}'), f.start_at || null, f.end_at || null)
+    const info = store.prepare('INSERT INTO activities (shop_id, title, subtitle, image, link, status, sort, type, config, start_at, end_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+      .run(sid(f.shop_id), f.title, f.subtitle, f.image, f.link, Number(f.status) === 1 ? 1 : 0, Number(f.sort || 0), String(f.type || 'custom'), String(f.config || '{}'), f.start_at || null, f.end_at || null)
     return Number(info.lastInsertRowid)
   },
   updateActivity: (store, id, f) => store.prepare('UPDATE activities SET title=?, subtitle=?, image=?, link=?, sort=?, type=?, config=?, start_at=?, end_at=? WHERE id=?')

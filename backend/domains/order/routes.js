@@ -10,6 +10,8 @@ const q = require('./queries')
 const s = require('./service')
 // 编号格式化：人读短号（订单 MMDD-NN / 批次 B-MMDD-NN）
 const seqSvc = require('../../services/seq')
+// 店铺上下文：商家端每个查询都要按 req.shopId 收口（见 doc/16 一期）
+const shopSvc = require('../../services/shops')
 
 module.exports = (store, deps) => {
   const { auth, merchantGuard, ownerGuard, audit, ok, maskPhone } = createShared(store)
@@ -92,8 +94,13 @@ module.exports = (store, deps) => {
 
   router.get('/order/list', auth, (req, res) => {
     const { status = '' } = req.query
+    // 多店铺（2026-10-23）：用户自己的订单永远是自己的，不需要按店过滤；但要带店名，
+    // 否则多店之后用户在外卖单里分不清哪单是哪家店买的。
+    const names = shopSvc.nameMap(store)
     const rows = q.listByUser(store, req.user.id, status).map((o) => ({
       ...o,
+      shop_id: Number(o.shop_id || shopSvc.DEFAULT_SHOP_ID),
+      shop_name: names.get(Number(o.shop_id || shopSvc.DEFAULT_SHOP_ID)) || '',
       status_text: s.orderStatusText(o),
       code_short: seqSvc.orderShortOf(o.seq_date, o.created_at, o.daily_seq || o.id)
     }))
@@ -144,8 +151,11 @@ module.exports = (store, deps) => {
         }
       }
     }
+    const shop = shopSvc.shopById(store, order.shop_id)
     ok(res, {
       ...order,
+      shop_id: Number(order.shop_id || shopSvc.DEFAULT_SHOP_ID),
+      shop_name: (shop && shop.name) || '',
       status_text: s.orderStatusText(order),
       code_short: seqSvc.orderShortOf(order.seq_date, order.created_at, order.daily_seq || order.id),
       items,
@@ -212,11 +222,11 @@ module.exports = (store, deps) => {
 
   router.get('/merchant/cancel-requests', merchantGuard, (req, res) => {
     const { status = '' } = req.query
-    ok(res, q.listCancelRequestsMerchant(store, status).map((r) => ({ ...r, status_text: s.CANCEL_REQ_STATUS[r.status] || '' })))
+    ok(res, q.listCancelRequestsMerchant(store, status, req.shopId).map((r) => ({ ...r, status_text: s.CANCEL_REQ_STATUS[r.status] || '' })))
   })
 
   router.get('/merchant/cancel-request/detail', merchantGuard, (req, res) => {
-    const row = q.cancelRequestMerchantDetail(store, req.query.id)
+    const row = q.cancelRequestMerchantDetail(store, req.query.id, req.shopId)
     if (!row) return res.status(404).json({ code: 404, msg: '取消申请不存在' })
     ok(res, { ...row, status_text: s.CANCEL_REQ_STATUS[row.status] || '', order_status_text: s.ORDER_STATUS[row.order_status] || '' })
   })
@@ -226,6 +236,11 @@ module.exports = (store, deps) => {
     const { id, action = '', reply = '' } = req.body || {}
     const c = q.findCancelRequestById(store, id)
     if (!c) return res.status(404).json({ code: 404, msg: '取消申请不存在' })
+    // 跨店拦截：B 店账号拿到 A 店的申请 id 也不能处理
+    const reqOrder = q.findById(store, c.order_id)
+    if (!reqOrder || Number(reqOrder.shop_id || shopSvc.DEFAULT_SHOP_ID) !== Number(req.shopId)) {
+      return res.status(404).json({ code: 404, msg: '取消申请不存在' })
+    }
     if (Number(c.status) !== 0) return res.status(400).json({ code: 400, msg: '该申请已处理' })
     if (action === 'approve') {
       // 先取消订单（内部 CAS 抢占），取消成功后才把申请置为已处理
@@ -272,11 +287,11 @@ module.exports = (store, deps) => {
 
   router.get('/merchant/refunds', merchantGuard, (req, res) => {
     const { status = '' } = req.query
-    ok(res, q.listRefundsMerchant(store, status).map((r) => ({ ...r, status_text: s.REFUND_STATUS[r.status] || '' })))
+    ok(res, q.listRefundsMerchant(store, status, req.shopId).map((r) => ({ ...r, status_text: s.REFUND_STATUS[r.status] || '' })))
   })
 
   router.get('/merchant/refund/detail', merchantGuard, (req, res) => {
-    const row = q.refundMerchantDetail(store, req.query.id)
+    const row = q.refundMerchantDetail(store, req.query.id, req.shopId)
     row ? ok(res, row) : res.status(404).json({ code: 404, msg: '售后单不存在' })
   })
 
@@ -285,6 +300,11 @@ module.exports = (store, deps) => {
     const { id, action = '', amount, reply = '' } = req.body || {}
     const r = q.findRefundById(store, id)
     if (!r) return res.status(404).json({ code: 404, msg: '售后单不存在' })
+    // 跨店拦截：售后归属沿订单判定（见 queries.listRefundsMerchant 的注释）
+    const reqOrder = q.findById(store, r.order_id)
+    if (!reqOrder || Number(reqOrder.shop_id || shopSvc.DEFAULT_SHOP_ID) !== Number(req.shopId)) {
+      return res.status(404).json({ code: 404, msg: '售后单不存在' })
+    }
     if (Number(r.status) !== 0) return res.status(400).json({ code: 400, msg: '该售后已处理' })
     if (r.type === 'refund') {
       if (action === 'approve') {
@@ -323,23 +343,28 @@ module.exports = (store, deps) => {
 
   // ---------- 商家端订单 ----------
   router.get('/merchant/stats', merchantGuard, (req, res) => {
-    ok(res, s.computeStats(store))
+    // 商家工作台的数字必须是「这家店」的；全平台的数字只给大屏 / 管理员（不传 shopId）
+    const stats = s.computeStats(store, req.shopId)
+    const shop = shopSvc.shopById(store, req.shopId)
+    ok(res, { ...stats, shop_id: Number(req.shopId) || shopSvc.DEFAULT_SHOP_ID, shop_name: (shop && shop.name) || '' })
   })
 
   // 商家订单列表：status / scope(active|history) / stage(accept|load|deliver|pickup) 三种过滤
+  // 多店铺（2026-10-23）：一切商家查询都先按 req.shopId 收口 —— 否则 B 店账号在「待接单」里
+  // 能看到 A 店的订单，还能点进去看收餐人手机号（脱敏后仍能定位到人）。
   router.get('/merchant/orders', merchantGuard, (req, res) => {
     const { status = '', scope = '', stage = '' } = req.query
-    let sql = 'SELECT * FROM orders'
-    const args = []
+    const conds = ['shop_id = ?']
+    const args = [Number(req.shopId) || 1]
     // 跨域只读：delivery_batches 状态过滤（与任务页 load/deliver 口径一致）
-    if (stage === 'accept') sql += ' WHERE status=1'
-    else if (stage === 'load') sql += " WHERE status=2 AND (batch_id IS NULL OR batch_id IN (SELECT id FROM delivery_batches WHERE status IN (0,1)))"
-    else if (stage === 'deliver') sql += " WHERE status=2 AND batch_id IN (SELECT id FROM delivery_batches WHERE status=2)"
-    else if (stage === 'pickup') sql += ' WHERE status=3'
-    else if (scope === 'active') sql += ' WHERE status IN (1,2,3)'
-    else if (scope === 'history') sql += ' WHERE status IN (4,5,6,7)'
-    else if (status !== '' && status !== undefined) { sql += ' WHERE status=?'; args.push(Number(status)) }
-    sql += ' ORDER BY id DESC'
+    if (stage === 'accept') conds.push('status=1')
+    else if (stage === 'load') conds.push("status=2 AND (batch_id IS NULL OR batch_id IN (SELECT id FROM delivery_batches WHERE status IN (0,1)))")
+    else if (stage === 'deliver') conds.push("status=2 AND batch_id IN (SELECT id FROM delivery_batches WHERE status=2)")
+    else if (stage === 'pickup') conds.push('status=3')
+    else if (scope === 'active') conds.push('status IN (1,2,3)')
+    else if (scope === 'history') conds.push('status IN (4,5,6,7)')
+    else if (status !== '' && status !== undefined) { conds.push('status=?'); args.push(Number(status)) }
+    const sql = 'SELECT * FROM orders WHERE ' + conds.join(' AND ') + ' ORDER BY id DESC'
     const getItems = store.prepare('SELECT id, goods_id, goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?')
     const getBatch = store.prepare('SELECT id, batch_no, daily_seq, seq_date, created_at, status, total_items, route FROM delivery_batches WHERE id=?')
     const stageText = { accept: '待接单', load: '待上货', deliver: '配送中', pickup: '待取货' }[stage] || ''
@@ -377,7 +402,8 @@ module.exports = (store, deps) => {
 
   router.get('/merchant/order/detail', merchantGuard, (req, res) => {
     const order = q.findById(store, req.query.id)
-    if (!order) return res.status(404).json({ code: 404, msg: '订单不存在' })
+    // 跨店订单一律当不存在（不返回任何字段，避免「存在性」泄露）
+    if (!order || Number(order.shop_id || 1) !== Number(req.shopId || 1)) return res.status(404).json({ code: 404, msg: '订单不存在' })
     const items = q.itemsByOrder(store, order.id)
     let batchInfo = null
     if (order.batch_id) {
@@ -499,7 +525,8 @@ module.exports = (store, deps) => {
     const { tab = 'pending' } = req.query
     const getItems = store.prepare('SELECT id, goods_id, goods_name, goods_image, price, quantity FROM order_items WHERE order_id=?')
     const getBatch = store.prepare('SELECT batch_no, daily_seq, seq_date, created_at, status, total_items, route FROM delivery_batches WHERE id=?')
-    const rows = store.prepare("SELECT * FROM orders WHERE status=6 OR exception_handled != '' ORDER BY id DESC").all()
+    // 多店铺：异常单同样只在本店范围内查（跨店异常单不该出现在本店工作台）
+    const rows = store.prepare("SELECT * FROM orders WHERE shop_id=? AND (status=6 OR exception_handled != '') ORDER BY id DESC").all(Number(req.shopId) || 1)
     const out = rows.filter((o) => {
       if (tab === 'pending') return Number(o.status) === 6 && !o.exception_handled
       if (tab === 'done') return !!o.exception_handled

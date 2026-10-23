@@ -30,16 +30,41 @@ module.exports = {
     .run(ok ? 1 : 2, ok ? '' : String(msg || '').slice(0, 200), Number(id)),
   setTaskStatusByBatchBelow: (store, batchId, status, text) => store.prepare("UPDATE delivery_tasks SET task_status=?, status_text=?, updated_at=datetime('now','localtime') WHERE batch_id=? AND task_status < ?")
     .run(Number(status), text, Number(batchId), Number(status)),
-  monitorTasks: (store) => store.prepare(`
+  // 多店铺（2026-10-23）：监控列表沿 orders.shop_id 收口，否则商家会看到别家店的订单号与楼栋
+  monitorTasks: (store, shopId) => {
+    const scoped = shopId !== undefined && shopId !== null && shopId !== ''
+    return store.prepare(`
     SELECT d.*, o.order_no, o.landmark_name, o.status AS order_status, o.daily_seq AS order_daily_seq, o.seq_date AS order_seq_date
     FROM delivery_tasks d JOIN orders o ON d.order_id = o.id
-    WHERE d.task_status < 80 OR (d.task_status >= 90 AND d.task_status < 110)
-    ORDER BY d.id DESC`).all(),
+    WHERE (d.task_status < 80 OR (d.task_status >= 90 AND d.task_status < 110))` + (scoped ? ' AND o.shop_id=?' : '') + `
+    ORDER BY d.id DESC`).all(...(scoped ? [Number(shopId)] : []))
+  },
 
   // ---------- delivery_batches ----------
   batchById: (store, id) => store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(id)),
-  recentBatches: (store, limit) => store.prepare('SELECT * FROM delivery_batches ORDER BY id DESC LIMIT ?').all(Number(limit || 20)),
-  batchesByStatus: (store, status, limit) => store.prepare('SELECT * FROM delivery_batches WHERE status=? ORDER BY id DESC LIMIT ?').all(Number(status), Number(limit || 10)),
+  // 多店铺（2026-10-23）：批次自带 shop_id（一辆车一趟只服务一家店，见 doc/16 §七）。
+  // 商家端「配送调度」列表必须按本店过滤，否则 B 店能看到 A 店的批次与路线。
+  recentBatches: (store, limit, shopId) => {
+    const scoped = shopId !== undefined && shopId !== null && shopId !== ''
+    const sql = 'SELECT * FROM delivery_batches' + (scoped ? ' WHERE shop_id=?' : '') + ' ORDER BY id DESC LIMIT ?'
+    return scoped
+      ? store.prepare(sql).all(Number(shopId), Number(limit || 20))
+      : store.prepare(sql).all(Number(limit || 20))
+  },
+  // 跨店判定：批次不存在、或不属于该店，都返回 undefined（路由统一 404，
+  // 不告诉对方「这个批次存在但你没权限」，避免试号探测）
+  batchByIdOfShop: (store, id, shopId) => {
+    const b = store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(id))
+    if (!b) return undefined
+    return Number(b.shop_id || 1) === Number(shopId) ? b : undefined
+  },
+  batchesByStatus: (store, status, limit, shopId) => {
+    const scoped = shopId !== undefined && shopId !== null && shopId !== ''
+    const sql = 'SELECT * FROM delivery_batches WHERE status=?' + (scoped ? ' AND shop_id=?' : '') + ' ORDER BY id DESC LIMIT ?'
+    return scoped
+      ? store.prepare(sql).all(Number(status), Number(shopId), Number(limit || 10))
+      : store.prepare(sql).all(Number(status), Number(limit || 10))
+  },
   batchesByStatusIn: (store, statuses, order, limit) => {
     const ph = statuses.map(() => '?').join(',')
     return store.prepare(`SELECT * FROM delivery_batches WHERE status IN (${ph}) ORDER BY id ${order} LIMIT ?`).all(...statuses, Number(limit || 20))

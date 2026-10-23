@@ -264,6 +264,10 @@ async function runOne(algo) {
   const totalOrders = Number(db.prepare('SELECT COUNT(*) c FROM orders').get().c || 0)
   const noBatch = Number(db.prepare('SELECT COUNT(*) c FROM orders WHERE batch_id IS NULL').get().c || 0)
   db.close()
+  // legacy 实现已在 batch.js 里删除（启动会打印「旧算法已删除，本次运行按 v2 执行」）。
+  // 此时 legacy 档其实是 v2 的第二次运行，两档结果必然相同 —— 对比断言（legacy 更差）不再成立，
+  // 属于测试自身的过期假设，不是回归。这里据启动日志识别并跳过对比断言。
+  const legacyGone = /旧算法已删除/.test(srv.getLog() || '')
   cleanupDb(srv.dbPath)
 
   // ---------- 打印 ----------
@@ -287,7 +291,7 @@ async function runOne(algo) {
   for (const v of inv.violations.slice(0, 8)) console.log(`       · [${v.type}] ${v.detail}`)
 
   return {
-    algo, detail, inv, totalOrders, noBatch,
+    algo, detail, inv, totalOrders, noBatch, legacyGone,
     over: over.length, multi: multi.length,
     avgItems: avg(detail, 'items'), avgStops: avg(detail, 'stops'),
     avgTrip: avg(detail, 'tripMin'), maxTrip: Math.max(0, ...detail.map((d) => d.tripMin)),
@@ -351,7 +355,9 @@ function assert(cond, msg) {
     assert(lg.inv.ok, `legacy 收尾时不变量自检通过${lg.inv.ok ? '' : '（' + lg.inv.violations.length + ' 处）'}`)
     console.log(`  ℹ️  legacy 有 ${lg.over} / ${lg.multi} 个多站批次超过 15 分钟（这是它的已知缺陷，不是回归）`)
   }
-  if (v2 && lg) {
+  if (v2 && lg && (v2.legacyGone || lg.legacyGone)) {
+    console.log('  ℹ️  legacy 组单实现已删除（两档都跑 v2），跳过「v2 优于 legacy」两条对比断言')
+  } else if (v2 && lg) {
     assert(lg.over > 0, `对照组有效：legacy 确实产生了超 15 分钟的批次（${lg.over} 个）—— 否则说明这个测试没测出差别`)
     assert(v2.avgTrip < lg.avgTrip, `v2 平均行程 ${v2.avgTrip.toFixed(1)} 分 < legacy ${lg.avgTrip.toFixed(1)} 分`)
   }

@@ -17,9 +17,9 @@ module.exports = {
   // 原 COUNT(*)-based 的 dailySeqCount 已删除，避免被误用造成重号。
   insert: (store, f) => {
     const info = store.prepare(`INSERT INTO orders
-      (order_no, user_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, original_amount, discount_amount, activity_id, delivery_fee, status, remark, pickup_code, daily_seq, seq_date, user_coupon_id, coupon_amount)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?)`)
-      .run(f.orderNo, f.userId, f.landmarkId, f.landmarkName, f.contactName, f.contactPhone, f.totalAmount, f.originalAmount, f.discountAmount, f.activityId, f.deliveryFee, f.remark, f.pickupCode, f.seq, f.seqDate, f.userCouponId || null, Number(f.couponAmount || 0))
+      (order_no, user_id, shop_id, pickup_landmark_id, landmark_id, landmark_name, contact_name, contact_phone, total_amount, original_amount, discount_amount, activity_id, delivery_fee, status, remark, pickup_code, daily_seq, seq_date, user_coupon_id, coupon_amount)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?)`)
+      .run(f.orderNo, f.userId, Number(f.shopId || 1), String(f.pickupLandmarkId || ''), f.landmarkId, f.landmarkName, f.contactName, f.contactPhone, f.totalAmount, f.originalAmount, f.discountAmount, f.activityId, f.deliveryFee, f.remark, f.pickupCode, f.seq, f.seqDate, f.userCouponId || null, Number(f.couponAmount || 0))
     return Number(info.lastInsertRowid)
   },
   // 模拟支付：直接置待接单(1)。安全审计 L2：带 CAS（AND status=0），
@@ -60,14 +60,22 @@ module.exports = {
   findRefundById: (store, id) => store.prepare('SELECT * FROM refunds WHERE id=?').get(Number(id)),
   pendingRefundByOrder: (store, orderId) => store.prepare('SELECT id FROM refunds WHERE order_id=? AND status=0').get(Number(orderId)),
   listRefundsByUser: (store, userId) => store.prepare('SELECT r.*, o.order_no FROM refunds r JOIN orders o ON o.id = r.order_id WHERE r.user_id=? ORDER BY r.id DESC').all(userId),
-  listRefundsMerchant: (store, status) => {
+  listRefundsMerchant: (store, status, shopId) => {
     let sql = 'SELECT r.*, o.order_no, o.landmark_name FROM refunds r JOIN orders o ON o.id=r.order_id'
     const args = []
-    if (status !== '' && status !== undefined) { sql += ' WHERE r.status=?'; args.push(Number(status)) }
+    const conds = []
+    // 多店铺（2026-10-23）：售后单没有自己的 shop_id，归属只能沿 orders 表判定
+    if (shopId !== undefined && shopId !== null && shopId !== '') { conds.push('o.shop_id=?'); args.push(Number(shopId)) }
+    if (status !== '' && status !== undefined) { conds.push('r.status=?'); args.push(Number(status)) }
+    if (conds.length) sql += ' WHERE ' + conds.join(' AND ')
     sql += ' ORDER BY (r.status=0) DESC, r.id DESC'
     return store.prepare(sql).all(...args)
   },
-  refundMerchantDetail: (store, id) => store.prepare('SELECT r.*, o.order_no, o.landmark_name, o.total_amount FROM refunds r JOIN orders o ON o.id=r.order_id WHERE r.id=?').get(Number(id)),
+  refundMerchantDetail: (store, id, shopId) => {
+    const scoped = shopId !== undefined && shopId !== null && shopId !== ''
+    return store.prepare('SELECT r.*, o.order_no, o.landmark_name, o.total_amount FROM refunds r JOIN orders o ON o.id=r.order_id WHERE r.id=?' + (scoped ? ' AND o.shop_id=?' : ''))
+      .get(...(scoped ? [Number(id), Number(shopId)] : [Number(id)]))
+  },
   markRefunded: (store, id, amt, reply, refundNo) => store.prepare("UPDATE refunds SET status=3, amount=?, merchant_reply=?, handled_at=datetime('now','localtime'), wx_refund_no=? WHERE id=?")
     .run(amt, reply || '同意退款', refundNo || '', Number(id)),
   markRefundRejected: (store, id, reply) => store.prepare("UPDATE refunds SET status=2, merchant_reply=?, handled_at=datetime('now','localtime') WHERE id=?").run(reply, Number(id)),
@@ -81,14 +89,22 @@ module.exports = {
   findCancelRequestById: (store, id) => store.prepare('SELECT * FROM cancel_requests WHERE id=?').get(Number(id)),
   pendingCancelRequestByOrder: (store, orderId) => store.prepare('SELECT * FROM cancel_requests WHERE order_id=? AND status=0').get(Number(orderId)),
   listCancelRequestsByUser: (store, userId) => store.prepare('SELECT c.*, o.order_no FROM cancel_requests c JOIN orders o ON o.id=c.order_id WHERE c.user_id=? ORDER BY c.id DESC').all(userId),
-  listCancelRequestsMerchant: (store, status) => {
+  listCancelRequestsMerchant: (store, status, shopId) => {
     let sql = 'SELECT c.*, o.order_no, o.landmark_name FROM cancel_requests c JOIN orders o ON o.id=c.order_id'
     const args = []
-    if (status !== '' && status !== undefined) { sql += ' WHERE c.status=?'; args.push(Number(status)) }
+    const conds = []
+    // 多店铺（2026-10-23）：取消申请同样只有订单侧有店铺归属
+    if (shopId !== undefined && shopId !== null && shopId !== '') { conds.push('o.shop_id=?'); args.push(Number(shopId)) }
+    if (status !== '' && status !== undefined) { conds.push('c.status=?'); args.push(Number(status)) }
+    if (conds.length) sql += ' WHERE ' + conds.join(' AND ')
     sql += ' ORDER BY (c.status=0) DESC, c.id DESC'
     return store.prepare(sql).all(...args)
   },
-  cancelRequestMerchantDetail: (store, id) => store.prepare('SELECT c.*, o.order_no, o.landmark_name, o.total_amount, o.status AS order_status FROM cancel_requests c JOIN orders o ON o.id=c.order_id WHERE c.id=?').get(Number(id)),
+  cancelRequestMerchantDetail: (store, id, shopId) => {
+    const scoped = shopId !== undefined && shopId !== null && shopId !== ''
+    return store.prepare('SELECT c.*, o.order_no, o.landmark_name, o.total_amount, o.status AS order_status FROM cancel_requests c JOIN orders o ON o.id=c.order_id WHERE c.id=?' + (scoped ? ' AND o.shop_id=?' : ''))
+      .get(...(scoped ? [Number(id), Number(shopId)] : [Number(id)]))
+  },
   approveCancelRequest: (store, id, reply) => store.prepare("UPDATE cancel_requests SET status=3, merchant_reply=?, handled_at=datetime('now','localtime') WHERE id=? AND status=0").run(reply || '同意取消', Number(id)),
   rejectCancelRequest: (store, id, reply) => store.prepare("UPDATE cancel_requests SET status=2, merchant_reply=?, handled_at=datetime('now','localtime') WHERE id=? AND status=0").run(reply, Number(id)),
   latestCancelRequestByOrder: (store, orderId) => store.prepare('SELECT * FROM cancel_requests WHERE order_id=? ORDER BY id DESC LIMIT 1').get(Number(orderId)),

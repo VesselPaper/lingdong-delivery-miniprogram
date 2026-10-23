@@ -12,6 +12,8 @@ const mapRecon = require('../../services/mapRecon')
 const adminAuth = require('../../services/adminAuth')
 // 商家账号（user 域 users 表：账号密码登录 + 店主/店员分级，2026-09-24 起替代邀请码体系）
 const uq = require('../user/queries')
+// 店铺成员表：管理员建/改/删商家账号时同步维护「这个账号属于哪家店」（多店铺地基）
+const shopSvc = require('../../services/shops')
 
 // 登录限流（内存）：同一「账号+IP」连续失败 ADMIN_LOGIN_MAX 次后锁定窗口
 // f = { count: 失败次数, until: 锁定截止时间戳（0 = 未锁定） }
@@ -744,8 +746,9 @@ module.exports = (store, deps) => {
   })
 
   // 创建商家账号：用户名+初始密码必填，角色（店主/店员）默认店员；昵称即店名（选填）
+  // shop_id：把账号挂到哪家店（不传落 1 号店，与存量账号口径一致）
   router.post('/admin/merchants/create', adminGuard, (req, res) => {
-    const { username = '', password = '', merchant_role = 'staff', nickname = '' } = req.body || {}
+    const { username = '', password = '', merchant_role = 'staff', nickname = '', shop_id } = req.body || {}
     const u = String(username).trim()
     if (!u) return res.status(400).json({ code: 400, msg: '请填写用户名' })
     if (!/^[A-Za-z0-9_]{2,32}$/.test(u)) return res.status(400).json({ code: 400, msg: '用户名限 2~32 位字母/数字/下划线' })
@@ -757,8 +760,10 @@ module.exports = (store, deps) => {
       nickname: String(nickname || ''),
       merchantRole: merchant_role === 'owner' ? 'owner' : 'staff'
     })
+    // 成员行与账号同时落库：之后商家端的「当前店铺」由它决定，不再依赖 users.merchant_role 的单点假设
+    shopSvc.setMember(store, shop_id, id, merchant_role === 'owner' ? 'owner' : 'staff')
     audit(req, 'admin/merchant-create', 'merchant-user#' + id, '创建商家账号 ' + u + '（角色 ' + (merchant_role === 'owner' ? '店主' : '店员') + '）')
-    ok(res, { id, username: u })
+    ok(res, { id, username: u, shop_id: shopSvc.normalizeShopId(shop_id) })
   })
 
   // 修改用户名（管理员「编辑」页）：唯一性校验 + 必须是商家账号（防误改学生账号）。
@@ -785,6 +790,8 @@ module.exports = (store, deps) => {
     const row = store.prepare("SELECT username FROM users WHERE id=? AND role='merchant' AND username IS NOT NULL AND username!=''").get(id)
     if (!row) return res.status(404).json({ code: 404, msg: '商家账号不存在' })
     uq.deleteMerchant(store, id)
+    // 连带清掉成员行：否则 shop_members 里会留下指向已删账号的悬挂记录
+    shopSvc.removeAllMembers(store, id)
     audit(req, 'admin/merchant-delete', 'merchant-user#' + id, '删除商家账号 ' + row.username)
     ok(res, { id })
   })
@@ -797,6 +804,8 @@ module.exports = (store, deps) => {
     const row = store.prepare("SELECT username, merchant_role FROM users WHERE id=? AND role='merchant' AND username IS NOT NULL AND username!=''").get(id)
     if (!row) return res.status(404).json({ code: 404, msg: '商家账号不存在' })
     uq.updateMerchantRole(store, id, role)
+    // 成员表里的角色与 users.merchant_role 双写：ownerGuard 优先读成员表，只改一边会出现「网页显示店主、实际没权限」
+    shopSvc.setMember(store, shopSvc.shopOfUser(store, { id }), id, role)
     audit(req, 'admin/merchant-role', 'merchant-user#' + id, row.username + ' 角色 ' + (row.merchant_role === 'owner' ? '店主' : '店员') + '→' + (role === 'owner' ? '店主' : '店员'))
     ok(res, { id })
   })

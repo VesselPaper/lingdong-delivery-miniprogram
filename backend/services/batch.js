@@ -14,6 +14,9 @@
 const seqSvc = require('./seq')
 // 点位口径（当前运营图 / 上货点唯一取值入口）：叶子模块，只依赖 store → 不成环
 const points = require('./points')
+// 店铺归一化（多店铺，2026-10-23）：批次整批属于一家店，一车只装一家店的货
+const shopSvc = require('./shops')
+const normalizeShopId = (v) => shopSvc.normalizeShopId(v)
 
 const BATCH_STATUS = {
   0: '组单中',
@@ -121,23 +124,25 @@ function maskPhone(p) {
 //      退回 best-fit 保证不崩，行为也比"每次新建"合理。
 // 容量一律实时算（SUM(order_items.quantity)），不信 delivery_batches.total_items 缓存列 ——
 // 历史上出现过「UI 实时口径 8 件、调度器读缓存列 3 件」的分叉。
-function bestFitOpenBatch(store, itemCount) {
+function bestFitOpenBatch(store, itemCount, shopId) {
   const n = Number(itemCount || 0)
+  // 只在本店的在收批次里找（shopId 缺省 = 1 号店，与老调用方一致）
+  const sid = normalizeShopId(shopId)
   const b = store.prepare(`
     SELECT b.id, IFNULL(SUM(oi.quantity), 0) AS items
     FROM delivery_batches b
     LEFT JOIN orders o ON o.batch_id = b.id AND o.status IN (1,2)
     LEFT JOIN order_items oi ON oi.order_id = o.id
-    WHERE b.status = 0
+    WHERE b.status = 0 AND b.shop_id = ?
     GROUP BY b.id
     HAVING items + ? <= ?
-    ORDER BY items DESC, b.id DESC LIMIT 1`).get(n, BATCH_MAX_ITEMS)
+    ORDER BY items DESC, b.id DESC LIMIT 1`).get(sid, n, BATCH_MAX_ITEMS)
   if (b) return store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(b.id))
   // 编号：日期 + 当日序号（原子取号，见 services/seq.js）；商家端卡面展示短号「B-MMDD-NN」
   const { day: seqDay, seq } = seqSvc.nextSeq(store, 'batch')
   const batchNo = seqSvc.batchNo(seqDay, seq)
-  const info = store.prepare('INSERT INTO delivery_batches (batch_no, status, status_text, total_orders, total_items, daily_seq, seq_date) VALUES (?,0,?,0,0,?,?)')
-    .run(batchNo, BATCH_STATUS[0], seq, seqDay)
+  const info = store.prepare('INSERT INTO delivery_batches (batch_no, shop_id, status, status_text, total_orders, total_items, daily_seq, seq_date) VALUES (?,?,0,?,0,0,?,?)')
+    .run(batchNo, sid, BATCH_STATUS[0], seq, seqDay)
   return store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(info.lastInsertRowid))
 }
 
@@ -311,11 +316,13 @@ function landmarkPointOf(store, landmarkId) {
 // 上货点取值：**口径已收口到 services/points.js**（全项目唯一入口，别再各写一条 SQL）。
 // 选点规则见 points.js 头注释：优先「当前运营图」（车所在图）上那条 —— 平台上同时挂着
 // 在用图与备份图、同名点各有不同 landmarkId，只按 sort 取第一条会命中备份图的旧位置。
+// 多店铺（2026-10-23）：店铺配了自己的取货点就按店铺取（见 points.loadingPointRowOf），
+// 没配就回落全局点 —— 存量单店一行都不用改。
 // 这里保留本函数名与「排除 (0,0) 占位点」的语义：points.loadingPointRow 的前两级都排除 (0,0)，
 // 只有全库仅剩一条 (0,0) 占位点时才返回它 —— 而 lmPoint() 对 (0,0) 仍返回 null，
 // 所以「上货点 → 第 1 站」那一段的行为与拆分前逐字一致（见 lmPoint 注释）。
-function loadingPointOf(store) {
-  return points.loadingPointRow(store)
+function loadingPointOf(store, shopId) {
+  return points.loadingPointRowOf(store, shopId)
 }
 
 // 可以继续收单的批次候选快照，供打分使用。
@@ -327,8 +334,9 @@ function loadingPointOf(store) {
 //   正确口径：**已锁定但还没开始装货**的批次仍然可以进单。
 //   「还没开始装货」= bin_opened_at 为空（商家没点开舱）且 loaded_at 为空（没有"已装好待配送"标记）。
 //   一旦开过舱/装过货，就不再收新单 —— 车上的货和单据已经对不上了。
-function openBatchCandidates(store) {
-  const loading = loadingPointOf(store)
+function openBatchCandidates(store, shopId) {
+  const sid = normalizeShopId(shopId)
+  const loading = loadingPointOf(store, sid)
   const loadingPt = lmPoint(loading)
   const rows = store.prepare(`
     SELECT o.batch_id AS batch_id, o.landmark_id AS landmark_id, o.created_at AS created_at,
@@ -337,10 +345,12 @@ function openBatchCandidates(store) {
     FROM orders o
     JOIN delivery_batches b ON b.id = o.batch_id
     WHERE o.status IN (1,2)
+      AND o.shop_id = ?
+      AND b.shop_id = ?
       AND b.status IN (0,1)
       AND b.bin_opened_at IS NULL
       AND b.loaded_at IS NULL
-    ORDER BY o.batch_id, o.id`).all()
+    ORDER BY o.batch_id, o.id`).all(sid, sid)
 
   const byBatch = new Map()
   for (const r of rows) {
@@ -363,11 +373,12 @@ function openBatchCandidates(store) {
 }
 
 // 新建一个「组单中」批次（bestFitOpenBatch 的建批段单独抽出来，供打分路径直接新建）
-function createOpenBatchV2(store) {
+function createOpenBatchV2(store, shopId) {
+  const sid = normalizeShopId(shopId)
   const { day: seqDay, seq } = seqSvc.nextSeq(store, 'batch')
   const batchNo = seqSvc.batchNo(seqDay, seq)
-  const info = store.prepare('INSERT INTO delivery_batches (batch_no, status, status_text, total_orders, total_items, daily_seq, seq_date) VALUES (?,0,?,0,0,?,?)')
-    .run(batchNo, BATCH_STATUS[0], seq, seqDay)
+  const info = store.prepare('INSERT INTO delivery_batches (batch_no, shop_id, status, status_text, total_orders, total_items, daily_seq, seq_date) VALUES (?,?,0,?,0,0,?,?)')
+    .run(batchNo, sid, BATCH_STATUS[0], seq, seqDay)
   return store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(info.lastInsertRowid))
 }
 
@@ -381,11 +392,13 @@ function createOpenBatchV2(store) {
 function getOrCreateOpenBatchV2(store, itemCount, ctx) {
   const n = Number(itemCount || 0)
   const order = ctx && ctx.order
-  if (!order || n > BATCH_MAX_ITEMS) return bestFitOpenBatch(store, itemCount)
+  // 店铺口径：这批货属于哪家店，批次就建在哪家店名下（一车一店）。拿不到订单就落 1 号店。
+  const sid = normalizeShopId(order && order.shop_id)
+  if (!order || n > BATCH_MAX_ITEMS) return bestFitOpenBatch(store, itemCount, sid)
 
   const orderPt = landmarkPointOf(store, order.landmark_id)
   let best = null, bestScore = -Infinity
-  for (const c of openBatchCandidates(store)) {
+  for (const c of openBatchCandidates(store, sid)) {
     if (c.items + n > BATCH_MAX_ITEMS) continue // 硬约束①：件数
     const stops = c.stops.concat([{ pt: orderPt, n: 1 }])
     if (stops.length > 1 && v2EstimateTripMin(c.loadingPt, stops, c.items + n) > V2.maxTripMin) continue // 硬约束②
@@ -393,7 +406,7 @@ function getOrCreateOpenBatchV2(store, itemCount, ctx) {
     if (sc > bestScore) { bestScore = sc; best = c }
   }
   if (best) return store.prepare('SELECT * FROM delivery_batches WHERE id=?').get(Number(best.id))
-  return createOpenBatchV2(store)
+  return createOpenBatchV2(store, sid)
 }
 
 // 组批入口：v2 是唯一实现（legacy 已删除）。
@@ -500,7 +513,8 @@ function onTaskStatus(store, task, status) {
 //   旧实现只在组批时用它当并单门槛，停靠顺序里完全没有这层约束，
 //   结果可能出现「组批时算的是 3 站 14 分钟、实际排出来绕成 18 分钟」。
 function planRouteV2(store, orders, _ctx) {
-  const loading = loadingPointOf(store)
+  // 上货点按订单所属店铺取（同一批订单在 addOrderToBatch 阶段已保证同店）
+  const loading = loadingPointOf(store, orders && orders.length ? orders[0].shop_id : 1)
   const groups = new Map()
   for (const o of orders) {
     const lid = String(o.landmark_id || '')
@@ -710,12 +724,12 @@ function checkInvariants(store) {
   const now = Date.now()
 
   // ---- 结构不变量：还会变动内容的批次（组单中 + 已定型未装货）----
-  const loading = loadingPointOf(store)
-  const loadingPt = lmPoint(loading)
+  // 上货点按批次所属店铺取（多店铺后每家店的起点可能不同，用全局点会把 B 店批次判成超时）
   const openBatches = store.prepare(`
     SELECT * FROM delivery_batches
     WHERE status IN (0,1) AND bin_opened_at IS NULL AND loaded_at IS NULL`).all()
   for (const b of openBatches) {
+    const loadingPt = lmPoint(loadingPointOf(store, b.shop_id))
     const cnt = store.prepare(`
       SELECT COUNT(DISTINCT o.id) c, IFNULL(SUM(oi.quantity),0) items
       FROM orders o LEFT JOIN order_items oi ON oi.order_id = o.id
@@ -916,7 +930,8 @@ function orderAhead(store, order) {
 
   const cur = batchCurrentStop(store, b.id, stops)
   const ahead = Math.max(0, my - cur)
-  const loading = loadingPointOf(store)
+  // ETA 从「这批货的上货点」算起：多店铺后各店起点不同，用全局点会算错剩余时间
+  const loading = loadingPointOf(store, b.shop_id)
   const eta = remainingEtaMin(lmPoint(loading), stops, cur, my)
   const mins = Math.max(1, Math.round(eta))
   const out = {

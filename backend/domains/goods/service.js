@@ -8,9 +8,22 @@ const q = require('./queries')
 // 商家端不再硬编码 DEVICE_MOCK —— 那会造成「后端已真实调度机器人、前端却假装已上货已送达」。
 // 强制点在后端（mock-dispatch/test-complete 按 deviceMock 返回 404），此处下发仅供前端选择分支。
 function shopWithRuntime(shop, runtime) {
+  const s = shop || {}
   return Object.assign(
-    { id: 1, name: '零栋铺子', business_status: 'open', auto_accept: 0, delivery_fee: 1 },
-    shop || {},
+    {
+      id: s.id || 1,
+      name: s.name || '零栋铺子',
+      business_status: s.business_status || 'open',
+      auto_accept: s.auto_accept || 0,
+      delivery_fee: s.delivery_fee === undefined || s.delivery_fee === null ? 1 : s.delivery_fee,
+      code: s.code || '',
+      logo: s.logo || '',
+      category: s.category || '',
+      address: s.address || '',
+      pickup_landmark_id: s.pickup_landmark_id || '',
+      min_order: Number(s.min_order || 0),
+      pack_fee: Number(s.pack_fee || 0)
+    },
     {
       run_mode: runtime.mode,
       device_mock: runtime.deviceMock,
@@ -57,9 +70,10 @@ function withPromoPrices(store, rowsOrRow) {
 
 // 活动列表（用户端公开）：附 type / config(已解析) / 起止时间 / state(active|pending|ended)，
 // 前端据此展示折扣/满减样式与估算（最终金额以后端 order/create 为准）。
-function listActivitiesTyped(store) {
+// shopId：本店活动 + 平台级活动（shop_id=0），不传按 1 号店（老接口行为不变）。
+function listActivitiesTyped(store, shopId) {
   const now = Date.now()
-  return q.listActivities(store).map((a) => {
+  return q.listActivities(store, shopId).map((a) => {
     let cfg = {}
     try { cfg = JSON.parse(a.config || '{}') || {} } catch (e) { cfg = {} }
     let state = 'active'
@@ -75,8 +89,9 @@ function listActivitiesTyped(store) {
 }
 
 // 跨域只读入口：order 域下单/自动接单需要店铺与商品信息
-const getShop = (store) => q.getShop(store)
-const getGoods = (store, id) => q.findById(store, id)
+// getShop(store, shopId=1)：不传店铺时取 1 号店，老调用方一行都不用改
+const getShop = (store, shopId) => q.getShop(store, shopId)
+const getGoods = (store, id, shopId) => q.findById(store, id, shopId)
 
 // 跨域写入口：order 域下单条件扣库存（stock>=? 原子防超卖，扣不到返回 false 由调用方抛业务错误）
 function deductStock(store, id, qty) {

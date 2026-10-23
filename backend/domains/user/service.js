@@ -9,6 +9,7 @@ const path = require('path')
 const q = require('./queries')
 const adminAuth = require('../../services/adminAuth')
 const promotion = require('../../services/promotion')
+const shopSvc = require('../../services/shops')
 
 // 头像只接受位图；上限 2MB（微信 chooseAvatar 返回的是已裁剪的小图，正常远小于此）
 const AVATAR_EXT = ['.jpg', '.jpeg', '.png', '.webp']
@@ -221,6 +222,8 @@ async function login(store, deps, body, ip) {
 function cartListWithPrice(store, userId) {
   const rows = q.cartList(store, userId)
   const active = promotion.loadActive(store).filter((a) => a.type === 'discount')
+  // 店名给前端「一车只能一家店」的提示用（见 doc/16 一期：不做跨店合并结算）
+  const names = shopSvc.nameMap(store)
   return rows.map((r) => {
     let sale_price = null
     for (const a of active) {
@@ -229,7 +232,12 @@ function cartListWithPrice(store, userId) {
         if (d > 0 && d < 1) { sale_price = Math.round(Number(r.price) * d * 100) / 100; break }
       }
     }
-    return Object.assign({}, r, { price_now: sale_price || r.price })
+    const shopId = shopSvc.normalizeShopId(r.shop_id)
+    return Object.assign({}, r, {
+      shop_id: shopId,
+      shop_name: names.get(shopId) || '',
+      price_now: sale_price || r.price
+    })
   })
 }
 

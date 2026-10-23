@@ -13,7 +13,9 @@ module.exports = (store, deps) => {
 
   // ---------- 用户端 ----------
   // 可领券列表：要登录才准（mine_count 需要知道「我已领几张」，未登录无从判断）
-  router.get('/coupon/list', auth, (req, res) => ok(res, service.listForUser(store, req.user.id)))
+  // 店铺口径：?shop_id= 不传落 1 号店，列表 = 本店券 + 平台券
+  router.get('/coupon/list', auth, (req, res) => ok(res,
+    service.listForUser(store, req.user.id, (req.query || {}).shop_id)))
 
   router.post('/coupon/receive', auth, (req, res) => {
     const r = service.receive(store, req.user.id, (req.body || {}).coupon_id)
@@ -30,12 +32,13 @@ module.exports = (store, deps) => {
   })
 
   // ---------- 商家端（店主专属，与活动管理同级） ----------
-  router.get('/merchant/coupons', ownerGuard, (req, res) => ok(res, q.listAll(store)))
+  // 多店铺：只返回本店券 + 平台券；新建时自动落到本店（shop_id=req.shopId）
+  router.get('/merchant/coupons', ownerGuard, (req, res) => ok(res, q.listByShop(store, req.shopId)))
 
   router.post('/merchant/coupons', ownerGuard, (req, res) => {
     const n = service.normalizeCoupon(req.body)
     if (n.error) return res.status(400).json({ code: 400, msg: n.error })
-    const id = q.insert(store, n.value)
+    const id = q.insert(store, Object.assign({}, n.value, { shop_id: req.shopId }))
     audit(req, 'coupon/create', 'coupon#' + id, 'title=' + n.value.title + ' type=' + n.value.type)
     ok(res, { id })
   })
@@ -44,7 +47,8 @@ module.exports = (store, deps) => {
     const id = Number((req.body || {}).id)
     if (!id) return res.status(400).json({ code: 400, msg: '缺少券ID' })
     const cur = q.findById(store, id)
-    if (!cur) return res.status(404).json({ code: 404, msg: '优惠券不存在' })
+    // 越权保护：别家店的券 id 一律当不存在（平台券 shop_id=0 也不许单店改）
+    if (!cur || Number(cur.shop_id || 1) !== Number(req.shopId)) return res.status(404).json({ code: 404, msg: '优惠券不存在' })
     // 用库里的值兜底，前端只传变化字段也不会把其它字段清空
     const n = service.normalizeCoupon(Object.assign({}, cur, req.body))
     if (n.error) return res.status(400).json({ code: 400, msg: n.error })
@@ -57,6 +61,8 @@ module.exports = (store, deps) => {
   router.put('/merchant/coupons/status', ownerGuard, (req, res) => {
     const { id, status } = req.body || {}
     if (!id) return res.status(400).json({ code: 400, msg: '缺少券ID' })
+    const cur = q.findById(store, id)
+    if (!cur || Number(cur.shop_id || 1) !== Number(req.shopId)) return res.status(404).json({ code: 404, msg: '优惠券不存在' })
     q.updateStatus(store, id, status)
     audit(req, 'coupon/status', 'coupon#' + id, 'status=' + Number(status))
     ok(res)
@@ -66,6 +72,8 @@ module.exports = (store, deps) => {
   router.delete('/merchant/coupons', ownerGuard, (req, res) => {
     const id = Number((req.body || {}).id)
     if (!id) return res.status(400).json({ code: 400, msg: '缺少券ID' })
+    const cur = q.findById(store, id)
+    if (!cur || Number(cur.shop_id || 1) !== Number(req.shopId)) return res.status(404).json({ code: 404, msg: '优惠券不存在' })
     q.remove(store, id)
     audit(req, 'coupon/delete', 'coupon#' + id, '')
     ok(res)

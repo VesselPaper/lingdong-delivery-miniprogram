@@ -449,9 +449,76 @@ function migrate(db) {
   // WHERE 把空值排除在唯一性之外 → 空条码可以有任意多条，非空条码才唯一。
   // 作用：把「同一商品录两遍」挡在库外（批量录入接口也会先查重，这里是最后一道闸）。
   // 现存数据实测 216 条、0 空、0 重复，可直接建；老库若有重复会抛错，此处兜底不阻断启动。
+  // ---------- 多店铺地基（2026-10-23，依据 doc/16_小程序扩容方案.md 一期） ----------
+  // 目标：把「全库只有一家店」变成「店铺是可归属的实体」。做法是给现有表补 shop_id，
+  // 存量数据一律归 1 号店（零栋铺子），老接口不传店铺时也落到 1 号店 —— 所以这一步对现有功能是透明的。
+  // 为什么不做成多租户：项目既定「不提前实现多租户」，这里只是「一张表里多行」；
+  // 校区/租户维度等三期需求明确再加（那时是加 campuses 表，不是改这里）。
+  const shopAdd = [
+    ['code', "TEXT DEFAULT ''"],                    // 店铺短标识（分享/二维码用）
+    ['logo', "TEXT DEFAULT ''"],
+    ['category', "TEXT DEFAULT ''"],                // 餐饮/超市/水果/快递代取…
+    ['address', "TEXT DEFAULT ''"],
+    ['pickup_landmark_id', "TEXT DEFAULT ''"],      // 本店取货点（landmarks.id）：按店分批发车的起点
+    ['min_order', 'REAL DEFAULT 0'],                // 起送价
+    ['pack_fee', 'REAL DEFAULT 0'],                 // 打包费
+    ['owner_user_id', 'INTEGER DEFAULT 0'],
+    ['sort', 'INTEGER DEFAULT 0']
+  ]
+  shopAdd.forEach(([name, def]) => {
+    if (!shopCols.includes(name)) db.exec(`ALTER TABLE shops ADD COLUMN ${name} ${def}`)
+  })
+  // 归属列：SQLite 的 ADD COLUMN 带 DEFAULT 时会给已有行填上默认值，所以存量行自动归 1 号店，
+  // 不需要再跑一遍 UPDATE 回填（也就少一个「回填漏了」的失败点）。
+  if (!goodsCols.includes('shop_id')) db.exec('ALTER TABLE goods ADD COLUMN shop_id INTEGER DEFAULT 1')
+  if (!orderCols.includes('shop_id')) db.exec('ALTER TABLE orders ADD COLUMN shop_id INTEGER DEFAULT 1')
+  if (!actCols.includes('shop_id')) db.exec('ALTER TABLE activities ADD COLUMN shop_id INTEGER DEFAULT 1')
+  if (!couponCols.includes('shop_id')) db.exec('ALTER TABLE coupons ADD COLUMN shop_id INTEGER DEFAULT 1')
+  // 下单时把取货点快照下来：商家事后改取货点，历史订单仍按当时的点对账
+  if (!orderCols.includes('pickup_landmark_id')) db.exec("ALTER TABLE orders ADD COLUMN pickup_landmark_id TEXT DEFAULT ''")
+  db.exec('CREATE INDEX IF NOT EXISTS ix_goods_shop ON goods(shop_id, status)')
+  db.exec('CREATE INDEX IF NOT EXISTS ix_orders_shop ON orders(shop_id, status, created_at)')
+  db.exec('CREATE INDEX IF NOT EXISTS ix_activities_shop ON activities(shop_id, status)')
+  db.exec('CREATE INDEX IF NOT EXISTS ix_coupons_shop ON coupons(shop_id, status)')
+  // 批次也归店铺：平台没有多站上货能力 → 一期「一车一店」，批次必须整批属于同一家店，
+  // 否则会把两家店的货装到同一趟车上、送到同一个取货点。
+  // stops 是一期预留的站点序列（JSON 数组）。现在只写一个上货点，二期多站时直接复用这一列，
+  // 不用再改表结构；空串代表「还没排路线」，读的地方按旧逻辑算。
+  // 注意 batchCols 在上面的批次迁移段已经取过，这里复用同一份列名快照（同一事务内不会变）。
+  if (!batchCols.includes('shop_id')) db.exec('ALTER TABLE delivery_batches ADD COLUMN shop_id INTEGER DEFAULT 1')
+  if (!batchCols.includes('stops')) db.exec("ALTER TABLE delivery_batches ADD COLUMN stops TEXT DEFAULT ''")
+  db.exec('CREATE INDEX IF NOT EXISTS ix_batches_shop ON delivery_batches(shop_id, status)')
+
+  // 店铺成员表：一个账号可以属于某家店（owner/staff）。
+  // 为什么不继续用 users.merchant_role：那是一个账号一个角色、没有店铺维度，
+  // 多店后会变成「B 店账号能改 A 店商品」。这里采用双写过渡 —— 旧字段照旧读写，新表逐步接管。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shop_members (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      shop_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      role TEXT DEFAULT 'staff',
+      created_at TEXT DEFAULT (datetime('now','localtime'))
+    )
+  `)
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS ux_shop_members ON shop_members(shop_id, user_id)')
+  // 存量商家账号统一挂到 1 号店（幂等：INSERT OR IGNORE 靠上面的唯一索引去重，每次启动跑一遍都安全）。
+  // 注意新库首次启动时 users 还没有商家账号，这条什么都不做，之后管理员建号由 service 侧负责写成员行。
+  db.exec(`INSERT OR IGNORE INTO shop_members (shop_id, user_id, role)
+    SELECT 1, id, CASE WHEN merchant_role='owner' THEN 'owner' ELSE 'staff' END
+    FROM users WHERE role='merchant' AND username IS NOT NULL AND username != ''`)
+
+  // 商品条码唯一（部分索引，排除空条码）—— 2026-10-06 批量录入。
+  // 为什么必须是「部分」索引：goods.barcode 默认 ''，商家手工新增的商品可能不填条码；
+  // 普通 UNIQUE 会把所有空条码视为同一个值，第二条无条码商品就插不进来。
+  // WHERE 把空值排除在唯一性之外 → 空条码可以有任意多条，非空条码才唯一。
+  // 2026-10-23 多店铺：唯一性从「全库」收窄到「一店一条码」—— 两家店进同一种货是正常的，
+  // 全库唯一会让第二家店录不进自己的库存。旧索引（全库唯一）在这里就地换掉。
   try {
-    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_goods_barcode_uniq
-      ON goods(barcode) WHERE barcode IS NOT NULL AND TRIM(barcode) <> ''`)
+    const bcOld = db.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_goods_barcode_uniq'").get()
+    if (bcOld && String(bcOld.sql || '').indexOf('shop_id') < 0) db.exec('DROP INDEX idx_goods_barcode_uniq')
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_goods_shop_barcode_uniq
+      ON goods(shop_id, barcode) WHERE barcode IS NOT NULL AND TRIM(barcode) <> ''`)
   } catch (e) {
     console.warn('[db] 商品条码唯一索引未建立（库内可能已有重复条码，人工核对后再建）：' + e.message)
   }
@@ -600,11 +667,11 @@ const DEMO_GOODS = [
 ]
 
 function seed(db) {
-  // 店铺状态（营业/自动接单）—— 单门店场景，id=1 为唯一门店
-  // 放在 landmarks 提前返回之前，保证首次启动即创建
+  // 店铺状态（营业/自动接单）—— 首店兜底：id=1 是「零栋铺子」，多店后仍作为默认店
+  // （老接口不传 shop_id 时落到这里，见 backend/services/shops.js 的 DEFAULT_SHOP_ID）
   const shopCount = db.prepare('SELECT COUNT(*) AS c FROM shops').get().c
   if (shopCount === 0) {
-    db.prepare('INSERT INTO shops (name, business_status, auto_accept) VALUES (?,?,?)').run('零栋铺子', 'open', 0)
+    db.prepare("INSERT INTO shops (name, business_status, auto_accept, code) VALUES (?,?,?,?)").run('零栋铺子', 'open', 0, 'default')
   }
 
   const count = db.prepare('SELECT COUNT(*) AS c FROM landmarks').get().c

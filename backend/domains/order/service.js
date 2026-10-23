@@ -322,22 +322,32 @@ function splitOrderChunks(lineItems, maxItems) {
 
 // 订单统计口径（商家首页与大屏共用同一份）
 // 跨域只读：delivery_batches 状态过滤（delivery 域未拆前直接读，步骤 3 可改走 delivery.service）
-function computeStats(store) {
+// 多店铺（2026-10-23）：传 shopId 就只看这家店，不传就是全平台（大屏 / 管理员看的那份）。
+// 这一处最容易出「把全平台数据展示给某个商家」的事故，所以售后 / 取消申请两张表
+// 不能只按 status 数，必须回 orders 表按 shop_id 收口。
+function computeStats(store, shopId) {
   const today = new Date().toISOString().slice(0, 10)
+  const sid = shopId === undefined || shopId === null || shopId === '' ? null : Number(shopId)
+  const byShop = sid ? ' AND shop_id=?' : ''
+  const one = (sql, ...args) => store.prepare(sql).get(...(sid ? args.concat([sid]) : args))
   return {
-    today_orders: store.prepare("SELECT COUNT(*) c FROM orders WHERE date(created_at)=?").get(today).c,
-    today_amount: store.prepare("SELECT IFNULL(SUM(total_amount),0) s FROM orders WHERE date(created_at)=? AND status NOT IN (0,5)").get(today).s,
+    today_orders: one('SELECT COUNT(*) c FROM orders WHERE date(created_at)=?' + byShop, today).c,
+    today_amount: one('SELECT IFNULL(SUM(total_amount),0) s FROM orders WHERE date(created_at)=? AND status NOT IN (0,5)' + byShop, today).s,
     // 主面板四态：待接单 / 待上货 / 配送中 / 待取货
-    pending: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=1').get().c,
-    ready_load: store.prepare("SELECT COUNT(*) c FROM orders WHERE status=2 AND batch_id IN (SELECT id FROM delivery_batches WHERE status IN (0,1))").get().c,
-    delivering: store.prepare("SELECT COUNT(*) c FROM orders WHERE status=2 AND batch_id IN (SELECT id FROM delivery_batches WHERE status=2)").get().c,
-    pickup: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=3').get().c,
-    // 异常 / 售后（次面板）
-    exception: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=6').get().c,
-    aftersale: store.prepare('SELECT COUNT(*) c FROM refunds WHERE status=0').get().c,
-    cancel_requests: store.prepare('SELECT COUNT(*) c FROM cancel_requests WHERE status=0').get().c,
+    pending: one('SELECT COUNT(*) c FROM orders WHERE status=1' + byShop).c,
+    ready_load: one("SELECT COUNT(*) c FROM orders WHERE status=2 AND batch_id IN (SELECT id FROM delivery_batches WHERE status IN (0,1))" + byShop).c,
+    delivering: one("SELECT COUNT(*) c FROM orders WHERE status=2 AND batch_id IN (SELECT id FROM delivery_batches WHERE status=2)" + byShop).c,
+    pickup: one('SELECT COUNT(*) c FROM orders WHERE status=3' + byShop).c,
+    // 异常 / 售后（次面板）—— 两张子表都按订单归属的店过滤
+    exception: one('SELECT COUNT(*) c FROM orders WHERE status=6' + byShop).c,
+    aftersale: sid
+      ? store.prepare('SELECT COUNT(*) c FROM refunds WHERE status=0 AND order_id IN (SELECT id FROM orders WHERE shop_id=?)').get(sid).c
+      : store.prepare('SELECT COUNT(*) c FROM refunds WHERE status=0').get().c,
+    cancel_requests: sid
+      ? store.prepare('SELECT COUNT(*) c FROM cancel_requests WHERE status=0 AND order_id IN (SELECT id FROM orders WHERE shop_id=?)').get(sid).c
+      : store.prepare('SELECT COUNT(*) c FROM cancel_requests WHERE status=0').get().c,
     // 兼容旧字段
-    finished: store.prepare('SELECT COUNT(*) c FROM orders WHERE status=4').get().c
+    finished: one('SELECT COUNT(*) c FROM orders WHERE status=4' + byShop).c
   }
 }
 
@@ -345,8 +355,15 @@ function computeStats(store) {
 // 返回 { error: {status, msg} } 或 { data }；HTTP 状态码由 routes 层翻译。
 // 跨域读：shops（goods 域）、landmarks（delivery 域只读）、goods（goods 域只读）
 // 跨域写：goods.deductStock、user.removeCartItems
+// 店铺上下文：services/shops.js（归一化 shop_id，非法/缺省落 1 号店）
+const shopSvc = require('../../services/shops')
 function createOrder(store, deps, body, userId) {
-  const shop = deps.goods.getShop(store)
+  const { landmark_id, landmark_name, remark = '', items = [], contact_name = '', contact_phone = '', address_id, activity_id, user_coupon_id, shop_id } = body || {}
+  // 多店铺（2026-10-23）：一期只支持「一单只买一家店」。
+  // 店铺由前端传（?body.shop_id），不传落 1 号店 —— 老版本小程序不下单任何改动，行为不变。
+  // 为什么不按商品自动推断：跨店购物车必须被明确拒绝，自动推断会悄悄把混店订单当成合法单。
+  const shopIdNow = shopSvc.normalizeShopId(shop_id)
+  const shop = deps.goods.getShop(store, shopIdNow)
   if (shop.business_status === 'closed') {
     return { error: { status: 400, msg: '店铺歇业中，暂无法下单' } }
   }
@@ -356,7 +373,6 @@ function createOrder(store, deps, body, userId) {
   const deliveryFee = feeRaw === undefined || feeRaw === null || isNaN(Number(feeRaw))
     ? 1
     : Math.max(0, Math.round(Number(feeRaw) * 100) / 100)
-  const { landmark_id, landmark_name, remark = '', items = [], contact_name = '', contact_phone = '', address_id, activity_id, user_coupon_id } = body || {}
   if (!Array.isArray(items) || !items.length) return { error: { status: 400, msg: '订单不能为空' } }
   // 安全审计 L6：限制单笔订单商品行数，防超大请求空耗（每行数量另有 1~99 校验）
   if (items.length > 30) return { error: { status: 400, msg: '单笔订单商品行数不能超过 30' } }
@@ -377,6 +393,8 @@ function createOrder(store, deps, body, userId) {
     if (!Number.isInteger(q) || q <= 0 || q > 99) throw new Error('商品数量不合法')
     const g = deps.goods.getGoods(store, it.goods_id)
     if (!g) throw new Error('商品不存在')
+    // 跨店拦截：前端购物车若混了两家店的货，这里直接拒掉，避免生成「一单两店」这种无解订单
+    if (Number(g.shop_id || 1) !== Number(shopIdNow)) throw new Error('「' + g.name + '」不属于该店铺，请分店下单')
     if (Number(g.stock) < q) throw new Error('「' + g.name + '」库存不足')
     total += g.price * q
     return { goods: g, quantity: q }
@@ -450,6 +468,8 @@ function createOrder(store, deps, body, userId) {
     const pickupCode = pickupCodeNew(seq)
     const orderId = q.insert(store, {
       orderNo, userId, landmarkId: String(landmark_id), landmarkName: lm.name,
+      // 店铺归属与取货点快照：取货点写订单而不只写批次，商家事后改取货点也不影响历史订单对账
+      shopId: shopIdNow, pickupLandmarkId: String(shop.pickup_landmark_id || ''),
       contactName: cname, contactPhone: cphone, totalAmount: Number(chunkTotal).toFixed(2),
       originalAmount: Number(originalTotal).toFixed(2), discountAmount: Number(discountAmount).toFixed(2),
       activityId: promo.activity ? promo.activity.id : null,

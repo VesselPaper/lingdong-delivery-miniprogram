@@ -69,6 +69,24 @@ function loadingPointRow(store) {
   return row
 }
 
+// 按店铺取上货点（多店铺，2026-10-23）：店铺自己配了 pickup_landmark_id 就用它，
+// 没配（或配的点位已失效）就退回全局 loadingPointRow —— 存量单店配置一行都不用改。
+// 为什么必须按店铺：平台**没有多站上货能力**，一趟车只能从一个上货点装货，
+// 所以「一车一店」是二期之前的硬约束，取货点也必须跟着店铺走。
+function loadingPointRowOf(store, shopId) {
+  const sid = Number(shopId || 1)
+  if (!sid) return loadingPointRow(store)
+  try {
+    const shop = store.prepare('SELECT pickup_landmark_id FROM shops WHERE id=?').get(sid)
+    const pid = shop && String(shop.pickup_landmark_id || '').trim()
+    if (pid) {
+      const row = store.prepare("SELECT * FROM landmarks WHERE id=? AND type='loadingPoint'").get(Number(pid))
+      if (row) return row
+    }
+  } catch (e) { /* shops/landmarks 缺失时按全局兜底 */ }
+  return loadingPointRow(store)
+}
+
 // 取「地图锚点」行：用哪一行去问平台要地图资源（mapInfo/mapId），就决定了
 // 大屏与用户端追踪页显示的是哪张底图。
 //   ① 当前运营图上的第一条（sort,id 排序）—— 正常路径，显示的就是车所在的那张图
@@ -95,4 +113,4 @@ function preferIncoming(incomingMapId, existingMapId, actMapId) {
   return inc === act && ex !== act
 }
 
-module.exports = { META_KEY, activeMapId, setActiveMapId, loadingPointRow, anchorRow, preferIncoming }
+module.exports = { META_KEY, activeMapId, setActiveMapId, loadingPointRow, loadingPointRowOf, anchorRow, preferIncoming }

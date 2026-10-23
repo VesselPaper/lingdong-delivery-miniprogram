@@ -1,17 +1,25 @@
 // coupon 域专属表：coupons（券模板）/ user_coupons（用户领券记录）
 // 跨域只读：结算可用券需要商品的价格与分类（JOIN goods，只读；写权限仍只在 goods 域）
+//
+// 多店铺（2026-10-23）：券模板带 shop_id，0 = 平台券（全店可用）。
+// 用户端「可领券」只看到本店券 + 平台券；商家端只管本店券；管理端仍看全部（运营视角）。
+
+const shopSvc = require('../../services/shops')
+
+const sid = (v) => shopSvc.normalizeShopId(v)
 
 module.exports = {
   // ---------- 券模板（商家端管理） ----------
   listAll: (store) => store.prepare('SELECT * FROM coupons ORDER BY status DESC, id DESC').all(),
-  listActive: (store) => store.prepare('SELECT * FROM coupons WHERE status=1 ORDER BY id DESC').all(),
+  listActive: (store, shopId) => store.prepare('SELECT * FROM coupons WHERE status=1 AND shop_id IN (0,?) ORDER BY id DESC').all(sid(shopId)),
+  listByShop: (store, shopId) => store.prepare('SELECT * FROM coupons WHERE shop_id IN (0,?) ORDER BY status DESC, id DESC').all(sid(shopId)),
   findById: (store, id) => store.prepare('SELECT * FROM coupons WHERE id=?').get(Number(id)),
   insert: (store, f) => {
     const info = store.prepare(`INSERT INTO coupons
-      (title, type, threshold, reduce, discount, max_reduce, image, valid_type, start_at, end_at, relative_days,
+      (shop_id, title, type, threshold, reduce, discount, max_reduce, image, valid_type, start_at, end_at, relative_days,
        scope, scope_ids, total_qty, issued, per_user_limit, status)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)`).run(
-      f.title, f.type, Number(f.threshold) || 0, Number(f.reduce) || 0, Number(f.discount) || 0,
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)`).run(
+      sid(f.shop_id), f.title, f.type, Number(f.threshold) || 0, Number(f.reduce) || 0, Number(f.discount) || 0,
       Number(f.max_reduce) || 0, f.image || '', f.valid_type, f.start_at || null, f.end_at || null,
       Number(f.relative_days) || 0, f.scope, String(f.scope_ids || '[]'), Number(f.total_qty) || 0,
       // 注意：不能写 `|| 1`——0 是「不限领」的合法取值，被吞掉就变成限领 1 张

@@ -114,7 +114,10 @@ function boardEventTime(createdAt) {
   return { t: s.slice(5, 10) + ' ' + s.slice(11, 16), old: true }
 }
 
-function boardEventLine(e) {
+// 大屏「实时动态」的单条文案。
+// 多店铺（2026-10-23）：多条店同时跑时，光看「订单#12 已送达」分不清是哪家店的事，
+// 所以带店名前缀「东苑超市 · 订单#12 …」。只有一家店时不加 —— 每条都写同一个店名纯属噪音。
+function boardEventLine(e, shopNames) {
   const type = String(e.entity_type || '')
   const label = ENTITY_LABEL[type] || type
   const fromTx = (e.from_status === null || e.from_status === undefined) ? '' : statusSvc.textOf(type, e.from_status)
@@ -124,8 +127,10 @@ function boardEventLine(e) {
   // 署名：只有真正带上操作者时才显示，system/采集器捕获不占版面
   const actor = String(e.actor_name || '').trim()
   if (actor && String(e.actor_type || '') !== 'system') s += '（' + actor + '）'
+  const prefix = (shopNames && shopNames.size > 1 && e.shop_id) ? (shopNames.get(Number(e.shop_id)) || '') : ''
+  if (prefix) s = prefix + ' · ' + s
   const tm = boardEventTime(e.created_at)
-  return { id: e.id, t: tm.t, s: s, old: tm.old }
+  return { id: e.id, t: tm.t, s: s, old: tm.old, shop_id: Number(e.shop_id || 0) }
 }
 
 // 大屏挂墙显示的日志条数：太短看不到上下文，太长挤占「告警」面板
@@ -161,12 +166,40 @@ async function buildDashboard(store, deps) {
     else robotsError = (r && r.msg) || '获取车辆列表失败'
   } catch (e) { robotsError = e.message || '获取车辆列表异常' }
 
+  // 店铺（多店铺，2026-10-23）：
+  //   shop   —— 1 号店（保持旧字段不动，老前端/大屏仍能读）
+  //   shops  —— 全部店铺，大屏「店铺概览」与标题用；一期只有一条，前端按数组渲染即可
+  //   stats.by_shop —— 各店今日订单量，让大屏一眼看出「哪家店在跑」
+  const shops = (() => {
+    try { return q.allShops(store) } catch (e) { return [] }
+  })()
+  // 事件文案加店名前缀要用 id→店名；一家店时 boardEventLine 不会加前缀
+  const shopNames = new Map(shops.map((s) => [Number(s.id), s.name || ('店铺' + s.id)]))
+  const stats = deps.order.computeStats(store)
+  try {
+    const byShop = q.todayOrdersByShop(store)
+    stats.by_shop = shops.map((s) => {
+      const hit = byShop.find((r) => Number(r.shop_id) === Number(s.id))
+      return { shop_id: Number(s.id), name: s.name || '', today_orders: Number((hit && hit.c) || 0) }
+    })
+  } catch (e) { stats.by_shop = [] }
+
   return {
     server_time: new Date().toLocaleString('zh-CN', { hour12: false }),
     run_mode: deps.runtime.mode,
     real_platform: deps.runtime.realPlatform,
     shop: deps.goods.shopWithRuntime(q.shopRow(store), deps.runtime),
-    stats: deps.order.computeStats(store),
+    shops: shops.map((s) => ({
+      id: Number(s.id),
+      name: s.name || '',
+      code: s.code || '',
+      logo: s.logo || '',
+      category: s.category || '',
+      address: s.address || '',
+      business_status: s.business_status || 'open',
+      pickup_landmark_id: String(s.pickup_landmark_id || '')
+    })),
+    stats,
     map,
     map_error: mapError,
     robots,
@@ -180,7 +213,7 @@ async function buildDashboard(store, deps) {
     // 只在当前标签页存在 —— 刷新即清空、多屏各不相同、事后无从追溯，等于没有日志。
     // 现在改为读库，刷新/关页/重启后端都还在，并带 id 便于前端判定「有没有新事件」。
     log_events: (() => {
-      try { return q.recentEventsForBoard(store, BOARD_EVENT_LIMIT).map(boardEventLine) }
+      try { return q.recentEventsForBoard(store, BOARD_EVENT_LIMIT).map((e) => boardEventLine(e, shopNames)) }
       catch (e) { return [] }   // 读失败不影响大屏其余部分（与 map/robots 的降级口径一致）
     })()
   }

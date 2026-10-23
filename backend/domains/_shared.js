@@ -8,6 +8,8 @@ const crypto = require('crypto')
 const adminAuth = require('../services/adminAuth')
 // 状态流水：audit() 顺带登记「操作者线索」，供采集器给状态迁移署名（见 services/statusEvents.js）
 const statusEvents = require('../services/statusEvents')
+// 店铺上下文：商家请求的「当前店铺」与账号归属（多店铺地基，见 services/shops.js）
+const shopSvc = require('../services/shops')
 
 // 管理员令牌：页面首次打开需输入（存 localStorage）；可用环境变量 ADMIN_TOKEN 覆盖
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '123456'
@@ -85,14 +87,19 @@ function createShared(store) {
       // 2026-09-24 起商家权限只认账号体系：username 非空且启用。
       // 旧微信商家账号（无 username）与停用账号一律拒绝——封死「微信登录直接当商家」的历史路径。
       if (!u.username || Number(u.status) !== 1) return res.status(403).json({ code: 403, msg: '账号已停用或无效' })
+      // 多店铺（2026-10-23）：把「当前请求属于哪家店」挂到 req 上，后续所有商家查询都用它过滤。
+      // 没有成员行的存量账号落到 1 号店（见 services/shops.js 的兼容口径），行为与单店时完全一致。
+      req.shopId = shopSvc.shopOfUser(store, u)
+      req.shopRole = shopSvc.memberRole(store, u.id, req.shopId) || String(u.merchant_role || '')
       next()
     })
   }
 
-  // 店主专属守卫：在 merchantGuard 基础上要求 merchant_role==='owner'
+  // 店主专属守卫：在 merchantGuard 基础上要求店主身份。
+  // 角色判定顺序：店铺成员表（多店后的权威来源）→ users.merchant_role（旧字段，过渡期兼容）
   function ownerGuard(req, res, next) {
     merchantGuard(req, res, () => {
-      if (req.user.merchant_role !== 'owner') return res.status(403).json({ code: 403, msg: '需要店主权限' })
+      if (req.shopRole !== 'owner') return res.status(403).json({ code: 403, msg: '需要店主权限' })
       next()
     })
   }

@@ -84,8 +84,9 @@ function checkReceivable(store, userId, coupon) {
 }
 
 // 可领券列表：附描述、我已领张数、剩余、能否领（前端据此置灰按钮）
-function listForUser(store, userId) {
-  const list = q.listActive(store) || []
+// shopId：本店券 + 平台券（shop_id=0），不传按 1 号店（老接口行为不变）
+function listForUser(store, userId, shopId) {
+  const list = q.listActive(store, shopId) || []
   const now = couponSvc.nowStr()
   return list.map((c) => {
     const total = Number(c.total_qty) || 0

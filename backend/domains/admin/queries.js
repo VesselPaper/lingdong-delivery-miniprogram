@@ -43,11 +43,21 @@ module.exports = {
   batchOrdersAll: (store, batchId) => store.prepare('SELECT id,order_no,daily_seq,seq_date,status,batch_id,delivery_task_id,landmark_name,total_amount,pickup_code,picked_up_at,created_at FROM orders WHERE batch_id=? ORDER BY id').all(Number(batchId)),
 
   // ---------- 大屏聚合（只读，跨表例外） ----------
+  // 多店铺（2026-10-23）：批次带 shop_id / shop_name，大屏「批次表」才能显示是哪个店的货；
+  // 大屏标题与「店铺概览」读 allShops，不再写死「零栋铺子」。
   activeBatchesOverview: (store) => store.prepare(`
     SELECT b.id, b.batch_no, b.daily_seq, b.status, b.status_text, b.device_sn, b.total_items,
+      IFNULL(b.shop_id, 1) AS shop_id,
+      IFNULL((SELECT s.name FROM shops s WHERE s.id = IFNULL(b.shop_id,1)), '') AS shop_name,
       (SELECT COUNT(*) FROM orders o WHERE o.batch_id=b.id AND o.status IN (2,3)) AS active_orders,
       (SELECT COUNT(*) FROM orders o WHERE o.batch_id=b.id AND o.status=3 AND o.picked_up_at IS NULL) AS waiting_pickup
     FROM delivery_batches b WHERE b.status IN (0,1,2) ORDER BY b.id DESC LIMIT 12`).all(),
+  // 全部店铺（大屏店铺概览 / 管理员网页店铺列表）：按 sort 排，同 sort 按 id
+  allShops: (store) => store.prepare('SELECT * FROM shops ORDER BY IFNULL(sort,0), id').all(),
+  // 按店铺的当日订单量（大屏概览用）：只统计今天，避免把历史单算进「今日」
+  todayOrdersByShop: (store) => store.prepare(`
+    SELECT IFNULL(shop_id,1) AS shop_id, COUNT(*) AS c
+    FROM orders WHERE date(created_at)=date('now','localtime') GROUP BY IFNULL(shop_id,1)`).all(),
   pickupAlerts: (store) => store.prepare(`
     SELECT id, order_no, landmark_name, pickup_timeout_stage, delivered_at, picking_up_at
     FROM orders WHERE status=3 AND picked_up_at IS NULL AND IFNULL(pickup_timeout_stage,0) > 0
@@ -122,8 +132,17 @@ module.exports = {
   // 排序按 created_at 而不是 id：日志给**人**看，时间顺序才是直觉；id 只是插入顺序，
   // 一旦库里存有不同批次导入/补录的数据（id 顺序与时间顺序可能不一致），按 id 排会出现
   // 「上面 15:21、下面 15:57」这种看着像乱序的版面。同一秒内再用 id 兜底保证稳定。
+  // 多店铺（2026-10-23）：status_events 表本身没有店铺字段（订单/批次/任务三种实体混在一张表里），
+  // 大屏「实时动态」要加店名前缀，只能按实体反查归属。三种实体各一条子查询，
+  // 一期单店时 shop_id 恒为 1，前端据此决定加不加前缀（一家店时不必每条都写店名）。
   recentEventsForBoard: (store, limit = 20) => store.prepare(
-    `SELECT id, entity_type, entity_id, from_status, to_status, status_text, actor_type, actor_name, note, created_at
-     FROM status_events ORDER BY created_at DESC, id DESC LIMIT ?`
+    `SELECT e.id, e.entity_type, e.entity_id, e.from_status, e.to_status, e.status_text,
+            e.actor_type, e.actor_name, e.note, e.created_at,
+            CASE e.entity_type
+              WHEN 'order' THEN (SELECT shop_id FROM orders WHERE id = e.entity_id)
+              WHEN 'batch' THEN (SELECT shop_id FROM delivery_batches WHERE id = e.entity_id)
+              WHEN 'task' THEN (SELECT o.shop_id FROM delivery_tasks t JOIN orders o ON o.id = t.order_id WHERE t.id = e.entity_id)
+            END AS shop_id
+     FROM status_events e ORDER BY e.created_at DESC, e.id DESC LIMIT ?`
   ).all(Math.min(Math.max(Number(limit) || 20, 1), 200))
 }

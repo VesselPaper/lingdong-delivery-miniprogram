@@ -368,14 +368,17 @@ module.exports = (store, deps) => {
   // ---------- 一车多单：配送批次 ----------
   // 商家批次列表：组单中 / 待上货 / 配送中（近 20 个），每批次带订单摘要
   router.get('/merchant/delivery/batch/list', merchantGuard, (req, res) => {
-    const rows = q.recentBatches(store, 20)
+    const rows = q.recentBatches(store, 20, req.shopId)
     const out = rows.map((b) => deps.batch.getBatchDetail(store, b.id))
     ok(res, out)
   })
 
   // 批次详情（订单 + 路线）
   router.get('/merchant/delivery/batch/detail', merchantGuard, (req, res) => {
-    const b = deps.batch.getBatchDetail(store, Number(req.query.batch_id || 0))
+    const batchId = Number(req.query.batch_id || 0)
+    // 先过店铺关：getBatchDetail 不认店，直接查会给到别人家的批次
+    if (!q.batchByIdOfShop(store, batchId, req.shopId)) return res.status(404).json({ code: 404, msg: '批次不存在' })
+    const b = deps.batch.getBatchDetail(store, batchId)
     b ? ok(res, b) : res.status(404).json({ code: 404, msg: '批次不存在' })
   })
 
@@ -386,7 +389,7 @@ module.exports = (store, deps) => {
   // 落账细节见 service.deleteBatch（释放控制权 → 批内订单逐单统一落账 → 批次置已取消）。
   router.post('/merchant/delivery/batch/delete', ownerGuard, async (req, res) => {
     const batchId = Number((req.body || {}).batch_id || 0)
-    const b = q.batchById(store, batchId)
+    const b = q.batchByIdOfShop(store, batchId, req.shopId)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
     if ([0, 1, 2].indexOf(Number(b.status)) < 0) {
       return res.status(400).json({ code: 400, msg: '该批次已是终态，无需删除' })
@@ -404,6 +407,8 @@ module.exports = (store, deps) => {
   // 批次派车（一车多单）：规划路线 + 创建全部平台任务，可指定机器人（P1-7 并发抢占见 service.doDispatchBatch）
   router.post('/merchant/delivery/batch/dispatch', merchantGuard, async (req, res) => {
     const { batch_id, device_sn } = req.body || {}
+    // 多店铺：派车是最贵的一步（真派一台车），必须先确认批次属于本店
+    if (!q.batchByIdOfShop(store, batch_id, req.shopId)) return res.status(404).json({ code: 404, msg: '批次不存在' })
     try {
       const detail = await s.doDispatchBatch(store, deps, batch_id, device_sn || '')
       audit(req, 'batch/dispatch', 'batch#' + batch_id, 'device_sn=' + (device_sn || detail.device_sn || '') + ' orders=' + (detail.orders ? detail.orders.length : 0))
@@ -418,7 +423,7 @@ module.exports = (store, deps) => {
   // 无 ctrlId 时开始配送直接放行（机器人等控制权超时自动执行）。
   router.post('/merchant/device/batch/open-bin', merchantGuard, async (req, res) => {
     const { batch_id } = req.body || {}
-    const b = q.batchById(store, batch_id)
+    const b = q.batchByIdOfShop(store, batch_id, req.shopId)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
     // 开舱幂等（上货改版 2026-10-06）：舱门已经开过就直接返回成功，不再重复下发平台指令。
     // 开舱已改为「进上货页自动执行 + 失败自动重试」，同一批次被多次调用是常态；
@@ -499,7 +504,7 @@ module.exports = (store, deps) => {
   // 批次关舱：Route B（syncLoading=0）任务已在定型时创建，此处仅关舱；演示档同样 drawerCtrl 关舱
   router.post('/merchant/device/batch/close-bin', merchantGuard, async (req, res) => {
     const { batch_id } = req.body || {}
-    const b = q.batchById(store, batch_id)
+    const b = q.batchByIdOfShop(store, batch_id, req.shopId)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
     // 设备号门禁只对真实档有意义（要拿它去调平台）。演示档没有真车：doDispatchBatch 只在
     // realPlatform 分支选车，device_sn 恒为空；这里若照样拦，「配单页点『上货』→ 立即配送」
@@ -525,7 +530,7 @@ module.exports = (store, deps) => {
   // 批次开始配送（逐任务 loading/confirm；批次置配送中）
   router.post('/merchant/device/batch/dispatch', merchantGuard, async (req, res) => {
     const { batch_id } = req.body || {}
-    const b = q.batchById(store, batch_id)
+    const b = q.batchByIdOfShop(store, batch_id, req.shopId)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
     // 【需求6】② 舱门开着/正在开 → 任何动作都不得让车移动（防止"开仓的时候就走了"）。
     // 关舱会清 bin_opened_at，所以正常「关舱 → 立即配送」链路不受影响；这层拦的是跳过关舱/舱门仍开的异常路径。
@@ -591,7 +596,7 @@ module.exports = (store, deps) => {
     // 而机器人仍在真实配送 —— 订单/任务/批次三方状态分叉。与 test-complete 保持同一道守卫。
     if (!deps.runtime.deviceMock) return res.status(404).json({ code: 404, msg: '当前运行模式不允许模拟配送' })
     const { batch_id } = req.body || {}
-    const b = q.batchById(store, batch_id)
+    const b = q.batchByIdOfShop(store, batch_id, req.shopId)
     if (!b) return res.status(404).json({ code: 404, msg: '批次不存在' })
     if (Number(b.status) !== 1) return res.status(400).json({ code: 400, msg: '批次未派车，请先派车' })
     q.setBatchMockArrive(store, b.id, Math.round(s.MOCK_ARRIVE_MS / 1000))
@@ -645,7 +650,7 @@ module.exports = (store, deps) => {
 
   // ---------- 配送监控 ----------
   router.get('/merchant/delivery/monitor', merchantGuard, async (req, res) => {
-    const tasks = q.monitorTasks(store)
+    const tasks = q.monitorTasks(store, req.shopId)
     const out = []
     for (const t of tasks) {
       const pos = await deps.platform.getDevicePosition(store, t.id)
@@ -692,9 +697,13 @@ module.exports = (store, deps) => {
     console.log('[merchant] test-complete called, order_id=' + order_id + ' batch_id=' + batch_id + ' status=' + status + ' user=' + req.user.id)
     const to = Number(status) === 4 ? 4 : 3
     const ids = []
+    // 多店铺：测试完成也只能动本店的单
     if (batch_id) {
+      if (!q.batchByIdOfShop(store, batch_id, req.shopId)) return res.status(404).json({ code: 404, msg: '批次不存在' })
       store.prepare('SELECT id FROM orders WHERE batch_id=? AND status IN (2,3)').all(Number(batch_id)).forEach((r) => ids.push(r.id))
     } else if (order_id) {
+      const o = store.prepare('SELECT shop_id FROM orders WHERE id=?').get(Number(order_id))
+      if (!o || Number(o.shop_id || 1) !== Number(req.shopId)) return res.status(404).json({ code: 404, msg: '订单不存在' })
       ids.push(Number(order_id))
     }
     if (!ids.length) return res.status(404).json({ code: 404, msg: '没有可标记的订单' })
@@ -718,9 +727,9 @@ module.exports = (store, deps) => {
 
   // 待上货批次列表：组单中(可派车) / 待上货(已派车，任务排队中/去上货点/上货中) / 配送中
   router.get('/merchant/device/pending', merchantGuard, async (req, res) => {
-    const openBatches = q.batchesByStatus(store, 0, 5)
-    const readyBatches = q.batchesByStatus(store, 1, 10)
-    const activeBatches = q.batchesByStatus(store, 2, 10)
+    const openBatches = q.batchesByStatus(store, 0, 5, req.shopId)
+    const readyBatches = q.batchesByStatus(store, 1, 10, req.shopId)
+    const activeBatches = q.batchesByStatus(store, 2, 10, req.shopId)
     const wrap = (list) => list.map((b) => deps.batch.getBatchDetail(store, b.id)).filter(Boolean)
     const open = wrap(openBatches)
     const ready = wrap(readyBatches)
