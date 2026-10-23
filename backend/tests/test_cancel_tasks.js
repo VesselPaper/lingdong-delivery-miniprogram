@@ -87,7 +87,10 @@ function assert(cond, msg) {
     boot.prepare("INSERT OR IGNORE INTO users (username, password_hash, role, merchant_role, status, nickname) VALUES (?,?,'merchant','owner',1,'测试商家')")
       .run('testmerchant', adminAuth.hashPassword('test123456'))
     boot.close()
+    // 测试进程自己也开一个库连接做断言：server 那边是 WAL + 写入热点，
+    // 不等 busy 就直接报 "database is locked"（2026-10-23 全量跑时偶发过一次失败）
     db = new DatabaseSync(TMP_DB)
+    db.exec('PRAGMA busy_timeout = 5000')
 
     const mer = await api('POST', '/auth/login', { username: 'testmerchant', password: 'test123456', client: 'merchant', nickname: '测试商家' })
     const mToken = mer.data.token

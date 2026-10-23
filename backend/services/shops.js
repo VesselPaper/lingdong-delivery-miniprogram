@@ -77,6 +77,71 @@ function nameMap(store) {
   return map
 }
 
+// ---------------- 建店 / 改店（管理员网页「店铺管理」用） ----------------
+// 为什么放在这里而不是 admin/queries：建店要保证「1 号店一定存在」「code 唯一」，
+// 这两个约束所有调用方都要满足，写死在 admin 域会让以后的运维脚本绕过它们。
+
+// 金额字段：非法/空 → 回落当前值（新建时 0），并夹在 0~999
+function money(v, fallback) {
+  const n = Number(v)
+  if (v === undefined || v === null || String(v).trim() === '' || isNaN(n)) return fallback
+  return Math.max(0, Math.min(999, Math.round(n * 100) / 100))
+}
+
+function codeTaken(store, code, exceptId) {
+  const c = String(code || '').trim()
+  if (!c) return false
+  const row = store.prepare('SELECT id FROM shops WHERE code=?').get(c)
+  return !!(row && Number(row.id) !== Number(exceptId))
+}
+
+function createShop(store, patch) {
+  const p = patch || {}
+  const name = String(p.name || '').trim()
+  if (!name) throw new Error('请填写店铺名称')
+  if (name.length > 40) throw new Error('店铺名称最多 40 字')
+  const code = String(p.code || '').trim()
+  if (code && codeTaken(store, code, 0)) throw new Error('店铺编码已存在')
+  const r = store.prepare(
+    `INSERT INTO shops (name, code, logo, category, address, pickup_landmark_id,
+                        min_order, pack_fee, business_status, auto_accept, sort)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+  ).run(
+    name, code, String(p.logo || ''), String(p.category || ''), String(p.address || ''),
+    String(p.pickup_landmark_id || ''), money(p.min_order, 0), money(p.pack_fee, 0),
+    p.business_status === 'closed' ? 'closed' : 'open', Number(p.auto_accept) === 1 ? 1 : 0,
+    Number.isFinite(Number(p.sort)) ? Number(p.sort) : 0
+  )
+  return shopById(store, Number(r.lastInsertRowid))
+}
+
+// 改店：只改传了的字段（其余保持原值），避免"保存营业状态"顺手把取货点清空
+function updateShop(store, id, patch) {
+  const cur = shopById(store, id)
+  if (!cur) return null
+  const p = patch || {}
+  const next = {
+    name: p.name === undefined ? cur.name : String(p.name || '').trim() || cur.name,
+    code: p.code === undefined ? (cur.code || '') : String(p.code || '').trim(),
+    logo: p.logo === undefined ? (cur.logo || '') : String(p.logo || ''),
+    category: p.category === undefined ? (cur.category || '') : String(p.category || ''),
+    address: p.address === undefined ? (cur.address || '') : String(p.address || ''),
+    pickup_landmark_id: p.pickup_landmark_id === undefined ? String(cur.pickup_landmark_id || '') : String(p.pickup_landmark_id || ''),
+    min_order: p.min_order === undefined ? Number(cur.min_order || 0) : money(p.min_order, Number(cur.min_order || 0)),
+    pack_fee: p.pack_fee === undefined ? Number(cur.pack_fee || 0) : money(p.pack_fee, Number(cur.pack_fee || 0)),
+    business_status: p.business_status === undefined ? (cur.business_status || 'open') : (p.business_status === 'closed' ? 'closed' : 'open'),
+    auto_accept: p.auto_accept === undefined ? Number(cur.auto_accept || 0) : (Number(p.auto_accept) === 1 ? 1 : 0),
+    sort: p.sort === undefined ? Number(cur.sort || 0) : (Number.isFinite(Number(p.sort)) ? Number(p.sort) : Number(cur.sort || 0))
+  }
+  if (codeTaken(store, next.code, cur.id)) throw new Error('店铺编码已存在')
+  store.prepare(
+    `UPDATE shops SET name=?, code=?, logo=?, category=?, address=?, pickup_landmark_id=?,
+            min_order=?, pack_fee=?, business_status=?, auto_accept=?, sort=? WHERE id=?`
+  ).run(next.name, next.code, next.logo, next.category, next.address, next.pickup_landmark_id,
+    next.min_order, next.pack_fee, next.business_status, next.auto_accept, next.sort, Number(cur.id))
+  return shopById(store, cur.id)
+}
+
 module.exports = {
   DEFAULT_SHOP_ID,
   normalizeShopId,
@@ -88,5 +153,7 @@ module.exports = {
   setMember,
   removeMember,
   removeAllMembers,
-  nameMap
+  nameMap,
+  createShop,
+  updateShop
 }

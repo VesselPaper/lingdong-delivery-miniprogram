@@ -838,5 +838,61 @@ module.exports = (store, deps) => {
   router.post('/admin/merchants/disable', adminGuard, merchantSetStatus(false))
   router.post('/admin/merchants/enable', adminGuard, merchantSetStatus(true))
 
+  // ---------- 店铺管理（多店铺一期，doc/16 §6.3「管理员网页增加店铺维度」） ----------
+  // 一期没有独立的店铺后台，建店/改店就是这三个接口 + 商家账号的 shop_id。
+  // 为什么要建店接口：否则「接第二家店」只能手写 SQL 往 shops 里插一行，
+  // 一旦漏了 code 或 sort，前端排序与按 code 查店都会出错。
+
+  // 店铺列表：带店主、商品数、今日单量、成员数
+  router.get('/admin/shops', adminGuard, (req, res) => ok(res, { shops: q.shopsAdminList(store) }))
+
+  // 建店：name 必填；code 可选但唯一（前端按 code 找店用）；取货点/起送价/打包费可后补
+  router.post('/admin/shops/create', adminGuard, (req, res) => {
+    let shop
+    try {
+      shop = shopSvc.createShop(store, req.body || {})
+    } catch (e) {
+      return res.status(400).json({ code: 400, msg: e.message || '建店失败' })
+    }
+    audit(req, 'admin/shop-create', 'shop#' + shop.id, '建店 ' + shop.name + (shop.code ? '（code=' + shop.code + '）' : ''))
+    ok(res, shop)
+  })
+
+  // 改店：只改传了的字段（改营业状态不会顺手清掉取货点）
+  router.put('/admin/shops/update', adminGuard, (req, res) => {
+    const id = Number((req.body || {}).id || 0)
+    if (!id) return res.status(400).json({ code: 400, msg: '缺少店铺编号' })
+    const before = shopSvc.shopById(store, id)
+    if (!before) return res.status(404).json({ code: 404, msg: '店铺不存在' })
+    let shop
+    try {
+      shop = shopSvc.updateShop(store, id, req.body || {})
+    } catch (e) {
+      return res.status(400).json({ code: 400, msg: e.message || '保存失败' })
+    }
+    audit(req, 'admin/shop-update', 'shop#' + id, '改店 ' + before.name + ' → ' + shop.name)
+    ok(res, shop)
+  })
+
+  // 绑定店主/店员：把商家账号挂到某店。
+  // users.merchant_role 与 shop_members 双写 —— ownerGuard 优先读成员表，
+  // 只改一边会出现「网页显示店主、实际没权限」。
+  router.post('/admin/shops/bind-merchant', adminGuard, (req, res) => {
+    const body = req.body || {}
+    const shopId = Number(body.shop_id || 0)
+    const userId = Number(body.user_id || 0)
+    const role = body.role === 'owner' ? 'owner' : 'staff'
+    if (!shopId || !userId) return res.status(400).json({ code: 400, msg: '缺少店铺或账号编号' })
+    if (!shopSvc.shopById(store, shopId)) return res.status(404).json({ code: 404, msg: '店铺不存在' })
+    const row = store.prepare("SELECT username FROM users WHERE id=? AND role='merchant' AND username IS NOT NULL AND username!=''").get(userId)
+    if (!row) return res.status(404).json({ code: 404, msg: '商家账号不存在' })
+    // 一期一个账号只归属一家店：先清掉其它店的成员行，否则 shopOfUser 会取到「最小的那个 shop_id」
+    shopSvc.removeAllMembers(store, userId)
+    shopSvc.setMember(store, shopId, userId, role)
+    uq.updateMerchantRole(store, userId, role)
+    audit(req, 'admin/shop-bind', 'shop#' + shopId, '绑定 ' + row.username + ' 为 ' + (role === 'owner' ? '店主' : '店员'))
+    ok(res, { shop_id: shopId, user_id: userId, role })
+  })
+
   return router
 }

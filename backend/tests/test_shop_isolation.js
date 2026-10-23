@@ -63,6 +63,16 @@ async function api(method, pathname, body, token) {
   return res.json().catch(() => ({}))
 }
 
+// 管理员接口走的是 x-admin-token（账号密码登录签发的 session token），不是 Bearer —— 与其它测试口径一致
+async function apiAdmin(method, pathname, body, adminToken) {
+  const res = await fetch(BASE + pathname, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(adminToken ? { 'x-admin-token': adminToken } : {}) },
+    body: body ? JSON.stringify(body) : undefined
+  })
+  return res.json().catch(() => ({}))
+}
+
 let bad = 0
 function assert(cond, msg) {
   if (!cond) { console.error('  ✘ ' + msg); bad++ } else { console.log('  ✔ ' + msg) }
@@ -88,6 +98,8 @@ function assert(cond, msg) {
     const insMember = boot.prepare('INSERT INTO shop_members (shop_id, user_id, role) VALUES (?,?,?)')
     insMember.run(1, A_UID, 'owner')
     insMember.run(B_SHOP, B_UID, 'owner')
+    // 管理员：建店/改店/绑定店主 三个接口要管理员令牌（本测试关掉了自举账号）
+    adminAuth.createAdmin(boot, { username: 'testshop_adm', password: PASS, nickname: '测试管理员' })
     boot.close()
     db = new DatabaseSync(TMP_DB)
     assert(B_SHOP > 1, '临时库里有第二家店（id=' + B_SHOP + '）')
@@ -283,6 +295,64 @@ function assert(cond, msg) {
     const bPending = (await api('GET', '/merchant/device/pending', null, bT)).data || {}
     const bPendingIds = (bPending.open_batches || []).map((x) => Number(x.id))
     assert(bPendingIds.indexOf(testBatchId) === -1, 'B 店「待上货」列表里没有 A 店批次')
+
+    // ---------- [11] 管理员建店 / 改店 / 绑定店主 ----------
+    // 一期没有店铺后台，但「接第二家店」不能靠手写 SQL：这三个接口就是运营实际会走的路径。
+    console.log('\n[11] 管理员建店 / 改店 / 绑定店主')
+    const admLg = await apiAdmin('POST', '/admin/login', { username: 'testshop_adm', password: PASS })
+    const adT = admLg.data && admLg.data.token
+    assert(admLg.code === 0 && !!adT, '管理员登录')
+
+    assert((await apiAdmin('GET', '/admin/shops')).code === 401 || (await apiAdmin('GET', '/admin/shops')).code === 403,
+      '不带管理员令牌看店铺列表 → 401/403')
+
+    const shopList0 = (await apiAdmin('GET', '/admin/shops', null, adT)).data || {}
+    const rows0 = shopList0.shops || []
+    assert(rows0.length >= 2, '店铺列表至少两家（实测 ' + rows0.length + '）')
+    const rowA = rows0.find((s) => Number(s.id) === 1) || {}
+    assert(rowA.owner_username === A_USER, '店铺列表带店主账号（' + rowA.owner_username + '）')
+    assert(typeof rowA.goods_count === 'number' && typeof rowA.today_orders === 'number', '店铺列表带商品数与今日单量')
+
+    // 建店：最小入参只有名称
+    const noName = await apiAdmin('POST', '/admin/shops/create', { code: 'shop-x' }, adT)
+    assert(noName.code === 400, '建店不填名称 → 400')
+    const dupCode = await apiAdmin('POST', '/admin/shops/create', { name: '重名店', code: 'shop-b' }, adT)
+    assert(dupCode.code === 400, '建店用已存在的 code → 400')
+    const cr = await apiAdmin('POST', '/admin/shops/create', { name: '南苑面馆', code: 'shop-c', pickup_landmark_id: '11', min_order: 15 }, adT)
+    const C_SHOP = Number((cr.data || {}).id)
+    assert(cr.code === 0 && C_SHOP > B_SHOP, '建店成功 id=' + C_SHOP)
+    assert((cr.data || {}).name === '南苑面馆' && String((cr.data || {}).pickup_landmark_id) === '11', '建店字段落库（名称 + 取货点）')
+    assert(Number((cr.data || {}).min_order) === 15, '建店起送价落库（15）')
+
+    // 新店对用户端立即可见（否则「接了店但用户看不到」）
+    const pubList = (await api('GET', '/shop/list')).data || []
+    assert(pubList.some((s) => Number(s.id) === C_SHOP), '/shop/list 里能看到新店')
+
+    // 改店：只传营业状态时，不能把取货点/起送价清空
+    const up = await apiAdmin('PUT', '/admin/shops/update', { id: C_SHOP, business_status: 'closed' }, adT)
+    assert(up.code === 0 && (up.data || {}).business_status === 'closed', '改店：只改营业状态生效')
+    assert(String((up.data || {}).pickup_landmark_id) === '11' && Number((up.data || {}).min_order) === 15,
+      '改店：没传的字段保持原值（取货点 11 / 起送价 15）')
+    assert((await apiAdmin('PUT', '/admin/shops/update', { id: 9999, name: '不存在' }, adT)).code === 404, '改不存在的店 → 404')
+
+    // 新店直接配商家账号：建号时传 shop_id，登录后 /merchant/shop 就是新店
+    const C_USER = 'testshop_c'
+    const crAcc = await apiAdmin('POST', '/admin/merchants/create',
+      { username: C_USER, password: PASS, merchant_role: 'owner', nickname: '南苑面馆', shop_id: C_SHOP }, adT)
+    assert(crAcc.code === 0 && Number((crAcc.data || {}).shop_id) === C_SHOP, '建商家账号时可指定店铺（shop_id=' + C_SHOP + '）')
+    const cLg = await api('POST', '/auth/login', { username: C_USER, password: PASS, client: 'merchant' })
+    const cT = cLg.data && cLg.data.token
+    const cShop = (await api('GET', '/merchant/shop', null, cT)).data || {}
+    assert(Number(cShop.id) === C_SHOP && cShop.name === '南苑面馆', '新店商家登录后 /merchant/shop 是南苑面馆')
+
+    // 绑定店主：把 B 店的店主搬到新店，成员行要跟着搬（旧行清掉，否则 shopOfUser 取最小 shop_id）
+    const bind = await apiAdmin('POST', '/admin/shops/bind-merchant', { shop_id: C_SHOP, user_id: B_UID, role: 'owner' }, adT)
+    assert(bind.code === 0, '绑定：把 B 店店主绑到新店')
+    const bShopAfter = (await api('GET', '/merchant/shop', null, bT)).data || {}
+    assert(Number(bShopAfter.id) === C_SHOP, 'B 账号搬店后 /merchant/shop 变成新店（' + bShopAfter.name + '）')
+    const bMembers = db.prepare('SELECT COUNT(*) AS c FROM shop_members WHERE user_id=?').get(B_UID)
+    assert(Number(bMembers.c) === 1, '搬店后该账号只剩一条成员行（一期一个账号一家店）')
+    assert((await apiAdmin('POST', '/admin/shops/bind-merchant', { shop_id: 9999, user_id: B_UID }, adT)).code === 404, '绑到不存在的店 → 404')
 
     console.log('\n' + (bad ? '✘ 失败 ' + bad + ' 项' : '✔ 全部通过'))
   } catch (e) {

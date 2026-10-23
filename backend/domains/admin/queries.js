@@ -54,6 +54,16 @@ module.exports = {
     FROM delivery_batches b WHERE b.status IN (0,1,2) ORDER BY b.id DESC LIMIT 12`).all(),
   // 全部店铺（大屏店铺概览 / 管理员网页店铺列表）：按 sort 排，同 sort 按 id
   allShops: (store) => store.prepare('SELECT * FROM shops ORDER BY IFNULL(sort,0), id').all(),
+  // 店铺管理列表（管理员网页）：每店带店主账号、商品数、今日单量。
+  // 「这家店配没配人、有没有货、今天有没有生意」是运营看店铺列表时最先要判断的三件事。
+  shopsAdminList: (store) => store.prepare(`
+    SELECT s.*,
+      (SELECT COUNT(*) FROM goods g WHERE g.shop_id = s.id) AS goods_count,
+      (SELECT COUNT(*) FROM orders o WHERE o.shop_id = s.id AND date(o.created_at)=date('now','localtime')) AS today_orders,
+      IFNULL((SELECT u.username FROM shop_members m JOIN users u ON u.id = m.user_id
+              WHERE m.shop_id = s.id AND m.role='owner' ORDER BY u.id LIMIT 1), '') AS owner_username,
+      (SELECT COUNT(*) FROM shop_members m WHERE m.shop_id = s.id) AS member_count
+    FROM shops s ORDER BY IFNULL(s.sort,0), s.id`).all(),
   // 按店铺的当日订单量（大屏概览用）：只统计今天，避免把历史单算进「今日」
   todayOrdersByShop: (store) => store.prepare(`
     SELECT IFNULL(shop_id,1) AS shop_id, COUNT(*) AS c
