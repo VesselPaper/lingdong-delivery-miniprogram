@@ -55,7 +55,8 @@
     </view>
     <view class="shop-row">
       <view class="shop-badge"><t-icon name="shop" size="14" color="#3078C0" /></view>
-      <text class="shop-name">零栋铺子</text>
+      <!-- 多店铺一期：结算页店名 = 本单店铺（/shop/status 下发），与后端下单的 shop_id 同源 -->
+      <text class="shop-name">{{shopName || '零栋铺子'}}</text>
       <view class="tag tag-orange" wx:if="{{shopClosed}}">歇业</view>
     </view>
     <view wx:if="{{promoBanner}}" class="promo-banner" bindtap="showPromos">

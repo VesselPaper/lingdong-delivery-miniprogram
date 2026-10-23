@@ -76,6 +76,8 @@ window.Dash.main = (function (Dash) {
     Dash.views.setConn(true, '数据正常')
     $('demoBadge').hidden = !d.demo
     Dash.views.renderRunState(d)
+    // 店铺概览（多店铺）：一期只有一家店，多店后这里逐行列出「店名 + 今日单量」
+    if (Dash.views.renderShopOverview) Dash.views.renderShopOverview(d.shops, d.stats, d.shop)
     Dash.views.renderStats(d.stats)
     Dash.views.renderRobots(d.robots, d.robots_error)
     Dash.views.renderBatches(d.batches)

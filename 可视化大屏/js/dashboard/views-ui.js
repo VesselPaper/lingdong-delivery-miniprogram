@@ -15,6 +15,13 @@ window.Dash.views = (function (Dash) {
   var state = Dash.state
   var C = Dash.C
 
+  // HTML 转义：店铺名来自数据库（管理员/商家可改），拼进 innerHTML 前必须转义
+  function esc(s) {
+    return String(s === undefined || s === null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+  }
+
   /* ---------------- 顶栏时钟 / 连接状态 ---------------- */
 
   function tickClock() { txt($('clock'), hhmmss(new Date())) }
@@ -25,11 +32,44 @@ window.Dash.views = (function (Dash) {
     txt($('connText'), text)
   }
 
+  /* ---------------- 渲染：店铺概览（多店铺） ----------------
+   * 一期只有一家店：整块隐藏，左栏看起来和以前一样。
+   * 两家店起才展开 —— 每行「店名 · 今日 N 单」，歇业的店标灰，让大屏一眼看出
+   * 「哪家店今天在跑、哪家歇着」。数据来自 overview 的 shops[] + stats.by_shop。
+   * ------------------------------------------------------------ */
+
+  function renderShopOverview(shops, stats, mainShop) {
+    var box = $('shopOverview')
+    if (!box) return
+    var list = (shops || []).filter(function (s) { return s && s.id })
+    if (list.length <= 1) { box.hidden = true; box.innerHTML = ''; return }
+    var by = ((stats && stats.by_shop) || [])
+    box.hidden = false
+    var html = ''
+    for (var i = 0; i < list.length; i++) {
+      var s = list[i]
+      var hit = null
+      for (var j = 0; j < by.length; j++) if (Number(by[j].shop_id) === Number(s.id)) { hit = by[j]; break }
+      var n = hit ? num(hit.today_orders) : 0
+      var off = s.business_status && s.business_status !== 'open'
+      html += '<li><span class="k">' + esc(s.name || ('店铺' + s.id)) + (off ? '（歇业）' : '') + '</span>'
+        + '<b' + (off ? ' style="opacity:.55"' : '') + '>' + n + ' 单</b></li>'
+    }
+    box.innerHTML = html
+  }
+
   /* ---------------- 渲染：运行状态 ---------------- */
 
   function renderRunState(d) {
     var shop = d.shop || {}
-    txt($('kvShop'), shop.name || '零栋铺子')
+    // 多店铺：优先用 shops[] 里的「当前店铺」定义（后端按 sort 排的 1 号店），
+    // 老后端没有 shops[] 时退回 d.shop（行为不变）。
+    // 店铺名同时写进 Dash.state.shopName：批次行用它判断要不要加「｜店名」后缀。
+    var shops = (d.shops && d.shops.length) ? d.shops : null
+    var main = shops ? shops[0] : shop
+    var name = (shop.name || (main && main.name) || '零栋铺子')
+    Dash.state.shopName = name
+    txt($('kvShop'), name)
 
     var biz = $('kvBusiness')
     txt(biz, shop.business_status === 'open' ? '营业中' : '休息中')
@@ -58,6 +98,20 @@ window.Dash.views = (function (Dash) {
     txt($('mToday'), num(stats.today_orders))
     txt($('mAmount'), '¥' + num(stats.today_amount).toFixed(0))
     txt($('mFinished'), num(stats.finished))
+    // 分店小字（多店铺）：大字看总量，小字看「哪家店在跑」。一家店时隐藏，不改变原有观感。
+    var split = $('todayByShop')
+    if (split) {
+      var by = stats.by_shop || []
+      if (by.length > 1) {
+        split.hidden = false
+        split.innerHTML = by.map(function (r) {
+          return '<span>' + esc(r.name || ('店铺' + r.shop_id)) + ' <b>' + num(r.today_orders) + '</b></span>'
+        }).join('')
+      } else {
+        split.hidden = true
+        split.innerHTML = ''
+      }
+    }
     // 任务状态：配送任务流水线（待接单 → 待上货 → 配送中 → 待取货）
     flowStep('fsPending', stats.pending, false)
     flowStep('fsLoad', stats.ready_load, false)
@@ -169,7 +223,10 @@ window.Dash.views = (function (Dash) {
 
     show.forEach(function (b, i) {
       var li = list.children[i]
-      txt(li.querySelector('.batchNo'), '批次 ' + (b.batch_no || b.id) + (b.daily_seq ? ' · 当日第' + b.daily_seq + '批' : ''))
+      // 批次行带店铺名（多店铺）：一眼看出这一趟在送哪家店的货。
+      // 只有一家店时不显示，避免刷屏（shop_name 为空或与标题店名相同就省略）。
+      var shopTag = b.shop_name && b.shop_name !== (Dash.state.shopName || '') ? '｜' + b.shop_name : ''
+      txt(li.querySelector('.batchNo'), '批次 ' + (b.batch_no || b.id) + (b.daily_seq ? ' · 当日第' + b.daily_seq + '批' : '') + shopTag)
       var st = li.querySelector('.batchStage')
       setClass(st, 'batchStage s' + num(b.status))
       txt(st, b.status_text || ({ 0: '组单中', 1: '待上货', 2: '配送中' })[num(b.status)] || '—')
@@ -236,7 +293,7 @@ window.Dash.views = (function (Dash) {
 
   return {
     tickClock: tickClock, setConn: setConn,
-    renderRunState: renderRunState, renderStats: renderStats,
+    renderRunState: renderRunState, renderShopOverview: renderShopOverview, renderStats: renderStats,
     renderRobots: renderRobots, renderBatches: renderBatches,
     renderAlerts: renderAlerts, applyEvents: applyEvents, renderEvents: renderEvents
   }

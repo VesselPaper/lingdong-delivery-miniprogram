@@ -26,6 +26,44 @@
     </view>
   </view>
 
+  <!-- 多店铺一期（doc/16 §6.4）：起送价 / 打包费 / 店铺分类 / 本店取货点
+       只有店长能改（后端 PUT /merchant/shop 是 ownerGuard），店员看到也不给入口 -->
+  <view class="card" wx:if="{{isOwner}}">
+    <view class="settings-title">店铺经营参数</view>
+    <view class="seg-row">
+      <view class="seg-label"><text>起送价</text></view>
+      <view class="fee-input-wrap">
+        <text class="fee-unit">¥</text>
+        <input class="fee-input" type="digit" value="{{minOrder}}" bind:input="onMinOrderInput" bind:blur="onMinOrderBlur" placeholder="0.00" placeholder-class="field-placeholder" />
+        <text class="fee-unit">起送</text>
+      </view>
+    </view>
+    <view class="seg-row">
+      <view class="seg-label"><text>打包费</text></view>
+      <view class="fee-input-wrap">
+        <text class="fee-unit">¥</text>
+        <input class="fee-input" type="digit" value="{{packFee}}" bind:input="onPackFeeInput" bind:blur="onPackFeeBlur" placeholder="0.00" placeholder-class="field-placeholder" />
+        <text class="fee-unit">/单</text>
+      </view>
+    </view>
+    <view class="seg-row" bindtap="onPickCategory">
+      <view class="seg-label"><text>店铺分类</text></view>
+      <view class="seg-value">
+        <text class="{{category ? '' : 'text-weak'}}">{{category || '未设置'}}</text>
+        <t-icon name="chevron-right" size="36rpx" color="#C0C0C0" />
+      </view>
+    </view>
+    <!-- 本店取货点：批次从这家店的取货点装货，一车一趟只服务一家店 -->
+    <view class="seg-row" bindtap="onPickPickup">
+      <view class="seg-label"><text>本店取货点</text></view>
+      <view class="seg-value">
+        <text class="{{pickupName ? '' : 'text-weak'}}">{{pickupName || '未设置（用默认上货点）'}}</text>
+        <t-icon name="chevron-right" size="36rpx" color="#C0C0C0" />
+      </view>
+    </view>
+    <view class="settings-hint">取货点决定无人车到哪装这家店的货；不设置时用系统默认上货点。</view>
+  </view>
+
   <view class="card">
     <view class="cell" bindtap="goMonitor">
       <view class="cell-label cell-full">配送监控</view>

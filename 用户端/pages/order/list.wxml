@@ -14,7 +14,8 @@
         <view class="o-head">
           <view class="o-store">
             <view class="o-store-icon"><t-icon name="shop" size="13" color="#3078C0" /></view>
-            <text class="o-store-name">零栋铺子</text>
+            <!-- 多店铺一期：店名由后端下发（orders.shop_id 对应的 shops.name），不再写死 -->
+            <text class="o-store-name">{{item.shop_name || '零栋铺子'}}</text>
           </view>
           <text class="o-status st-{{item.stClass}}">{{item.status_text}}</text>
         </view>

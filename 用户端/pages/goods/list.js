@@ -2,6 +2,7 @@ const api = require('../../utils/api')
 const request = require('../../utils/request')
 const flyCart = require('../../utils/flyCart')
 const session = require('../../utils/session')
+const shopCtx = require('../../utils/shop')
 
 // 历史搜索：与首页共用同一份本地记录（search_history）
 const HISTORY_KEY = 'search_history'
@@ -29,6 +30,7 @@ Page({
     cartTotal: '0.00',
     cartPanelShow: false,   // 「已加购商品」底部弹层
     mainTo: '',
+    shopName: '',           // 店铺名（/shop/status 下发；空时模板回退「零栋铺子」）
     shopClosed: false,
     deliveryFee: '1.00',
     flyBall: { show: false, x: 0, y: 0, dx: 0, dy: 0, move: false },  // 加购飞入的小球
@@ -80,9 +82,11 @@ Page({
   // 店铺营业状态 + 配送费（配送费由商家端配置，默认 1 元）
   async loadShopStatus() {
     try {
-      const shop = await request.get(api.shopStatus)
+      const shop = await request.get(api.shopStatus, shopCtx.withShop())
       const f = Number(shop && shop.delivery_fee)
       this.setData({
+        // 多店铺一期：店名跟着当前店铺走（模板里空值才回退「零栋铺子」）
+        shopName: (shop && shop.name) || '',
         shopClosed: shop.business_status === 'closed',
         deliveryFee: (isNaN(f) || f < 0 ? 1 : f).toFixed(2)
       })
@@ -141,7 +145,7 @@ Page({
 
   async loadCategories() {
     try {
-      const categories = await request.get(api.goodsCategories)
+      const categories = await request.get(api.goodsCategories, shopCtx.withShop())
       this.setData({ categories })
     } catch (e) { /* handled */ }
   },
@@ -149,7 +153,7 @@ Page({
   async loadGoods() {
     try {
       const [list, cart] = await Promise.all([
-        request.get(api.goodsList),
+        request.get(api.goodsList, shopCtx.withShop()),
         request.get(api.cartList).catch(() => [])
       ])
       const byGoods = {}
@@ -336,8 +340,8 @@ Page({
     const items = (e.detail && e.detail.items) || []
     if (!items.length) return
     this.setData({ cartPanelShow: false })
-    wx.setStorageSync('checkout_items', items)
-    wx.navigateTo({ url: '/pages/order/confirm' })
+    // 多店铺一期：混店结算统一由 shopCtx 拦（条目自带 shop_id/shop_name）
+    shopCtx.toConfirm(items)
   },
 
   // 底部栏右侧「去结算」：不进面板，直接结算当前勾选商品
@@ -354,8 +358,7 @@ Page({
         wx.showToast({ title: '「' + soldOut.name + '」已售罄，请先移除', icon: 'none' })
         return
       }
-      wx.setStorageSync('checkout_items', selected.map((it) => ({ goods_id: it.goods_id, quantity: it.quantity })))
-      wx.navigateTo({ url: '/pages/order/confirm' })
+      shopCtx.toConfirm(selected)
     } catch (err) { /* handled */ }
   },
 

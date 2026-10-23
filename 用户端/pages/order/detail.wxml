@@ -57,7 +57,8 @@
   <view class="card">
     <view class="shop-row">
       <view class="shop-badge"><t-icon name="shop" size="14" color="#3078C0" /></view>
-      <text class="shop-name">零栋铺子</text>
+      <!-- 多店铺一期：店名由 /order/detail 下发（shop_name），不再写死 -->
+      <text class="shop-name">{{order.shop_name || '零栋铺子'}}</text>
     </view>
     <view class="items">
       <view class="item" wx:for="{{items}}" wx:key="id">

@@ -1,15 +1,22 @@
 const role = require('../../utils/role')
+const shopState = require('../../utils/shopState')
 
 Page({
   data: {
-    isOwner: false
+    isOwner: false,
+    shopName: '',   // 多店铺一期：店名由 /merchant/shop 下发，不再写死「零栋铺子」
+    shopSub: ''
   },
 
-  onShow() {
+  async onShow() {
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 1 })
     }
     this.setData({ isOwner: role.isOwner() })
+    // 缓存里先取一次（秒显），再拉后端最新（换店后立刻正确）
+    this.setData({ shopName: shopState.getShopName() })
+    await shopState.loadShop()
+    this.setData({ shopName: shopState.getShopName(), shopSub: shopState.getCategory() })
   },
 
   notOpen() {

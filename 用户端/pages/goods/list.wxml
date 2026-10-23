@@ -36,7 +36,8 @@
     </view>
     <view class="store-info">
       <view class="store-name-row">
-        <view class="store-name">零栋铺子</view>
+        <!-- 多店铺一期：店名由 /shop/status 下发（shopName），空值才回退 -->
+        <view class="store-name">{{shopName || '零栋铺子'}}</view>
         <view class="tag tag-orange" wx:if="{{shopClosed}}">歇业</view>
       </view>
       <view class="store-sub">

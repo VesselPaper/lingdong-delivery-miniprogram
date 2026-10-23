@@ -145,6 +145,31 @@
   min-width: 0;
 }
 
+/* 多店铺一期：混店结算时每行标出店名 */
+.item-shop {
+  font-size: 20rpx;
+  color: #3078C0;
+  background: rgba(48, 120, 192, 0.1);
+  border-radius: 6rpx;
+  padding: 2rpx 8rpx;
+  align-self: flex-start;
+  margin-bottom: 4rpx;
+}
+
+/* 多店铺一期：混合店铺提示条 */
+.mixed-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8rpx;
+  margin: 0 24rpx 16rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 12rpx;
+  background: #FFF7E6;
+  font-size: 22rpx;
+  line-height: 1.5;
+  color: #A9761A;
+}
+
 .item-name-row .item-name {
   flex: 1;
   min-width: 0;

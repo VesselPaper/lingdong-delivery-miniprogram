@@ -354,6 +354,19 @@
   color: #6B4E1F;
 }
 
+/* 多店铺一期：有多家店时出现的「切换」小按钮（点击弹店铺列表） */
+.coupon-switch {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  margin-left: 12rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 999rpx;
+  background: rgba(169, 138, 79, 0.12);
+  font-size: 22rpx;
+  color: #A98A4F;
+}
+
 .coupon-count {
   font-size: 24rpx;
   color: #A98A4F;

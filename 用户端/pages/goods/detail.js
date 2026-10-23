@@ -1,5 +1,6 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
+const shopCtx = require('../../utils/shop')
 
 const THEMES = {
   '热卤': { bg: '#F5F5F5', icon: 'app' },
@@ -15,6 +16,7 @@ Page({
   data: {
     id: null,
     goods: {},
+    shopName: '',        // 商品所属店铺（多店铺一期由 /shop/status 带 shop_id 取回）
     theme: DEFAULT_THEME.bg,
     icon: DEFAULT_THEME.icon,
     inStock: true,
@@ -41,7 +43,8 @@ Page({
 
   async loadDetail() {
     try {
-      const goods = await request.get(api.goodsDetail + '?id=' + this.data.id)
+      // 多店铺一期：详情必须带 shop_id —— 不带的话后端按 1 号店查，第二家店的商品会 404
+      const goods = await request.get(api.goodsDetail, { id: this.data.id, shop_id: shopCtx.getShopId() })
       const t = THEMES[goods.category] || DEFAULT_THEME
       this.setData({
         goods,
@@ -55,9 +58,11 @@ Page({
   },
 
   // 配送费取店铺当前配置；失败用兜底值，不阻塞商品展示
+  // 顺手记下店名：多店铺之后详情页要告诉用户"这件是谁家的货"（与首页/商城口径一致）
   async fetchFee() {
     try {
-      const shop = await request.get(api.shopStatus, {}, { needAuth: false })
+      const shop = await request.get(api.shopStatus, shopCtx.withShop(), { needAuth: false })
+      this.setData({ shopName: (shop && shop.name) || '' })
       const f = Number(shop && shop.delivery_fee)
       return isNaN(f) || f < 0 ? FALLBACK_FEE : f
     } catch (e) {

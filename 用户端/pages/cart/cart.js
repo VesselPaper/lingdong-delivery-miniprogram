@@ -1,5 +1,6 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
+const shopCtx = require('../../utils/shop')
 
 Page({
   data: {
@@ -9,7 +10,11 @@ Page({
     saveTotal: '0.00',    // 预估可省金额
     deliveryFee: '1.00',  // 商家端可配置，用于「包含配送费」提示
     selectCount: 0,
-    allSelected: true
+    allSelected: true,
+    // 多店铺一期（2026-10-23）：一期不做跨店合并结算，购物车里有几家店就要让用户看见
+    shopName: '',         // 只有一家店时显示店名
+    shopCount: 0,         // 购物车里出现过的店铺数
+    mixedShop: false      // >1 家：每一行标店名，结算按钮给出「分开下单」的明确提示
   },
 
   onShow() {
@@ -20,7 +25,7 @@ Page({
   // 配送费（商家端配置，默认 1 元）
   async loadShopStatus() {
     try {
-      const shop = await request.get(api.shopStatus, {}, { needAuth: false })
+      const shop = await request.get(api.shopStatus, shopCtx.withShop(), { needAuth: false })
       const f = Number(shop && shop.delivery_fee)
       this.setData({ deliveryFee: (isNaN(f) || f < 0 ? 1 : f).toFixed(2) })
     } catch (e) { /* handled */ }
@@ -50,13 +55,22 @@ Page({
     const chosen = valid.filter((it) => it.selected)
     const total = chosen.reduce((s, it) => s + Number(it.price_now) * Number(it.quantity || 0), 0)
     const origTotal = chosen.reduce((s, it) => s + Number(it.price) * Number(it.quantity || 0), 0)
+    // 店铺口径：一车只送一家店，购物车里混了多家店时必须让用户看见（后端下单也会拒）
+    const shopIds = []
+    valid.forEach((it) => {
+      const sid = Number(it.shop_id || shopCtx.DEFAULT_SHOP_ID)
+      if (shopIds.indexOf(sid) === -1) shopIds.push(sid)
+    })
     this.setData({
       items: valid,
       total: total.toFixed(2),
       origTotal: origTotal.toFixed(2),
       saveTotal: Math.max(0, origTotal - total).toFixed(2),
       selectCount: chosen.length,
-      allSelected: valid.length > 0 && valid.every((it) => it.selected)
+      allSelected: valid.length > 0 && valid.every((it) => it.selected),
+      shopCount: shopIds.length,
+      mixedShop: shopIds.length > 1,
+      shopName: shopIds.length === 1 ? String(valid.find((it) => Number(it.shop_id || shopCtx.DEFAULT_SHOP_ID) === shopIds[0]).shop_name || '') : ''
     })
   },
 
@@ -155,8 +169,8 @@ Page({
       wx.showToast({ title: '「' + soldOut.name + '」已售罄，请先移除', icon: 'none' })
       return
     }
-    const items = selected.map((it) => ({ goods_id: it.goods_id, quantity: it.quantity }))
-    wx.setStorageSync('checkout_items', items)
-    wx.navigateTo({ url: '/pages/order/confirm' })
+    // 多店铺一期：一次只能结算一家店（一辆车一趟只服务一家店，见 doc/16 §七）。
+    // toConfirm 内部会拦混店并弹窗说清是哪两家。
+    shopCtx.toConfirm(selected)
   }
 })

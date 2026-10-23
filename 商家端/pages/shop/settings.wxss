@@ -31,6 +31,19 @@
 .settings-hint {
   margin-top: 8rpx;
   line-height: 1.6;
+  font-size: 22rpx;
+  color: #999999;
+}
+
+/* 多店铺一期：可点选的行（店铺分类 / 取货点）右侧「值 + 箭头」 */
+.seg-value {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  font-size: 26rpx;
+  color: #333333;
+  max-width: 60%;
+  text-align: right;
 }
 
 /* 配送费输入：右对齐数字 + ¥ /单 单位，避免与开关行风格割裂 */

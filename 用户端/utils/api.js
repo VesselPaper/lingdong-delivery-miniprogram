@@ -67,8 +67,9 @@ const api = {
 
   // 点位
   landmarkList: '/landmarks',
-  // 店铺状态（公开，歇业判断）
-  shopStatus: '/shop/status'
+  // 店铺
+  shopList: '/shop/list',       // 全部店铺（用户端切换店铺用）
+  shopStatus: '/shop/status'    // 单店营业状态/配送费（带 shop_id）
 }
 
 module.exports = api

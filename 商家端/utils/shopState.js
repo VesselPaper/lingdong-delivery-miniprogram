@@ -80,4 +80,30 @@ async function setDeliveryFee(val) {
   }
 }
 
-module.exports = { loadShop, getBusiness, isOpen, setBusiness, getAutoAccept, setAutoAccept, getDeliveryFee, setDeliveryFee }
+// ---------- 多店铺一期新增字段（doc/16 §6.4：商家端店铺设置补取货点/起送价/打包费/分类） ----------
+// 统一走一个 updateShop(patch)：这些字段后端都是同一个 PUT /merchant/shop，
+// 每加一个字段就复制一遍 setXxx 只会有五份几乎一样的 try/catch。
+async function updateShop(patch) {
+  try {
+    const shop = await request.put(api.shop, patch)
+    return cacheShop(shop)
+  } catch (e) {
+    return cacheShop(Object.assign(cached(), patch))
+  }
+}
+
+function getNumber(key, fallback) {
+  const n = Number(cached()[key])
+  return isNaN(n) ? fallback : n
+}
+
+function getMinOrder() { return getNumber('min_order', 0) }
+function getPackFee() { return getNumber('pack_fee', 0) }
+function getCategory() { return cached().category || '' }
+function getPickupLandmarkId() { return String(cached().pickup_landmark_id || '') }
+function getShopName() { return cached().name || '' }
+
+module.exports = {
+  loadShop, getBusiness, isOpen, setBusiness, getAutoAccept, setAutoAccept, getDeliveryFee, setDeliveryFee,
+  updateShop, getMinOrder, getPackFee, getCategory, getPickupLandmarkId, getShopName
+}

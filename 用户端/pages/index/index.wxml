@@ -64,10 +64,16 @@
       <view class="coupon-mascot">
         <t-icon name="robot-1" size="20" color="#6B4E1F" />
       </view>
-      <view class="coupon-name">零栋铺子</view>
+      <!-- 店名由 /shop/status 下发（shopName），不再写死「零栋铺子」：多店铺后首页要跟着店铺走 -->
+      <!-- 多店铺一期：有多家店时店名可点（catchtap 阻止冒泡到卡片跳转），点开 ActionSheet 切店 -->
+      <view class="coupon-name" catchtap="{{shopSwitchable ? 'onShopTap' : ''}}">{{shopName || '零栋铺子'}}</view>
+      <view class="coupon-switch" wx:if="{{shopSwitchable}}" catchtap="onShopTap">
+        <text>切换</text>
+        <t-icon name="chevron-down" size="12" color="#A98A4F" />
+      </view>
     </view>
     <view class="coupon-notice">
-      <text class="coupon-notice-tag">热门福利</text>
+      <text class="coupon-notice-tag">{{shopClosed ? '已歇业' : '热门福利'}}</text>
       <text class="coupon-notice-text">机器人自动配送至所选点位</text>
       <t-icon name="chevron-right" size="14" color="#A98A4F" />
     </view>

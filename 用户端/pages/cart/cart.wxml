@@ -14,10 +14,16 @@
       </view>
     </view>
 
+    <!-- 多店铺一期：购物车混了多家店时明确提示「一次只能结算一家店」 -->
+    <view class="mixed-tip" wx:if="{{mixedShop}}">
+      <t-icon name="info-circle" size="12" color="#E6A23C" />
+      <text>购物车里有 {{shopCount}} 家店的商品，一次只能结算一家店（一辆车只去一家店取货），请分开勾选。</text>
+    </view>
+
     <view class="card">
       <view class="shop-row">
         <t-icon name="shop" size="18" color="#3078C0" />
-        <text class="shop-name">零栋铺子</text>
+        <text class="shop-name">{{mixedShop ? '多家店铺' : (shopName || '零栋铺子')}}</text>
         <text class="text-weak text-sm">无人车配送</text>
       </view>
 
@@ -32,6 +38,8 @@
             <t-icon wx:else name="app" size="20" color="#BFBFBF" />
           </view>
           <view class="item-info">
+            <!-- 多家店时每行标出店名，否则用户不知道哪几件是一家店的 -->
+            <view class="item-shop" wx:if="{{mixedShop && item.shop_name}}">{{item.shop_name}}</view>
             <view class="item-name-row">
               <view class="item-name ellipsis">{{item.name}}</view>
               <text class="item-soldout" wx:if="{{item.sold_out}}">售罄</text>

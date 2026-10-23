@@ -2,6 +2,7 @@ const api = require('../../utils/api')
 const request = require('../../utils/request')
 const flyCart = require('../../utils/flyCart')
 const session = require('../../utils/session')
+const shopCtx = require('../../utils/shop')
 
 const THEMES = {
   '热卤': { bg: '#F5F5F5', icon: 'app' },
@@ -66,6 +67,10 @@ Page({
     location: POINT_UNSET,     // 顶部定位：未选楼栋时显示「楼栋未填写」，选定后显示楼栋名
     pointUnset: true,          // 是否处于「未选择」态（用于文案样式区分）
     deliveryFee: '1.00',       // 店铺配送费（商家端可配置）
+    shopName: '',              // 店铺名（/shop/status 下发；空时模板回退「零栋铺子」）
+    shopClosed: false,         // 店铺是否歇业（歇业时福利卡角标改「已歇业」，不再显示「热门福利」）
+    shops: [],                 // 全部店铺（多于 1 家时点店名可切换）
+    shopSwitchable: false,     // 是否显示"可切换"提示（只有一家店时不打扰用户）
     points: [],                // 全部可送达楼栋（与已有地址关联）
     addresses: [],             // 用户地址簿（仅用于关联昵称/手机号）
     pickedPointId: null,       // 当前选定的楼栋 id（弹层里打勾）
@@ -117,7 +122,7 @@ Page({
   // 它们仍然完整地留在券页里。
   async loadCoupons() {
     try {
-      const list = await request.get(api.couponList, {}, { silent: true })
+      const list = await request.get(api.couponList, shopCtx.withShop(), { silent: true })
       const skipped = readSkipped()
       const mine = (list || []).filter((c) => c.state === 'ok' && c.image && skipped.indexOf(Number(c.id)) === -1)
       this.setData({ popupCoupons: mine, popupBodyH: this.popupBodyHeight(mine) })
@@ -208,13 +213,51 @@ Page({
     }
   },
 
-  // 店铺配送费（商家端可配置，默认 1 元）
+  // 店铺配送费（商家端可配置，默认 1 元）+ 店铺名
+  // 店名以前写死在 wxml 里（「零栋铺子」），多店铺后必须由接口给：
+  // 否则后台换成第二家店，首页卡片还挂着第一家店的名字。
+  // 多店铺一期（2026-10-23）：同时拉店铺列表 —— 只有一家店时隐藏切换入口，
+  // 多于一家时点店名弹 ActionSheet 切店（切完重载商品/分类/券，购物车不动：购物车不按店存）。
   async loadShopStatus() {
+    let shops = []
+    try { shops = await shopCtx.loadShops() } catch (e) { shops = [] }
+    const cur = shopCtx.pickCurrent(shops)
     try {
-      const shop = await request.get(api.shopStatus, {}, { needAuth: false })
+      const shop = await request.get(api.shopStatus, shopCtx.withShop(), { needAuth: false })
       const f = Number(shop && shop.delivery_fee)
-      this.setData({ deliveryFee: (isNaN(f) || f < 0 ? 1 : f).toFixed(2) })
-    } catch (e) { /* handled */ }
+      this.setData({
+        deliveryFee: (isNaN(f) || f < 0 ? 1 : f).toFixed(2),
+        shopName: (shop && shop.name) || cur.name || '零栋铺子',
+        shopClosed: !!(shop && shop.business_status && shop.business_status !== 'open'),
+        shops,
+        shopSwitchable: shops.length > 1
+      })
+    } catch (e) {
+      this.setData({ shopName: cur.name || '', shops, shopSwitchable: shops.length > 1 })
+    }
+  },
+
+  // 切换店铺：一家店时直接忽略（不给用户点出"只有一个选项"的空面板）
+  onShopTap() {
+    const shops = this.data.shops || []
+    if (shops.length <= 1) return
+    const curId = shopCtx.getShopId()
+    wx.showActionSheet({
+      itemList: shops.map((s) => (s.name || '店铺' + s.id) + (String(s.business_status) === 'open' ? '' : '（歇业）')),
+      success: (r) => {
+        const picked = shops[r.tapIndex]
+        if (!picked) return
+        if (Number(picked.id) === curId) return
+        shopCtx.setShopId(picked.id)
+        wx.showToast({ title: '已切换到' + (picked.name || '该店'), icon: 'none' })
+        // 店铺换了以后：商品/分类/券/购物车角标都按新店重取
+        this.loadGoods()
+        this.loadCategories()
+        this.loadCoupons()
+        this.loadBanners()
+        this.loadShopStatus()
+      }
+    })
   },
 
   // 历史搜索记录（本地）
@@ -321,7 +364,7 @@ Page({
   // 若要放到首页轮播，商家把类型选成「纯展示」即可（与用户端活动页的分工见 doc）。
   async loadBanners() {
     try {
-      const list = await request.get(api.activityList)
+      const list = await request.get(api.activityList, shopCtx.withShop())
       const banners = (list || []).filter((a) => a.type === 'custom' && a.image)
       this.setData({ banners })
     } catch (e) {
@@ -350,7 +393,7 @@ Page({
 
   async loadCategories() {
     try {
-      const list = await request.get(api.goodsCategories)
+      const list = await request.get(api.goodsCategories, shopCtx.withShop())
       // 分类按钮：每个分类按名称配零售卡通图标与配色
       const categories = (list || []).map((name) => {
         const s = styleOfCategory(name)
@@ -362,7 +405,7 @@ Page({
 
   async loadGoods() {
     try {
-      const list = await request.get(api.goodsList)
+      const list = await request.get(api.goodsList, shopCtx.withShop())
       const goods = list.map((g) => {
         const t = THEMES[g.category] || DEFAULT_THEME
         return Object.assign({}, g, { theme: t.bg, icon: t.icon })
@@ -504,8 +547,8 @@ Page({
     const items = (e.detail && e.detail.items) || []
     if (!items.length) return
     this.setData({ cartPanelShow: false })
-    wx.setStorageSync('checkout_items', items)
-    wx.navigateTo({ url: '/pages/order/confirm' })
+    // 多店铺一期：混店结算在这里拦住（条目自带 shop_id/shop_name）
+    shopCtx.toConfirm(items)
   },
 
   // 底部栏右侧「去结算」：直接结算当前勾选商品
@@ -522,8 +565,7 @@ Page({
         wx.showToast({ title: '「' + soldOut.name + '」已售罄，请先移除', icon: 'none' })
         return
       }
-      wx.setStorageSync('checkout_items', selected.map((it) => ({ goods_id: it.goods_id, quantity: it.quantity })))
-      wx.navigateTo({ url: '/pages/order/confirm' })
+      shopCtx.toConfirm(selected)
     } catch (err) { /* handled */ }
   },
 

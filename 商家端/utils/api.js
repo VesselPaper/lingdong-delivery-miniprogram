@@ -3,6 +3,8 @@ const api = {
   login: '/auth/login',
   stats: '/merchant/stats',
   shop: '/merchant/shop',
+  // 点位列表（公开接口）：店铺设置里选「本店取货点」用，只取 loadingPoint 类型
+  landmarks: '/landmarks',
   orders: '/merchant/orders',
   orderDetail: '/merchant/order/detail',
   orderConfirm: '/merchant/order/confirm',

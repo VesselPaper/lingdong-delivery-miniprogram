@@ -6,6 +6,11 @@
   </view>
 
   <view class="info card">
+    <!-- 多店铺一期：详情页要标出这件商品属于哪家店（shopName 由 /shop/status 带 shop_id 取回） -->
+    <view class="shop-line" wx:if="{{shopName}}">
+      <t-icon name="shop" size="14" color="#A98A4F" />
+      <text>{{shopName}}</text>
+    </view>
     <view class="info-head">
       <view class="info-left">
         <view class="name-row">

@@ -1,6 +1,7 @@
 const api = require('../../utils/api')
 const request = require('../../utils/request')
 const pay = require('../../utils/pay')
+const shopCtx = require('../../utils/shop')
 
 const LAST_KEY = 'last_confirm'
 
@@ -39,6 +40,7 @@ Page({
     timeOptions: [],               // 指定时间候选（依据当前真实时间向后递增生成）
     showTimeSheet: false,
     shopClosed: false,
+    shopName: '',                  // 本次结算的店铺名（多店铺一期）
     payMock: false,                // 运行时标注：结算按钮显示「模拟支付」
     deliveryFee: '1.00',           // 配送费（商家端可配置，默认 1 元）
     goodsPayable: '0.00',          // 商品实付（活动后金额 - 券抵扣）
@@ -48,13 +50,15 @@ Page({
 
   async onLoad(options) {
     this.ready = false
+    // 多店铺一期：结算的店铺以购物车/详情页传进来的为准（storage 里也留一份，供刷新恢复）
+    this.shopId = Number(options.shop_id || wx.getStorageSync('checkout_shop_id') || shopCtx.getShopId()) || shopCtx.DEFAULT_SHOP_ID
     const flags = wx.getStorageSync('runtimeFlags') || {}
     this.setData({ payMock: flags.pay_mock === true })
     const cached = wx.getStorageSync('checkout_items')
     this.checkoutItems = []
     if (options.goods_id) {
       try {
-        const g = await request.get(api.goodsDetail + '?id=' + options.goods_id)
+        const g = await request.get(api.goodsDetail, { id: options.goods_id, shop_id: this.shopId })
         const quantity = Number(options.quantity || 1)
         const priceNow = g.sale_price || g.price
         this.setData({
@@ -69,7 +73,7 @@ Page({
       this.checkoutItems = cached
       try {
         for (const it of cached) {
-          const g = await request.get(api.goodsDetail + '?id=' + it.goods_id)
+          const g = await request.get(api.goodsDetail, { id: it.goods_id, shop_id: this.shopId })
           const priceNow = g.sale_price || g.price
           items.push({ goods_id: g.id, name: g.name, image: g.image || '', price: g.price, price_now: priceNow, quantity: it.quantity, total: (priceNow * it.quantity).toFixed(2), orig: (g.price * it.quantity).toFixed(2) })
         }
@@ -296,12 +300,14 @@ Page({
   },
 
   // 读取店铺营业状态 + 配送费：歇业时禁止下单；配送费由商家端配置
+  // 多店铺一期：必须带 shop_id —— 否则拿的是 1 号店的配送费，第二家店会算错钱
   async loadShopStatus() {
     try {
-      const shop = await request.get(api.shopStatus)
+      const shop = await request.get(api.shopStatus, { shop_id: this.shopId })
       const f = Number(shop && shop.delivery_fee)
       this.setData({
         shopClosed: shop.business_status === 'closed',
+        shopName: (shop && shop.name) || '',
         deliveryFee: (isNaN(f) || f < 0 ? 1 : f).toFixed(2)
       }, () => this.recomputeTotal())
     } catch (e) { this.recomputeTotal() }
@@ -511,6 +517,8 @@ Page({
     this.setData({ submitting: true })
     try {
       const res = await request.post(api.orderCreate, {
+        // 多店铺一期：订单落哪家店由结算页决定（后端会再校验商品是否真属于这家店）
+        shop_id: this.shopId,
         landmark_id: String(selectedPoint.id),
         landmark_name: selectedPoint.name,
         remark,
@@ -524,6 +532,7 @@ Page({
         items: items.map((it) => ({ goods_id: it.goods_id, quantity: it.quantity }))
       })
       wx.removeStorageSync('checkout_items')
+      wx.removeStorageSync('checkout_shop_id')
       // 记住本次下单选项，并同步到用户信息
       wx.setStorageSync(LAST_KEY, {
         point: selectedPoint,
