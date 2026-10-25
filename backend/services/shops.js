@@ -29,14 +29,32 @@ function defaultShop(store) {
 }
 
 // 账号 → 店铺。先查成员表；查不到再按旧规则兜底：
-//   · 商家账号（role=merchant 且有 username）→ 1 号店（存量账号兼容，见 db.js 的 shop_members 回填）
+//   · 商家账号（role=merchant 且有 username）→ 1 号店（存量账号兼容，见 backfillLegacyMembers）
 //   · 其它（学生/未登录）→ 1 号店（用户端一期只对接默认店）
+// 排序用 id（最早建立的那条归属）：一期一个账号只属于一家店，
+// 万一历史数据里同一账号挂了多条（旧版回填的坑，见下），也要稳定地取第一条，而不是按 shop_id 最小值。
 function shopOfUser(store, user) {
   if (user && user.id) {
-    const m = store.prepare('SELECT shop_id FROM shop_members WHERE user_id=? ORDER BY shop_id LIMIT 1').get(Number(user.id))
+    const m = store.prepare('SELECT shop_id FROM shop_members WHERE user_id=? ORDER BY id LIMIT 1').get(Number(user.id))
     if (m && m.shop_id) return normalizeShopId(m.shop_id)
   }
   return DEFAULT_SHOP_ID
+}
+
+// 存量商家账号归位（每次启动跑一遍，幂等）。
+// 2026-10-23 修 bug：旧写法是「给所有商家账号插一条 1 号店成员行，靠唯一索引去重」——
+// 唯一索引是 (shop_id, user_id)，所以已经属于 2 号店的账号仍会被补一条 1 号店的行，
+// 而 shopOfUser 取的是最小 shop_id，于是**每次重启所有商家都被悄悄打回 1 号店**。
+// 现在的口径：只给「一条成员行都没有」的账号补 1 号店，已有归属一律不动。
+function backfillLegacyMembers(store) {
+  const r = store.prepare(
+    `INSERT OR IGNORE INTO shop_members (shop_id, user_id, role)
+     SELECT 1, u.id, CASE WHEN u.merchant_role='owner' THEN 'owner' ELSE 'staff' END
+     FROM users u
+     WHERE u.role='merchant' AND u.username IS NOT NULL AND u.username != ''
+       AND NOT EXISTS (SELECT 1 FROM shop_members m WHERE m.user_id = u.id)`
+  ).run()
+  return Number(r.changes || 0)
 }
 
 function memberRole(store, userId, shopId) {
@@ -149,6 +167,7 @@ module.exports = {
   shopById,
   defaultShop,
   shopOfUser,
+  backfillLegacyMembers,
   memberRole,
   setMember,
   removeMember,

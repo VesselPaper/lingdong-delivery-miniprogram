@@ -502,11 +502,12 @@ function migrate(db) {
     )
   `)
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS ux_shop_members ON shop_members(shop_id, user_id)')
-  // 存量商家账号统一挂到 1 号店（幂等：INSERT OR IGNORE 靠上面的唯一索引去重，每次启动跑一遍都安全）。
-  // 注意新库首次启动时 users 还没有商家账号，这条什么都不做，之后管理员建号由 service 侧负责写成员行。
-  db.exec(`INSERT OR IGNORE INTO shop_members (shop_id, user_id, role)
-    SELECT 1, id, CASE WHEN merchant_role='owner' THEN 'owner' ELSE 'staff' END
-    FROM users WHERE role='merchant' AND username IS NOT NULL AND username != ''`)
+  // 存量商家账号统一挂到 1 号店（幂等）。口径与实现见 services/shops.js 的 backfillLegacyMembers：
+  // 只补「一条成员行都没有」的账号，已有归属（比如已经挂到 2 号店）绝不动 —— 否则每次重启都会把
+  // 别家店的账号打回 1 号店。
+  try {
+    require('./services/shops').backfillLegacyMembers(db)
+  } catch (e) { /* 空库/旧库缺表时跳过，不阻断启动 */ }
 
   // 商品条码唯一（部分索引，排除空条码）—— 2026-10-06 批量录入。
   // 为什么必须是「部分」索引：goods.barcode 默认 ''，商家手工新增的商品可能不填条码；

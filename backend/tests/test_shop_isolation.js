@@ -354,6 +354,35 @@ function assert(cond, msg) {
     assert(Number(bMembers.c) === 1, '搬店后该账号只剩一条成员行（一期一个账号一家店）')
     assert((await apiAdmin('POST', '/admin/shops/bind-merchant', { shop_id: 9999, user_id: B_UID }, adT)).code === 404, '绑到不存在的店 → 404')
 
+    // 每次后端启动都会跑一遍成员表自愈（db.js → services/shops.backfillLegacyMembers）。
+    // 它只能给「一行成员都没有」的存量账号补 1 号店；给已经归属别家店的账号再插一条 1 号店行，
+    // 就等于每次重启都把店主静默搬回 1 号店 —— 2026-10-25 真机联调时踩过，这里钉死。
+    console.log('\n[12] 启动自愈不会把店主搬回 1 号店')
+    const shopsSvc = require('../services/shops')
+    const membersBefore = Number(db.prepare('SELECT COUNT(*) AS c FROM shop_members').get().c)
+    const added1 = shopsSvc.backfillLegacyMembers(db)
+    const added2 = shopsSvc.backfillLegacyMembers(db)
+    const membersAfter = Number(db.prepare('SELECT COUNT(*) AS c FROM shop_members').get().c)
+    // 第 9 节那个「故意没有成员行」的老账号本来就该被补一条，最多 1 条；已归店的账号一条都不能多
+    assert(Number(added1) <= 1, '自愈只补完全没有成员行的账号（本次新增 ' + added1 + ' 条）')
+    assert(Number(added2) === 0 && membersAfter === membersBefore + Number(added1),
+      '自愈可重复执行、幂等（成员行 ' + membersBefore + ' → ' + membersAfter + '）')
+    const bAfterRestart = (await api('GET', '/merchant/shop', null, bT)).data || {}
+    assert(Number(bAfterRestart.id) === C_SHOP, '自愈后 B 账号仍在南苑面馆（' + bAfterRestart.name + '）')
+    const aAfterRestart = (await api('GET', '/merchant/shop', null, aT)).data || {}
+    assert(Number(aAfterRestart.id) === 1, '自愈后 A 账号仍在 1 号店（' + aAfterRestart.name + '）')
+
+    // 反向：真·存量账号（成员表里一行都没有）必须被补进 1 号店，否则老商家登录后看不到店
+    const LEGACY = 'testshop_legacy'
+    db.prepare("INSERT INTO users (username, password_hash, role, merchant_role, status, nickname) VALUES (?,?,'merchant','staff',1,?)")
+      .run(LEGACY, adminAuth.hashPassword(PASS), '存量商家')
+    const legacyId = Number(db.prepare('SELECT id FROM users WHERE username=?').get(LEGACY).id)
+    const addedLegacy = shopsSvc.backfillLegacyMembers(db)
+    assert(Number(addedLegacy) === 1, '完全没有成员行的存量账号被补 1 条（实测 ' + addedLegacy + '）')
+    const legacyRow = db.prepare('SELECT shop_id FROM shop_members WHERE user_id=?').get(legacyId) || {}
+    assert(Number(legacyRow.shop_id) === 1, '存量账号归属 1 号店')
+    assert(Number(shopsSvc.backfillLegacyMembers(db)) === 0, '存量账号补过之后再跑仍是 0 条')
+
     console.log('\n' + (bad ? '✘ 失败 ' + bad + ' 项' : '✔ 全部通过'))
   } catch (e) {
     console.error('测试异常：', e && e.stack)
