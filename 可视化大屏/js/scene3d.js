@@ -260,6 +260,32 @@
       }
     }
 
+    // 运动场地（操场/跑道/球场）：贴地色块 + 浅色边线。
+    // 层次：草地 0.26 < 球场/操场 0.28 < 跑道 0.32 < 道路 0.4 —— 道路永远压在场地之上，
+    // 所以穿过操场的路不会被场地盖住（校园里确实有路从运动场边绕过）。
+    var fields = calib.fields || []
+    for (var fi = 0; fi < fields.length; fi++) {
+      var fd = fields[fi]
+      var fring = fd && fd.ring
+      if (!fring || fring.length < 3) continue
+      var fcol = fd.kind === 'track' ? THEME.fieldTrack
+        : (fd.kind === 'court' ? THEME.fieldCourt
+          : (fd.kind === 'grass' ? THEME.fieldGrass : THEME.fieldPitch))
+      var fy = fd.kind === 'track' ? 0.32 : (fd.kind === 'grass' ? 0.26 : 0.28)
+      var fTri = triangulate(fring)
+      for (var ft = 0; ft + 2 < fTri.length; ft += 3) {
+        var fa = fring[fTri[ft]], fb = fring[fTri[ft + 1]], fc = fring[fTri[ft + 2]]
+        pushTri(opaque, [fa[0], fy, fa[1]], [fc[0], fy, fc[1]], [fb[0], fy, fb[1]], fcol, [0, 1, 0])
+      }
+      // 边线：细白带（跑道和球场才有明显边线，草地不加）
+      if (fd.kind !== 'grass') {
+        for (var fe = 0; fe < fring.length; fe++) {
+          var fp = fring[fe], fq = fring[(fe + 1) % fring.length]
+          edgeRibbon(opaque, fp, fq, Math.max(0.25 * pxPerM, 2), THEME.fieldEdge, fy + 0.04)
+        }
+      }
+    }
+
     // 水体（湖 / 塘）：湖面半透明青蓝 + 亮色岸线。
     // 画在道路之前、高度略高于道路（0.55 vs 0.4），这样从上方俯视时水面会压住穿过它的路面，
     // 湖面上的桥/路自然被"沉"到水下（校园里没有跨湖道路，实际不会出现这种遮挡）。
