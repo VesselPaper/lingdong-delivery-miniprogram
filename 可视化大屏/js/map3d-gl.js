@@ -34,7 +34,7 @@ window.Map3DGL = (function () {
   // 默认值：保留**灰色校园道路**与底图、楼体；关掉橙色规划路线与青色荧光测绘线
   // （用户要求"不要取消灰色的线，先不要黄色的" → 再去掉荧光绿的线条）。
   var opts = {
-    el: 65, heightScale: 1.7,
+    el: 65, heightScale: 0.85,
     labels: true,          // 楼栋名称
     paths: false,          // 测绘骨架线（青色荧光线条）—— 默认关闭
     roads: true,           // OSM 校园道路（灰色）—— 保留
@@ -567,7 +567,8 @@ window.Map3DGL = (function () {
     if (!sc || !sc.bounds) return opts.heightScale
     var span = Math.max(sc.bounds.maxX - sc.bounds.minX, sc.bounds.maxZ - sc.bounds.minZ)
     if (!(span > 0)) return opts.heightScale
-    return Math.max(0.5, Math.min(2.6, 0.58 * (span / 6200.0)))
+    // 2026-11-18 负责人反馈「楼太高了，降一半」：基准由 0.58 降到 0.29（整体除以 2）。
+    return Math.max(0.25, Math.min(1.3, 0.29 * (span / 6200.0)))
   }
   function syncHeightSlider() {
     var h = document.getElementById('m3Height')
@@ -779,7 +780,7 @@ window.Map3DGL = (function () {
     if (!heightScaleLocked) {
       var bb = calibSpan(ce)
       if (bb) {
-        opts.heightScale = Math.max(0.5, Math.min(2.6, 0.58 * (bb / 6200.0)))
+        opts.heightScale = Math.max(0.25, Math.min(1.3, 0.29 * (bb / 6200.0)))
         syncHeightSlider()
       }
     }

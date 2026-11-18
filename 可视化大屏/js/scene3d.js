@@ -350,7 +350,71 @@
       edgeRibbon(opaque, p3, p4, w, col, y)
       edgeRibbon(opaque, p4, p1, w, col, y)
     }
+    // 本地坐标里的圆弧（圆心 (u0,v0)、半径 r、角度 a0→a1）
+    function localArc(cx, cy, ang, u0, v0, r, a0, a1, w, y, col, seg) {
+      var n = seg || 20
+      for (var i = 0; i < n; i++) {
+        var t0 = a0 + (a1 - a0) * i / n
+        var t1 = a0 + (a1 - a0) * (i + 1) / n
+        edgeRibbon(opaque,
+          l2w(cx, cy, ang, u0 + Math.cos(t0) * r, v0 + Math.sin(t0) * r),
+          l2w(cx, cy, ang, u0 + Math.cos(t1) * r, v0 + Math.sin(t1) * r),
+          w, y, col)
+      }
+    }
+    // 单块球场的标准划线。cu/cv = 该场地中心（本地坐标），cl/cw = 长/宽（世界像素）
+    function drawCourtMarks(sport, cx, cy, ang, cu, cv, cl, cw, mP, w, y) {
+      var C = THEME.courtLine
+      var lu = cl / 2, lv = cw / 2
+      // 边线
+      localRect(cx, cy, ang, cu - lu, cu + lu, cv - lv, cv + lv, w, y, C)
+      if (sport === 'basketball') {
+        // 中线 + 中圈（半径 1.8m）
+        edgeRibbon(opaque, l2w(cx, cy, ang, cu, cv - lv), l2w(cx, cy, ang, cu, cv + lv), w, y, C)
+        localArc(cx, cy, ang, cu, cv, 1.8 * mP, 0, Math.PI * 2, w, y, C, 24)
+        // 两端：禁区（5.8m × 4.9m）+ 罚球圈 + 三分弧（6.75m）+ 篮圈
+        for (var s2 = -1; s2 <= 1; s2 += 2) {
+          var baseU = cu + s2 * lu
+          var keyEnd = baseU - s2 * 5.8 * mP
+          localRect(cx, cy, ang, Math.min(baseU, keyEnd), Math.max(baseU, keyEnd), cv - 2.45 * mP, cv + 2.45 * mP, w, y, C)
+          localArc(cx, cy, ang, keyEnd, cv, 1.8 * mP, -Math.PI / 2, Math.PI / 2, w, y, C, 16)
+          // 三分弧：以篮圈为心，朝场内张 ±68°
+          var hoopU = baseU - s2 * 1.575 * mP
+          var a0 = s2 > 0 ? Math.PI - 1.19 : -1.19
+          localArc(cx, cy, ang, hoopU, cv, 6.75 * mP, a0, a0 + 2.38, w, y, C, 22)
+          // 篮圈
+          localArc(cx, cy, ang, hoopU, cv, 0.3 * mP, 0, Math.PI * 2, Math.max(1, w * 1.1), y, C, 10)
+        }
+      } else if (sport === 'tennis') {
+        // 单打边线（半宽 4.115m）、发球线（±6.4m）、中央发球线、球网
+        localRect(cx, cy, ang, cu - lu, cu + lu, cv - 4.115 * mP, cv + 4.115 * mP, w, y, C)
+        edgeRibbon(opaque, l2w(cx, cy, ang, cu - 6.4 * mP, cv - lv), l2w(cx, cy, ang, cu - 6.4 * mP, cv + lv), w, y, C)
+        edgeRibbon(opaque, l2w(cx, cy, ang, cu + 6.4 * mP, cv - lv), l2w(cx, cy, ang, cu + 6.4 * mP, cv + lv), w, y, C)
+        edgeRibbon(opaque, l2w(cx, cy, ang, cu - 6.4 * mP, cv), l2w(cx, cy, ang, cu + 6.4 * mP, cv), w, y, C)
+        // 球网：画得比普通线粗，读起来像"中间立着网"
+        edgeRibbon(opaque, l2w(cx, cy, ang, cu, cv - lv), l2w(cx, cy, ang, cu, cv + lv), Math.max(1.6, w * 2), y + 0.004, C)
+      } else if (sport === 'badminton') {
+        edgeRibbon(opaque, l2w(cx, cy, ang, cu, cv - lv), l2w(cx, cy, ang, cu, cv + lv), Math.max(1.4, w * 1.6), y + 0.004, C)
+        for (var t2 = -1; t2 <= 1; t2 += 2) {
+          edgeRibbon(opaque, l2w(cx, cy, ang, cu + t2 * 1.98 * mP, cv - lv), l2w(cx, cy, ang, cu + t2 * 1.98 * mP, cv + lv), w, y, C)
+          edgeRibbon(opaque, l2w(cx, cy, ang, cu + t2 * 5.94 * mP, cv - lv), l2w(cx, cy, ang, cu + t2 * 5.94 * mP, cv + lv), w, y, C)
+        }
+        edgeRibbon(opaque, l2w(cx, cy, ang, cu - 5.94 * mP, cv), l2w(cx, cy, ang, cu + 5.94 * mP, cv), w, y, C)
+      } else if (sport === 'volleyball') {
+        edgeRibbon(opaque, l2w(cx, cy, ang, cu, cv - lv), l2w(cx, cy, ang, cu, cv + lv), Math.max(1.4, w * 1.6), y + 0.004, C)
+        for (var v2 = -1; v2 <= 1; v2 += 2) {
+          edgeRibbon(opaque, l2w(cx, cy, ang, cu + v2 * 3 * mP, cv - lv), l2w(cx, cy, ang, cu + v2 * 3 * mP, cv + lv), w, y, C)
+        }
+      }
+    }
 
+    // 球场标准尺寸（米）：与 emit_assets.mjs 里的 COURT_SPEC 保持一致
+    var COURT_SPEC_JS = {
+      basketball: { len: 28, wid: 15, gap: 2 },
+      tennis: { len: 23.77, wid: 10.97, gap: 3.5 },
+      badminton: { len: 13.4, wid: 6.1, gap: 2 },
+      volleyball: { len: 18, wid: 9, gap: 2 }
+    }
     for (var fi = 0; fi < fields.length; fi++) {
       var fd = fields[fi]
       var fr = fd && fd.ring
@@ -386,13 +450,44 @@
         continue
       }
       if (kind === 'court') {
-        fillPoly(fr, 0.28, THEME.fieldCourt)
-        strokeRing(fr, 0.295, Math.max(1.5, 0.2 * pxM), THEME.fieldEdge)
-        var ce = rectLongEdges(fr)
-        if (ce) {
-          var midA = [(ce.a1[0] + ce.a2[0]) / 2, (ce.a1[1] + ce.a2[1]) / 2]
-          var midB = [(ce.b1[0] + ce.b2[0]) / 2, (ce.b1[1] + ce.b2[1]) / 2]
-          edgeRibbon(opaque, midA, midB, Math.max(1.2, 0.15 * pxM), THEME.fieldEdge, 0.295)
+        /* 篮球场 / 网球场 / 羽毛球场：单独建模（2026-11-18 负责人要求）。
+         * 这些多边形是「一片场地」而不是一块球场（篮球场 92×37m、网球场 83×74m），
+         * 所以做法是：整片铺基层 → 按标准尺寸**平铺**出若干块球场 → 每块画自己的白线。
+         * 这样远看是一片球场群，近看每块场地都有正确的划线，而不是一整块色板。 */
+        fillPoly(fr, 0.28, THEME.courtBase)
+        var cf = fd.frame
+        var spec = cf && COURT_SPEC_JS[fd.courtSport]
+        if (!cf) { strokeRing(fr, 0.295, Math.max(1.2, 0.12 * pxM), THEME.courtLine); continue }
+        var cAng = cf.ang, cCx = cf.cx, cCy = cf.cy
+        var mP = 1 / pxPerM
+        if (!spec) {
+          // generic（如「风雨球场」）：只画外框 + 中线，不臆造场地线
+          localRect(cCx, cCy, cAng, -cf.A, cf.A, -cf.B, cf.B, Math.max(1.4, 0.12 * pxM), 0.295, THEME.courtLine)
+          edgeRibbon(opaque, l2w(cCx, cCy, cAng, -cf.A, 0), l2w(cCx, cCy, cAng, cf.A, 0),
+            Math.max(1.2, 0.10 * pxM), 0.295, THEME.courtLine)
+          continue
+        }
+        var cl = spec.len * mP, cw = spec.wid * mP, cg = spec.gap * mP
+        var nU = fd.courtFit ? fd.courtFit.nU : 1
+        var nV = fd.courtFit ? fd.courtFit.nV : 1
+        var bw = nU * cl + (nU - 1) * cg, bh = nV * cw + (nV - 1) * cg
+        var lineW = Math.max(1, 0.09 * pxM)
+        var Y_LINE = 0.296
+        var surf = fd.courtSport === 'basketball' ? THEME.courtBasket
+          : (fd.courtSport === 'tennis' ? THEME.courtTennis : THEME.courtBadminton)
+        for (var ci = 0; ci < nU; ci++) {
+          for (var cj = 0; cj < nV; cj++) {
+            var cu = -bw / 2 + cl / 2 + ci * (cl + cg)
+            var cv = -bh / 2 + cw / 2 + cj * (cw + cg)
+            // 场地表面（整块矩形填充）
+            var p1 = l2w(cCx, cCy, cAng, cu - cl / 2, cv - cw / 2)
+            var p2 = l2w(cCx, cCy, cAng, cu + cl / 2, cv - cw / 2)
+            var p3 = l2w(cCx, cCy, cAng, cu + cl / 2, cv + cw / 2)
+            var p4 = l2w(cCx, cCy, cAng, cu - cl / 2, cv + cw / 2)
+            pushQuad(opaque, [p1[0], 0.286, p1[1]], [p4[0], 0.286, p4[1]],
+              [p3[0], 0.286, p3[1]], [p2[0], 0.286, p2[1]], surf, [0, 1, 0])
+            drawCourtMarks(fd.courtSport, cCx, cCy, cAng, cu, cv, cl, cw, mP, lineW, Y_LINE)
+          }
         }
         continue
       }
