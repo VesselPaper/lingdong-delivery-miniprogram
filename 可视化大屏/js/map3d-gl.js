@@ -70,6 +70,16 @@ window.Map3DGL = (function () {
   // 其余车只显示一行简洁名称。用户反馈"每台车都挂一个卡面很乱"，故选中的交互入口
   // 有两个：地图上点车、左侧车辆卡面（大屏 setSelected）。
   var selectedSn = null
+  // 「取坐标」模式：控制台执行 __where() 后置 true，下一次点击会打印该点的雷达像素坐标。
+  // 用途：手工补充 OSM 里没有的场地（assets/map-fields-extra.json 需要 cx/cy）。
+  var wherePending = false
+  if (window) {
+    window.__where = function () {
+      wherePending = true
+      if (window.console && console.info) console.info('[__where] 已就绪：请在地图上点一下，会打印雷达像素坐标')
+      return 'ready'
+    }
+  }
   // 跟随目标车：跟随开启时跟它（跟"选中车"，没选中则退回跟首台）
   var followSn = null
   // 最近一帧车辆场景坐标（供点击选中跟随目标；含被下划线标记的坐标）
@@ -1009,6 +1019,19 @@ window.Map3DGL = (function () {
       if (e.button !== 0) return
       if (moved) return   // 刚才是在拖动视图，不算点击（否则拖完一抬手就会误选中车/楼栋/道路）
       var xy = localXY(e)
+      // 取坐标模式（__where）：只打印坐标、不触发选中/点选
+      if (wherePending) {
+        var gw = groundAt(xy[0], xy[1], 0)
+        if (gw) {
+          wherePending = false
+          var wmsg = '[__where] 雷达像素 x=' + gw[0].toFixed(0) + ' y=' + gw[2].toFixed(0) +
+            '  （0.05 米/像素；可直接填进 assets/map-fields-extra.json 的 cx / cy）'
+          if (window.console && console.info) console.info(wmsg)
+          if (tipEl) tipEl.textContent = wmsg
+          e.preventDefault()
+          return
+        }
+      }
       if (reconDrawActive) {
         var g = groundAt(xy[0], xy[1], 0)
         if (g) { reconDrawPts.push([Math.round(g[0] * 10) / 10, Math.round(g[2] * 10) / 10]); updateDrawPreview() }
