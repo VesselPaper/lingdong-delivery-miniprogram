@@ -271,24 +271,6 @@
      * 全部用极薄的高度差错开，避免 z-fighting；道路(0.4)始终压在场地(≤0.34)之上。 */
     var fields = calib.fields || []
     var pxM = pxPerM
-    function fieldCentroid(ring) {
-      var cx2 = 0, cy2 = 0
-      for (var i2 = 0; i2 < ring.length; i2++) { cx2 += ring[i2][0]; cy2 += ring[i2][1] }
-      return [cx2 / ring.length, cy2 / ring.length]
-    }
-    // 把轮廓朝质心收缩 d（像素）。凸多边形/近椭圆都够用；跑道分道带靠它一层层缩。
-    function insetRing(ring, d) {
-      var c2 = fieldCentroid(ring)
-      var out = []
-      for (var i2 = 0; i2 < ring.length; i2++) {
-        var dx2 = c2[0] - ring[i2][0], dy2 = c2[1] - ring[i2][1]
-        var L2 = Math.hypot(dx2, dy2)
-        if (L2 < 1e-6) { out.push([ring[i2][0], ring[i2][1]]); continue }
-        var k2 = Math.min(1, d / L2)
-        out.push([ring[i2][0] + dx2 * k2, ring[i2][1] + dy2 * k2])
-      }
-      return out
-    }
     function fillPoly(ring2, y, col) {
       var tri = triangulate(ring2)
       for (var t2 = 0; t2 + 2 < tri.length; t2 += 3) {
@@ -302,14 +284,6 @@
         edgeRibbon(opaque, p2, q2, wPx, col, y)
       }
     }
-    // 环带（两条同心轮廓之间）：跑道分道用
-    function ringBand(outer, inner, y, col) {
-      for (var i2 = 0; i2 < outer.length; i2++) {
-        var a2 = outer[i2], b2 = outer[(i2 + 1) % outer.length]
-        var c3 = inner[(i2 + 1) % inner.length], d2 = inner[i2]
-        pushQuad(opaque, [a2[0], y, a2[1]], [b2[0], y, b2[1]], [c3[0], y, c3[1]], [d2[0], y, d2[1]], col, [0, 1, 0])
-      }
-    }
     // 矩形操场的两条长边（用于剪草条纹插值）
     function rectLongEdges(ring2) {
       var n2 = ring2.length
@@ -319,33 +293,99 @@
       if (e0 >= e1) return { a1: ring2[0], a2: ring2[1], b1: ring2[3], b2: ring2[2] }
       return { a1: ring2[1], a2: ring2[2], b1: ring2[0], b2: ring2[3] }
     }
+    /* ---------------- 运动场地（田径场 / 球场 / 草地） ----------------
+     * 关键事实（2026-11-18 查证）：OSM 里那三块「大操场」的多边形其实是**足球场**本身
+     * （7261 m² ≈ 110×66 m，6957/7654 也都在标准 11 人制尺寸上），跑道在它**外圈**，
+     * 不属于这个多边形。所以跑道绝不能往里缩：
+     *   · 往里缩会把球场吃掉 → 画面变成"红框套绿块"；
+     *   · 而且矩形内缩出来的是矩形环 → 第二运动场/一号运动场就成了"矩形跑道"。
+     * 现在按真实田径场几何重建：
+     *   ① 由球场矩形反解出**刚好包住它**的椭圆跑道内沿（stadium 形：两段直线 + 两端半圆）；
+     *   ② 内沿往外铺 8 条分道（深浅交替）+ 白色分道线 + 内外白边；
+     *   ③ 球场画成矩形草坪 + 剪草条纹 + 标准白线（边线 / 中线 / 中圈 / 禁区 / 球门区）。
+     * stadium 形 = 「线段 ⊕ 圆盘」：向外偏移 d 只改半径、不改直段长度，
+     * 因此分道带严格等宽、彼此不重叠，端点也是真圆弧而不是直角。 */
+    // 生成一条 stadium 形闭合折线：中心 (cx,cy)、长轴角 ang、直段半长 a、端部半径 r。
+    function stadiumRing(cx, cy, ang, a, r, seg) {
+      var out = []
+      var ca = Math.cos(ang), sa = Math.sin(ang)
+      function put(u, v) { out.push([cx + u * ca - v * sa, cy + u * sa + v * ca]) }
+      var i, th
+      for (i = 0; i <= seg; i++) {                       // 右端半圆：-90° → +90°
+        th = -Math.PI / 2 + Math.PI * i / seg
+        put(a + r * Math.cos(th), r * Math.sin(th))
+      }
+      for (i = 0; i <= seg; i++) {                       // 左端半圆：+90° → +270°
+        th = Math.PI / 2 + Math.PI * i / seg
+        put(-a + r * Math.cos(th), r * Math.sin(th))
+      }
+      return out
+    }
+    // 两条同参数 stadium 轮廓之间的环带
+    function stadiumBand(cx, cy, ang, a, rIn, rOut, y, col, seg) {
+      var o = stadiumRing(cx, cy, ang, a, rOut, seg)
+      var n = stadiumRing(cx, cy, ang, a, rIn, seg)
+      for (var i = 0; i < o.length; i++) {
+        var j = (i + 1) % o.length
+        pushQuad(opaque,
+          [n[i][0], y, n[i][1]], [n[j][0], y, n[j][1]],
+          [o[j][0], y, o[j][1]], [o[i][0], y, o[i][1]], col, [0, 1, 0])
+      }
+    }
+    // 一条白色分道线（细环带）
+    function stadiumLine(cx, cy, ang, a, r, w, y, col, seg) {
+      stadiumBand(cx, cy, ang, a, Math.max(0.5, r - w / 2), r + w / 2, y, col, seg)
+    }
+    // 本地坐标 (u 沿长轴, v 沿短轴) → 世界
+    function l2w(cx, cy, ang, u, v) {
+      var ca = Math.cos(ang), sa = Math.sin(ang)
+      return [cx + u * ca - v * sa, cy + u * sa + v * ca]
+    }
+    // 矩形白线框（在本地坐标里给四个角）
+    function localRect(cx, cy, ang, u0, u1, v0, v1, w, y, col) {
+      var p1 = l2w(cx, cy, ang, u0, v0), p2 = l2w(cx, cy, ang, u1, v0)
+      var p3 = l2w(cx, cy, ang, u1, v1), p4 = l2w(cx, cy, ang, u0, v1)
+      edgeRibbon(opaque, p1, p2, w, col, y)
+      edgeRibbon(opaque, p2, p3, w, col, y)
+      edgeRibbon(opaque, p3, p4, w, col, y)
+      edgeRibbon(opaque, p4, p1, w, col, y)
+    }
+
     for (var fi = 0; fi < fields.length; fi++) {
       var fd = fields[fi]
       var fr = fd && fd.ring
       if (!fr || fr.length < 3) continue
       var kind = fd.kind
-      if (kind === 'track') {
-        // 跑道：**只画分道带，不铺满整个多边形**。
-        // 原因：OSM 的 leisure=track 多边形是整条跑道的外轮廓（含内场），
-        // 先填满再叠分道，远景就是"一整片红"（上一版实测就是这个问题）。
-        // 现在从外轮廓往里收缩 8 条，一条一条铺；内场留空，下面的操场草皮自然透出来。
+
+      // ---------- 田径场：跑道在外圈，球场在中间 ----------
+      if (fd.stadium) {
+        var st = fd.stadium
         var LANES = 8
-        var c0 = fieldCentroid(fr)
-        var refD = Math.hypot(fr[0][0] - c0[0], fr[0][1] - c0[1])
-        var laneW = Math.max(pxM * 1.1, Math.min(refD, pxM * 14) / LANES)
-        var prev = fr
-        for (var li = 1; li <= LANES; li++) {
-          var cur = insetRing(fr, laneW * li)
-          // 深浅交替，读得出"这是分道"
-          ringBand(prev, cur, 0.305, li % 2 ? THEME.fieldTrack : THEME.fieldTrackOuter)
-          strokeRing(cur, 0.318, Math.max(1, 0.10 * pxM), THEME.fieldTrackLine)
-          prev = cur
+        var laneW = st.trackW / LANES
+        var SEG = 22                                  // 半圆分段数：够圆滑又不太吃顶点
+        // 跑道底色（整条跑道铺一层，深砖红）
+        stadiumBand(st.cx, st.cy, st.ang, st.a, st.r, st.r + st.trackW, 0.27, THEME.fieldTrackOuter, SEG)
+        // 8 条分道，深浅交替
+        for (var li = 0; li < LANES; li++) {
+          var rIn = st.r + laneW * li
+          var rOut = rIn + laneW
+          stadiumBand(st.cx, st.cy, st.ang, st.a, rIn, rOut, 0.272,
+            li % 2 ? THEME.fieldTrack : THEME.fieldTrackOuter, SEG)
         }
-        // 最外圈描一道白边，让跑道边界清楚
-        strokeRing(fr, 0.318, Math.max(1.4, 0.16 * pxM), THEME.fieldTrackLine)
-      } else if (kind === 'grass') {
+        // 分道线：内沿、每条分道交界、外沿
+        var lw = Math.max(1, 0.09 * pxM)
+        for (var ln = 0; ln <= LANES; ln++) {
+          stadiumLine(st.cx, st.cy, st.ang, st.a, st.r + laneW * ln, lw, 0.296, THEME.fieldTrackLine, SEG)
+        }
+        // 跑道外沿加一道稍粗的白线，边界更清楚
+        stadiumLine(st.cx, st.cy, st.ang, st.a, st.r + st.trackW, Math.max(1.4, 0.16 * pxM), 0.298, THEME.fieldTrackLine, SEG)
+      }
+
+      if (kind === 'grass') {
         fillPoly(fr, 0.26, THEME.fieldGrass)
-      } else if (kind === 'court') {
+        continue
+      }
+      if (kind === 'court') {
         fillPoly(fr, 0.28, THEME.fieldCourt)
         strokeRing(fr, 0.295, Math.max(1.5, 0.2 * pxM), THEME.fieldEdge)
         var ce = rectLongEdges(fr)
@@ -354,66 +394,61 @@
           var midB = [(ce.b1[0] + ce.b2[0]) / 2, (ce.b1[1] + ce.b2[1]) / 2]
           edgeRibbon(opaque, midA, midB, Math.max(1.2, 0.15 * pxM), THEME.fieldEdge, 0.295)
         }
+        continue
+      }
+      if (kind === 'track') continue        // 独立跑道面不再单独画（由对应球场的 stadium 接管）
+
+      // ---------- 足球场草坪（矩形）：底色 + 剪草条纹 + 标准白线 ----------
+      fillPoly(fr, 0.285, THEME.fieldPitch)
+      var e2 = rectLongEdges(fr)
+      if (!e2) { strokeRing(fr, 0.30, Math.max(1.2, 0.16 * pxM), THEME.fieldEdge); continue }
+      // 剪草条纹：沿长轴分 12 条，深浅交替
+      var STRIPES = 12
+      for (var si = 1; si < STRIPES; si += 2) {
+        var t0 = si / STRIPES, t1 = (si + 1) / STRIPES
+        var pa = [e2.a1[0] + (e2.a2[0] - e2.a1[0]) * t0, e2.a1[1] + (e2.a2[1] - e2.a1[1]) * t0]
+        var pb = [e2.a1[0] + (e2.a2[0] - e2.a1[0]) * t1, e2.a1[1] + (e2.a2[1] - e2.a1[1]) * t1]
+        var qa = [e2.b1[0] + (e2.b2[0] - e2.b1[0]) * t0, e2.b1[1] + (e2.b2[1] - e2.b1[1]) * t0]
+        var qb = [e2.b1[0] + (e2.b2[0] - e2.b1[0]) * t1, e2.b1[1] + (e2.b2[1] - e2.b1[1]) * t1]
+        pushQuad(opaque, [pa[0], 0.288, pa[1]], [qa[0], 0.288, qa[1]],
+          [qb[0], 0.288, qb[1]], [pb[0], 0.288, pb[1]], THEME.fieldPitchAlt, [0, 1, 0])
+      }
+      // 标准白线：用本地坐标（长轴 u ∈ [-A, A]，短轴 v ∈ [-B, B]）
+      if (fd.stadium) {
+        var cxs = fd.stadium.cx, cys = fd.stadium.cy, angs = fd.stadium.ang
+        var A2 = fd.stadium.A, B2 = fd.stadium.B
+        var mPx = 1 / pxPerM                          // 1 米 = 多少世界像素
+        var wLine = Math.max(1.1, 0.12 * pxM)
+        var yLine = 0.30
+        // 边线
+        localRect(cxs, cys, angs, -A2, A2, -B2, B2, wLine, yLine, THEME.fieldEdge)
+        // 中线（横跨短轴）
+        edgeRibbon(opaque, l2w(cxs, cys, angs, 0, -B2), l2w(cxs, cys, angs, 0, B2), wLine, yLine, THEME.fieldEdge)
+        // 中圈（半径 9.15 m）
+        var ccR = 9.15 * mPx
+        var ccSeg = 40
+        for (var ci2 = 0; ci2 < ccSeg; ci2++) {
+          var ca0 = ci2 / ccSeg * Math.PI * 2, ca1 = (ci2 + 1) / ccSeg * Math.PI * 2
+          edgeRibbon(opaque,
+            l2w(cxs, cys, angs, Math.cos(ca0) * ccR, Math.sin(ca0) * ccR),
+            l2w(cxs, cys, angs, Math.cos(ca1) * ccR, Math.sin(ca1) * ccR),
+            wLine, yLine, THEME.fieldEdge)
+        }
+        // 中圈圆心点
+        edgeRibbon(opaque, l2w(cxs, cys, angs, -1.5, 0), l2w(cxs, cys, angs, 1.5, 0), Math.max(1.6, 0.2 * pxM), yLine, THEME.fieldEdge)
+        // 两端：禁区（16.5 m × 40.32 m）+ 球门区（5.5 m × 18.32 m）
+        var penD = 16.5 * mPx, penW = 20.16 * mPx
+        var goalD = 5.5 * mPx, goalW = 9.16 * mPx
+        for (var side = -1; side <= 1; side += 2) {
+          localRect(cxs, cys, angs, side * (A2 - penD), side * A2, -penW, penW, wLine, yLine, THEME.fieldEdge)
+          localRect(cxs, cys, angs, side * (A2 - goalD), side * A2, -goalW, goalW, wLine, yLine, THEME.fieldEdge)
+          // 点球点（11 m）
+          var spU = side * (A2 - 11 * mPx)
+          edgeRibbon(opaque, l2w(cxs, cys, angs, spU - 1.5, 0), l2w(cxs, cys, angs, spU + 1.5, 0),
+            Math.max(1.6, 0.2 * pxM), yLine, THEME.fieldEdge)
+        }
       } else {
-        // 操场：底层草皮 + 剪草条纹 + 白边线 + 中线 + 中圈
-        // 若标定里标了 track:true（面积够大、且附近没有独立的 leisure=track 面 ——
-        // 典型就是看台旁的第二运动场、一号运动场），就在草坪外圈套一条红色跑道环带：
-        //   先把整个多边形铺成跑道色，再把草坪按"跑道宽度"内缩后盖上去，
-        //   最后沿每条分道内缩画白线。视觉上就是"标准田径场"，且完全落在这个多边形里。
-        var hasTrack = fd.track === true
-        var pitchRing = fr
-        if (hasTrack) {
-          var tcx0 = fieldCentroid(fr)
-          var tRad = Math.max.apply(null, fr.map(function (p) {
-            return Math.hypot(p[0] - tcx0[0], p[1] - tcx0[1])
-          }))
-          var trackW = Math.max(pxM * 6, Math.min(pxM * 10, tRad * 0.16))
-          // 跑道底色（外圈略深）
-          fillPoly(fr, 0.275, THEME.fieldTrackOuter)
-          // 分道线：在跑道环带内再内缩画 4 条白线
-          for (var tl = 1; tl <= 4; tl++) {
-            var tInset = insetRing(fr, trackW * tl / 4.6)
-            strokeRing(tInset, 0.30, Math.max(1, 0.09 * pxM), THEME.fieldTrackLine)
-          }
-          // 草坪：从外圈内缩一个跑道宽度后作为真正的场地
-          pitchRing = insetRing(fr, trackW)
-          strokeRing(fr, 0.302, Math.max(1.4, 0.16 * pxM), THEME.fieldTrackLine)
-        }
-        fillPoly(pitchRing, 0.28, THEME.fieldPitch)
-        var e2 = rectLongEdges(pitchRing)
-        if (e2) {
-          var STRIPES = 12
-          for (var si = 0; si < STRIPES; si++) {
-            if (si % 2 === 0) continue
-            var t0 = si / STRIPES, t1 = (si + 1) / STRIPES
-            var pa = [e2.a1[0] + (e2.a2[0] - e2.a1[0]) * t0, e2.a1[1] + (e2.a2[1] - e2.a1[1]) * t0]
-            var pb = [e2.a1[0] + (e2.a2[0] - e2.a1[0]) * t1, e2.a1[1] + (e2.a2[1] - e2.a1[1]) * t1]
-            var qa = [e2.b1[0] + (e2.b2[0] - e2.b1[0]) * t0, e2.b1[1] + (e2.b2[1] - e2.b1[1]) * t0]
-            var qb = [e2.b1[0] + (e2.b2[0] - e2.b1[0]) * t1, e2.b1[1] + (e2.b2[1] - e2.b1[1]) * t1]
-            pushQuad(opaque, [pa[0], 0.283, pa[1]], [qa[0], 0.283, qa[1]], [qb[0], 0.283, qb[1]], [pb[0], 0.283, pb[1]], THEME.fieldPitchAlt, [0, 1, 0])
-          }
-          // 中线 + 中圈
-          var cA = [(e2.a1[0] + e2.a2[0]) / 2, (e2.a1[1] + e2.a2[1]) / 2]
-          var cB = [(e2.b1[0] + e2.b2[0]) / 2, (e2.b1[1] + e2.b2[1]) / 2]
-          edgeRibbon(opaque, cA, cB, Math.max(1.2, 0.16 * pxM), THEME.fieldEdge, 0.295)
-          var circR = Math.min(
-            Math.hypot(e2.a1[0] - e2.a2[0], e2.a1[1] - e2.a2[1]),
-            Math.hypot(e2.a1[0] - e2.b1[0], e2.a1[1] - e2.b1[1])
-          ) * 0.14
-          if (circR > 6) {
-            var ctr = fieldCentroid(fr)
-            var segN = 32
-            for (var gi = 0; gi < segN; gi++) {
-              var ga0 = gi / segN * Math.PI * 2, ga1 = (gi + 1) / segN * Math.PI * 2
-              edgeRibbon(opaque,
-                [ctr[0] + Math.cos(ga0) * circR, ctr[1] + Math.sin(ga0) * circR],
-                [ctr[0] + Math.cos(ga1) * circR, ctr[1] + Math.sin(ga1) * circR],
-                Math.max(1.2, 0.14 * pxM), THEME.fieldEdge, 0.295)
-            }
-          }
-        }
-        // 草坪外框用 pitchRing（有跑道时是内缩后的草坪边界），上面草皮条纹也按它画
-        strokeRing(pitchRing, 0.295, Math.max(1.5, 0.2 * pxM), THEME.fieldEdge)
+        strokeRing(fr, 0.30, Math.max(1.5, 0.2 * pxM), THEME.fieldEdge)
       }
     }
 
