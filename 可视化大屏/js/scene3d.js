@@ -260,29 +260,136 @@
       }
     }
 
-    // 运动场地（操场/跑道/球场）：贴地色块 + 浅色边线。
-    // 层次：草地 0.26 < 球场/操场 0.28 < 跑道 0.32 < 道路 0.4 —— 道路永远压在场地之上，
-    // 所以穿过操场的路不会被场地盖住（校园里确实有路从运动场边绕过）。
+    /* ---------------- 运动场地（操场 / 跑道 / 球场） ----------------
+     * 为什么不再是一块纯色：上一版把整个操场刷成一片绿、跑道刷成一片红，
+     * 远景看就是两个色块，既不像操场也不好看（2026-11-18 负责人反馈）。
+     * 现在按场地类型做"轻建模"：
+     *   跑道 → 8 条分道带 + 白色分道线（内场留空，下面的操场草皮透出来）
+     *   矩形操场 → 剪草条纹 + 白边线 + 中线 + 中圈
+     *   球场 → 底色 + 白边线 + 中线
+     *   草地 → 单色（不加线，避免抢戏）
+     * 全部用极薄的高度差错开，避免 z-fighting；道路(0.4)始终压在场地(≤0.34)之上。 */
     var fields = calib.fields || []
+    var pxM = pxPerM
+    function fieldCentroid(ring) {
+      var cx2 = 0, cy2 = 0
+      for (var i2 = 0; i2 < ring.length; i2++) { cx2 += ring[i2][0]; cy2 += ring[i2][1] }
+      return [cx2 / ring.length, cy2 / ring.length]
+    }
+    // 把轮廓朝质心收缩 d（像素）。凸多边形/近椭圆都够用；跑道分道带靠它一层层缩。
+    function insetRing(ring, d) {
+      var c2 = fieldCentroid(ring)
+      var out = []
+      for (var i2 = 0; i2 < ring.length; i2++) {
+        var dx2 = c2[0] - ring[i2][0], dy2 = c2[1] - ring[i2][1]
+        var L2 = Math.hypot(dx2, dy2)
+        if (L2 < 1e-6) { out.push([ring[i2][0], ring[i2][1]]); continue }
+        var k2 = Math.min(1, d / L2)
+        out.push([ring[i2][0] + dx2 * k2, ring[i2][1] + dy2 * k2])
+      }
+      return out
+    }
+    function fillPoly(ring2, y, col) {
+      var tri = triangulate(ring2)
+      for (var t2 = 0; t2 + 2 < tri.length; t2 += 3) {
+        var a2 = ring2[tri[t2]], b2 = ring2[tri[t2 + 1]], c3 = ring2[tri[t2 + 2]]
+        pushTri(opaque, [a2[0], y, a2[1]], [c3[0], y, c3[1]], [b2[0], y, b2[1]], col, [0, 1, 0])
+      }
+    }
+    function strokeRing(ring2, y, wPx, col) {
+      for (var i2 = 0; i2 < ring2.length; i2++) {
+        var p2 = ring2[i2], q2 = ring2[(i2 + 1) % ring2.length]
+        edgeRibbon(opaque, p2, q2, wPx, col, y)
+      }
+    }
+    // 环带（两条同心轮廓之间）：跑道分道用
+    function ringBand(outer, inner, y, col) {
+      for (var i2 = 0; i2 < outer.length; i2++) {
+        var a2 = outer[i2], b2 = outer[(i2 + 1) % outer.length]
+        var c3 = inner[(i2 + 1) % inner.length], d2 = inner[i2]
+        pushQuad(opaque, [a2[0], y, a2[1]], [b2[0], y, b2[1]], [c3[0], y, c3[1]], [d2[0], y, d2[1]], col, [0, 1, 0])
+      }
+    }
+    // 矩形操场的两条长边（用于剪草条纹插值）
+    function rectLongEdges(ring2) {
+      var n2 = ring2.length
+      if (n2 > 5) return null
+      var e0 = Math.hypot(ring2[1][0] - ring2[0][0], ring2[1][1] - ring2[0][1])
+      var e1 = Math.hypot(ring2[2][0] - ring2[1][0], ring2[2][1] - ring2[1][1])
+      if (e0 >= e1) return { a1: ring2[0], a2: ring2[1], b1: ring2[3], b2: ring2[2] }
+      return { a1: ring2[1], a2: ring2[2], b1: ring2[0], b2: ring2[3] }
+    }
     for (var fi = 0; fi < fields.length; fi++) {
       var fd = fields[fi]
-      var fring = fd && fd.ring
-      if (!fring || fring.length < 3) continue
-      var fcol = fd.kind === 'track' ? THEME.fieldTrack
-        : (fd.kind === 'court' ? THEME.fieldCourt
-          : (fd.kind === 'grass' ? THEME.fieldGrass : THEME.fieldPitch))
-      var fy = fd.kind === 'track' ? 0.32 : (fd.kind === 'grass' ? 0.26 : 0.28)
-      var fTri = triangulate(fring)
-      for (var ft = 0; ft + 2 < fTri.length; ft += 3) {
-        var fa = fring[fTri[ft]], fb = fring[fTri[ft + 1]], fc = fring[fTri[ft + 2]]
-        pushTri(opaque, [fa[0], fy, fa[1]], [fc[0], fy, fc[1]], [fb[0], fy, fb[1]], fcol, [0, 1, 0])
-      }
-      // 边线：细白带（跑道和球场才有明显边线，草地不加）
-      if (fd.kind !== 'grass') {
-        for (var fe = 0; fe < fring.length; fe++) {
-          var fp = fring[fe], fq = fring[(fe + 1) % fring.length]
-          edgeRibbon(opaque, fp, fq, Math.max(0.25 * pxPerM, 2), THEME.fieldEdge, fy + 0.04)
+      var fr = fd && fd.ring
+      if (!fr || fr.length < 3) continue
+      var kind = fd.kind
+      if (kind === 'track') {
+        // 跑道：**只画分道带，不铺满整个多边形**。
+        // 原因：OSM 的 leisure=track 多边形是整条跑道的外轮廓（含内场），
+        // 先填满再叠分道，远景就是"一整片红"（上一版实测就是这个问题）。
+        // 现在从外轮廓往里收缩 8 条，一条一条铺；内场留空，下面的操场草皮自然透出来。
+        var LANES = 8
+        var c0 = fieldCentroid(fr)
+        var refD = Math.hypot(fr[0][0] - c0[0], fr[0][1] - c0[1])
+        var laneW = Math.max(pxM * 1.1, Math.min(refD, pxM * 14) / LANES)
+        var prev = fr
+        for (var li = 1; li <= LANES; li++) {
+          var cur = insetRing(fr, laneW * li)
+          // 深浅交替，读得出"这是分道"
+          ringBand(prev, cur, 0.305, li % 2 ? THEME.fieldTrack : THEME.fieldTrackOuter)
+          strokeRing(cur, 0.318, Math.max(1, 0.10 * pxM), THEME.fieldTrackLine)
+          prev = cur
         }
+        // 最外圈描一道白边，让跑道边界清楚
+        strokeRing(fr, 0.318, Math.max(1.4, 0.16 * pxM), THEME.fieldTrackLine)
+      } else if (kind === 'grass') {
+        fillPoly(fr, 0.26, THEME.fieldGrass)
+      } else if (kind === 'court') {
+        fillPoly(fr, 0.28, THEME.fieldCourt)
+        strokeRing(fr, 0.295, Math.max(1.5, 0.2 * pxM), THEME.fieldEdge)
+        var ce = rectLongEdges(fr)
+        if (ce) {
+          var midA = [(ce.a1[0] + ce.a2[0]) / 2, (ce.a1[1] + ce.a2[1]) / 2]
+          var midB = [(ce.b1[0] + ce.b2[0]) / 2, (ce.b1[1] + ce.b2[1]) / 2]
+          edgeRibbon(opaque, midA, midB, Math.max(1.2, 0.15 * pxM), THEME.fieldEdge, 0.295)
+        }
+      } else {
+        // 操场：底色 + 剪草条纹（沿长边分 12 条，深浅交替）+ 白边线 + 中线 + 中圈
+        fillPoly(fr, 0.28, THEME.fieldPitch)
+        var e2 = rectLongEdges(fr)
+        if (e2) {
+          var STRIPES = 12
+          for (var si = 0; si < STRIPES; si++) {
+            if (si % 2 === 0) continue
+            var t0 = si / STRIPES, t1 = (si + 1) / STRIPES
+            var pa = [e2.a1[0] + (e2.a2[0] - e2.a1[0]) * t0, e2.a1[1] + (e2.a2[1] - e2.a1[1]) * t0]
+            var pb = [e2.a1[0] + (e2.a2[0] - e2.a1[0]) * t1, e2.a1[1] + (e2.a2[1] - e2.a1[1]) * t1]
+            var qa = [e2.b1[0] + (e2.b2[0] - e2.b1[0]) * t0, e2.b1[1] + (e2.b2[1] - e2.b1[1]) * t0]
+            var qb = [e2.b1[0] + (e2.b2[0] - e2.b1[0]) * t1, e2.b1[1] + (e2.b2[1] - e2.b1[1]) * t1]
+            pushQuad(opaque, [pa[0], 0.283, pa[1]], [qa[0], 0.283, qa[1]], [qb[0], 0.283, qb[1]], [pb[0], 0.283, pb[1]], THEME.fieldPitchAlt, [0, 1, 0])
+          }
+          // 中线 + 中圈
+          var cA = [(e2.a1[0] + e2.a2[0]) / 2, (e2.a1[1] + e2.a2[1]) / 2]
+          var cB = [(e2.b1[0] + e2.b2[0]) / 2, (e2.b1[1] + e2.b2[1]) / 2]
+          edgeRibbon(opaque, cA, cB, Math.max(1.2, 0.16 * pxM), THEME.fieldEdge, 0.295)
+          var circR = Math.min(
+            Math.hypot(e2.a1[0] - e2.a2[0], e2.a1[1] - e2.a2[1]),
+            Math.hypot(e2.a1[0] - e2.b1[0], e2.a1[1] - e2.b1[1])
+          ) * 0.14
+          if (circR > 6) {
+            var ctr = fieldCentroid(fr)
+            var segN = 32
+            for (var gi = 0; gi < segN; gi++) {
+              var ga0 = gi / segN * Math.PI * 2, ga1 = (gi + 1) / segN * Math.PI * 2
+              edgeRibbon(opaque,
+                [ctr[0] + Math.cos(ga0) * circR, ctr[1] + Math.sin(ga0) * circR],
+                [ctr[0] + Math.cos(ga1) * circR, ctr[1] + Math.sin(ga1) * circR],
+                Math.max(1.2, 0.14 * pxM), THEME.fieldEdge, 0.295)
+            }
+          }
+        }
+        strokeRing(fr, 0.295, Math.max(1.5, 0.2 * pxM), THEME.fieldEdge)
       }
     }
 
@@ -312,11 +419,19 @@
       for (var r = 0; r < roads.length; r++) {
         var rd = roads[r]
         if (!rd.pts || rd.pts.length < 2) continue
-        var col = rd.cls === 'main' ? THEME.roadMain : (rd.cls === 'walk' ? THEME.roadWalk : THEME.roadRoad)
-        // 宽度按高德参考图里的实际路面宽度：主路 ~4.8 m，支路 ~3.6 m，人行 ~1.6 m
-        // （参考图里高德的路面约 20 px，按配准比例 5.44 px/m 反推 = 3.7 m）
-        var wM = rd.cls === 'main' ? 4.8 : (rd.cls === 'walk' ? 1.6 : 3.6)
-        ribbon(opaque, rd.pts, wM * pxPerM, 0.4, col)
+        var col = rd.cls === 'main' ? THEME.roadMain : THEME.roadRoad
+        // 宽度按高德参考图里的实际路面宽度：主路 ~4.8 m，支路 ~3.6 m
+        var wM = rd.cls === 'main' ? 4.8 : 3.6
+        // 没被雷达扫到的路要**弱化**（不是删掉）：那些路要么没扫到、要么车走不了。
+        // cov 来自 road_coverage.py；规则见下，既要能看出"这里有条路"，又不能喧宾夺主。
+        var aMul = 1
+        if (rd.cov != null) {
+          if (rd.cov >= 0.5) aMul = 1
+          else if (rd.cov >= 0.2) aMul = 0.72
+          else aMul = 0.42
+        }
+        var rc2 = [col[0], col[1], col[2], (col[3] == null ? 1 : col[3]) * aMul]
+        ribbon(opaque, rd.pts, wM * pxPerM, 0.4, rc2)
       }
     }
 

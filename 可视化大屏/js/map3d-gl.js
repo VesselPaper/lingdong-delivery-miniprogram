@@ -44,7 +44,9 @@ window.Map3DGL = (function () {
     // 雷达底图（激光可通行区）：**默认开启** —— 全校版底图是「完整地图」，
     // 亮度已按着色器阈值重做过（背景压暗、可通行区提亮），开着才能看出路网与楼群的关系。
     // 工具栏「雷达图」按钮可随时关掉，只看灰色 OSM 道路与楼体。
-    ground: true,
+    // 雷达底图（激光可通行区）：**默认关闭**（2026-11-18 负责人要求：大屏默认不显示雷达图）。
+    // 工具栏「雷达图」按钮可临时打开，用来对照"机器人实际扫到的可通行区"。
+    ground: false,
     groundOpacity: 0.50,   // 底图整体不透明度：0.50 —— 扫描可通行区只作"地面纹理"，灰色 OSM 道路要压得住
     // 配送点标记（平台 landmarks：取货点/上货点/充电点）—— 默认开，工具栏「配送点」按钮可关
     sites: true,
@@ -1147,7 +1149,7 @@ window.Map3DGL = (function () {
     if (lb) lb.addEventListener('click', function () { opts.labels = !opts.labels; lb.classList.toggle('on', opts.labels); rebuild() })
     var gr = document.getElementById('m3Ground')
     if (gr) {
-      // 默认就是开的（见 opts.ground），按钮必须同步亮起；否则会出现"效果开着、按钮显示关"，
+      // 按钮态一律跟随 opts.ground（默认关闭）。不同步会出现"效果开着、按钮显示关"，
       // 用户第一次点反而把它关掉（2026-10-12 在「楼体透明」上踩过同一个坑）。
       gr.classList.toggle('on', !!opts.ground)
       gr.addEventListener('click', function () { opts.ground = !opts.ground; gr.classList.toggle('on', opts.ground) })
@@ -1320,8 +1322,11 @@ window.Map3DGL = (function () {
   // label_pr（标定里给）：1=宿舍/教学楼/图书馆/食堂等"大件"，2=其他有名楼栋，3=附属小楼。
   // 远景（zoom ≥ BLD_LABEL_PR2_ZOOM）只显示 1 级，拉近后才放 2 级。
   var BLD_LABEL_PR2_ZOOM = 0.78
-  // 各层字号基准（zoom=1 时的像素）：楼栋 14 / 第二层 11 / 第三层 9
-  var LABEL_BASE_PX = { 1: 14, 2: 11, 3: 9 }
+  // 各层字号基准（zoom=1 时的像素）。2026-11-18 整体下调一档：
+  // 全校 49 栋楼的名字在原字号下过于抢眼、也更容易互相压住；现在楼名 11、点位名 9。
+  var LABEL_BASE_PX = { 1: 11, 2: 9, 3: 8 }
+  // 字体：楼名用无衬线常规体（不再是粗体），点位名同族小一号 —— 粗体会让密集区糊成一片。
+  var LABEL_FONT = '"Microsoft YaHei UI","Microsoft YaHei","PingFang SC",sans-serif'
   // 站点图标基准半径（zoom=1），第二层 4.4 / 第三层 3.6（比原来 5.4 小）
   var SITE_HEAD_BASE = { 2: 4.4, 3: 3.6 }
   // 点位去重（2026-10-12，负责人反馈"商铺上货一片点位很近"）：
@@ -2027,21 +2032,29 @@ window.Map3DGL = (function () {
     for (var k0 = 0; k0 < items.length; k0++) {
       var it0 = items[k0]
       it0.bold = (it0.kind === 'bld')
-      // 2026-10-12 负责人要求"点位字体样式统一"：
-      //  · 点位名（site）一律 10px（原来按层 9/10 分，不统一）；
-      //  · 透明度一律 1（原来按相机距离 0.45~1.0 变亮变暗，近的字显得不一样）。
+      // 楼名不再用粗体：全校名字一多，粗体 + 14px 会把密集区糊成一片，
+      // 改成常规体 + 小一号（见 LABEL_BASE_PX），层级靠颜色与位置区分，不靠粗细。
       it0.base = it0.bold ? LABEL_BASE_PX[1] : LABEL_BASE_PX[2]
-      it0.font = (it0.bold ? 'bold ' : '') + (it0.base * kzText).toFixed(1) + 'px "Microsoft YaHei",sans-serif'
+      it0.font = (it0.base * kzText).toFixed(1) + 'px ' + LABEL_FONT
       it0.alpha = 1
       it0.tx = it0.x; it0.ty = it0.y      // 落笔位置＝锚点本身：文字一律不再挪位
     }
-    // ---- 文字位置固定：不为了避让而挪位，重叠时只隐藏点位名 ----
-    // 原先会把站点文字上下挪行、左右让位，名字因此跑到针尖之外，看起来"名字不在那个点上"。
-    // 现在的规则：
-    //   · 所有文字都画在自己的锚点上（楼栋名 = 楼中心上方；站点名 = 针头右侧）；
-    //   · 楼栋名优先级最高：先占位，且从不淡化、从不隐藏；
-    //   · 站点名一旦与已占位的文字框（楼栋名或更靠前的站点名）重叠，整条名称不画（alpha=0），
-    //     只保留图标 —— 2026-10-12 负责人要求，避免一串名字糊在一起。
+    // 深度淡出：远处的名字压暗（物理上离得远就发虚），近处保持清晰。
+    // 只影响透明度，位置仍固定在锚点上。
+    var dFirst = items.length ? items[0].d : 0
+    var dSpan2 = Math.max(1e-6, (items.length ? items[items.length - 1].d : 1) - dFirst)
+    for (var kd = 0; kd < items.length; kd++) {
+      var itd = items[kd]
+      var far = (itd.d - dFirst) / dSpan2
+      itd.alpha *= 0.62 + 0.38 * (1 - Math.min(1, Math.max(0, far)))
+    }
+    // ---- 文字位置固定，重叠时**半透明**而不是消失（2026-11-18 负责人要求）----
+    // 旧规则是"重叠就不画"（点位名整条 alpha=0）、楼名也整条不画，密集区会出现
+    // "有针没字、有楼没名"的突兀感。新规则：
+    //   · 文字位置一律不动（仍贴自己的锚点）；
+    //   · 楼名按重叠层数逐级降低透明度（每层 -0.20，下限 0.34）；
+    //   · 点位名同理（每层 -0.26，下限 0.28），始终至少半透明可见。
+    // 效果接近物理遮挡：近处/主楼清楚，被压住的"若隐若现"，而不是凭空消失。
     var taken = []
     function overlapCount(x, y, w, h) {
       var n = 0
@@ -2052,31 +2065,21 @@ window.Map3DGL = (function () {
       return n
     }
     function reserve(x, y, w, h) { taken.push([x - 2, y - h, x + w + 3, y + h * 0.45]) }
-    // 楼栋名：全校 49 栋，东苑一片楼挨着楼，名字会叠成一坨。
-    // 用「文字外框」去重：横向按两边宽度各一半、纵向按一个行高（字号 × 1.25）。
-    // 与已保留的楼名框相交就整条不画；放大后楼群在屏幕上散开，被压掉的会自然回来。
-    var keptBoxes = []
-    var lineH = LABEL_BASE_PX[1] * kzText * 1.25
+    // 楼名：近的（先遍历到的）占位，后来者按重叠层数递减透明度（不再整条不画）
     for (var kb2 = 0; kb2 < items.length; kb2++) {
       var ib = items[kb2]
       if (!ib.bold) continue
-      var wb = textWidth(g, ib.text, ib.font)
-      var clash = false
-      for (var ka = 0; ka < keptBoxes.length; ka++) {
-        var kbx = keptBoxes[ka]
-        if (Math.abs(ib.x - kbx[0]) < (wb + kbx[1]) / 2 + 3 && Math.abs(ib.y - kbx[2]) < lineH) { clash = true; break }
-      }
-      if (clash) { ib.alpha = 0; continue }
-      keptBoxes.push([ib.x, wb, ib.y])
+      var wb = textWidth(g, ib.text, ib.font), hb = ib.base * kzText * 1.2
+      var ovb = overlapCount(ib.x, ib.y, wb, hb)
+      if (ovb > 0) ib.alpha = Math.max(0.34, ib.alpha - 0.20 * ovb)
+      reserve(ib.x, ib.y, wb, hb)
     }
     for (var ks2 = items.length - 1; ks2 >= 0; ks2--) {     // 反向遍历＝由近到远
       var its2 = items[ks2]
       if (its2.bold) continue
       var ws = textWidth(g, its2.text, its2.font), hs = its2.base * kzText * 1.2
       var nOv = overlapCount(its2.x, its2.y, ws, hs)
-      // 2026-10-12 负责人要求：点位名称被遮挡时**不显示名称、只留图标** → 重叠直接 alpha=0；
-      // 楼栋名（bold）不走这里、不受影响。图标在站点绘制段已画，与文字独立。
-      if (nOv > 0) its2.alpha = 0
+      if (nOv > 0) its2.alpha = Math.max(0.28, its2.alpha - 0.26 * nOv)
       reserve(its2.x, its2.y, ws, hs)
     }
     // 记下这一帧的落笔情况（只读快照，供 labelsDebug() 断言"文字没有被挪位"；
