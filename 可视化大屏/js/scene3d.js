@@ -260,6 +260,26 @@
       }
     }
 
+    // 水体（湖 / 塘）：湖面半透明青蓝 + 亮色岸线。
+    // 画在道路之前、高度略高于道路（0.55 vs 0.4），这样从上方俯视时水面会压住穿过它的路面，
+    // 湖面上的桥/路自然被"沉"到水下（校园里没有跨湖道路，实际不会出现这种遮挡）。
+    var waters = calib.water || []
+    for (var wi = 0; wi < waters.length; wi++) {
+      var wtr = waters[wi]
+      var wring = wtr && wtr.ring
+      if (!wring || wring.length < 3) continue
+      var wTri = triangulate(wring)
+      for (var wt = 0; wt + 2 < wTri.length; wt += 3) {
+        var wa = wring[wTri[wt]], wb = wring[wTri[wt + 1]], wc = wring[wTri[wt + 2]]
+        pushTri(opaque, [wa[0], 0.55, wa[1]], [wc[0], 0.55, wc[1]], [wb[0], 0.55, wb[1]], THEME.water, [0, 1, 0])
+      }
+      // 岸线：沿轮廓一圈细带，略高于水面
+      for (var we = 0; we < wring.length; we++) {
+        var wp = wring[we], wq = wring[(we + 1) % wring.length]
+        edgeRibbon(opaque, wp, wq, Math.max(0.35 * pxPerM, 3), THEME.waterRim, 0.62)
+      }
+    }
+
     // 校园道路（OSM 参照，压暗）
     if (opts.roads !== false) {
       var roads = calib.roads || []

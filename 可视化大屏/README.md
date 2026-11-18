@@ -52,23 +52,28 @@
 可视化大屏/
 ├─ index.html              大屏页面（三栏：信息 / 3D 地图 / 车辆与批次）
 ├─ css/dashboard.css       科技风皮肤：色板、栅格、组件样式
-├─ js/dashboard.js         取数与渲染逻辑（固定 DOM、增量更新、高频车辆轮询）
-├─ js/map3d-entry.js       渲染器入口（自动选择 GL / 2.5D / Leaflet）
-├─ js/map3d-gl.js          WebGL 真三维渲染器（数字孪生全息风，主渲染器）
-├─ js/map3d.js             2.5D 斜轴测回退渲染器（Canvas 2D）
-├─ js/map3d-core.js        2.5D 投影/场景核心（浏览器与 Node 预览共用）
-├─ js/scene3d.js           真三维场景：网格构建 + 透视相机 + 矩阵（浏览器/Node 共用）
+├─ js/
+│  ├─ dashboard/           大屏骨架：shared（常量/状态/工具）、api（取数）、
+│  │                       views-ui（面板渲染）、map（地图入口与标定页）、main（编排）
+│  ├─ scene3d/             3D 纯算法分件：math / triangulate / camera
+│  ├─ scene3d.js           3D 场景：图元、楼栋、车模、路线、道路拓扑
+│  ├─ gl3d/recon.js        3D 图层重构面板控制器
+│  ├─ render/gl3d/shaders.js  WebGL 着色器（GLSL 字符串）
+│  ├─ map3d-gl.js          WebGL 真三维渲染器（主渲染器）
+│  ├─ map3d.js             2.5D 斜轴测回退渲染器（Canvas 2D）
+│  ├─ map3d-core.js        2.5D 投影/场景核心（浏览器与 Node 预览共用）
+│  └─ map3d-entry.js       渲染器入口（自动选择 GL / 2.5D / Leaflet）
 ├─ assets/
 │  ├─ map-calibration.js   静态几何（OSM 楼栋轮廓/层高 + 道路 + 雷达骨架路线）
 │  ├─ map-calibration.json 同上（等价 JSON 版）
-│  ├─ radar-ground*.png    重绘后的雷达底图（浅色版 / 深色版）
+│  ├─ map-recon-default.js 内置默认「3D 图层重构」数据（无本机/服务器存档时使用）
+│  ├─ radar-ground*.png    雷达底图（深色版 / 浅色版）
 │  ├─ robot*.png           机器人三视角展示图
 │  └─ logo.jpg             零栋集团 logo
+├─ configs/default.js      多租户预留模板（当前代码不读取，勿启用）
+├─ tool_carcheck.js        车模几何离线自检（node 跑）
 ├─ vendor/leaflet.js/css   Leaflet（仅 ?calib=1 标定工具与兜底使用）
-├─ deploy/
-│  ├─ 启动大屏.bat          kiosk 全屏启动（Edge/Chrome，命令行带 LingdongDashboard 标识）
-│  ├─ 看门狗.ps1            每 60s 检查「后端在跑 + 大屏在放」，异常自动拉起
-│  └─ 安装开机自启.ps1      注册登录自启计划任务（跑看门狗）
+├─ deploy/                 大屏机启动脚本与看门狗
 └─ README.md
 ```
 
@@ -110,14 +115,21 @@ GET /api/dashboard/robot-positions
 3D 地图的楼栋/道路来自 `assets/map-calibration.js`（本地静态数据），因此
 **平台底图接口不可用时也能出图**；实时车辆/路线由上面两个接口叠加。
 
-**雷达底图（激光可通行区）默认关闭** —— 按负责人要求，大屏只保留校园道路 + 小车图标。
-需要对齐调试时，点工具栏「**雷达图**」按钮临时打开（能对照"机器人激光测绘出的可通行区，有真实路宽"）。
+**当前底图是全校版**（2026-11-18 扩建）：平台最新最完整的一张图
+`1257237128126592_zcsdb3dd6396c824_2d-2`（19704×17932 声明、实际 **19688×23177** 像素、
+0.05 m/px、覆盖 **984×1159 米**），对应 `assets/radar-ground-full.png`
+（降采样 1/4 = 4922×5794，0.2 m/px，深色版，按着色器亮度阈值重做过）。
+
+**雷达底图（激光可通行区）默认开启**（`opts.ground`，不透明度 0.50，只作"地面纹理"），
+工具栏「**雷达图**」按钮可随时关掉。东苑那版 `radar-ground-dark.png` 仍留在仓库里，
+作为旧小图（`1d-99`）的回退资产，不要删。
+
 `/api/dashboard/map-image` 后端代理（OSS 签名直链时效极短）仍保留，供回退渲染使用。
 
 ### 坐标映射（关键：不要再用 bbox 拉伸）
 
 平台 `building/mapInfo` 下发 **ROS 栅格地图元数据** `metadata`
-（`origin`、`resolution`、`width=5786`、`height=5406`，与 `map-calibration.js` 的 `radar_full_size` 一致），
+（`origin`、`resolution=0.05`、`width`、`height`，与 `map-calibration.js` 的 `radar_full_size` 一致），
 它就是「平台世界坐标（米）→ 地图像素」的**权威映射**：
 
 ```
@@ -127,17 +139,34 @@ py = height - (y - origin_y) / resolution      # 图像 y 向下，origin = 左�
 
 - 大屏经由 `map.meta` 使用它；**拿不到 meta 时才退回 bbox 拉伸**（旧方案）。
 - 实测差异：bbox 拉伸的坐标误差 **13~23 米**（这就是"车对不准路"的根因）；
-  换成 metadata 后，平台 12 个点位 + 38 个固定路径节点投到激光底图走廊上 **50/50 零距离命中**。
+  换成 metadata 后，平台点位投到激光底图走廊上可做到零距离命中。
 - **`robotpose` 本身就是地图像素坐标**（x 右、y 下）：接口直接给 `px/py`，前端**不需要任何标定**投放。
 - `POS_CAL`（robotpose→米的相似变换）**已废弃**：它由 2 个点拟合 4 参数（必然精确，不算验证），
   且平台重标定地图后失效。
 
+### OSM 静态几何怎么来的（2026-11-18 全校扩建）
+
+楼栋轮廓、道路中心线、水体都不再手画，而是从 **OpenStreetMap** 取（Overpass API），
+按「平台取货点 ↔ OSM 同名楼栋」的对应关系拟合坐标变换，再投到雷达像素：
+
+- 工具链在负责人工作区 `_tmp4/probes/tools/mapbuild/`（**不在仓库**）：
+  `fetch_platform_map.mjs`（拉图/点位）→ `fetch_osm.mjs`（拉建筑/道路/水体/边界）→
+  `align_affine.mjs`（仿射 + ICP）→ `refine_by_mask.py`（用"OSM 道路落在雷达可通行区的比例"精化）→
+  `emit_assets.mjs`（生成 `map-calibration.json/.js`）→ `build_texture.py`（生成深色底图）。
+- 当前结果：**49 栋楼**（校区外的 37 栋已剔除）、**103 条道路**、**3 个水体（含龙湖 61 点）**、
+  比例 **20 px/m**、旋转 **18.61°**。
+- ⚠ **图书馆→东苑那一段**：越凡重扫时这段路本身就画错了，与 OSM 真值差 15~25 米。
+  拟合时**只让贴合的那批控制点参与**（近似变换不允许被这段拖偏），这段留给重构面板逐条微调。
+- 数据版权：地图数据来自 © OpenStreetMap contributors（ODbL），对外文档需保留该署名。
+
 ### 车辆贴路（路网吸附）
 
 雷达图的路面**有宽度**，3D 图的路是**中心线**（像导航 App）。因此显示时把车辆位置
-**投影到机器人真实路网**（平台「固定路径」graph，经 metadata 精确投到场景像素）上：
+**投影到灰色校园道路的中心线**（`effectiveCalib().roads`，会随「3D 图层重构」里的逐路校准实时变化；
+没有建模道路时才退回雷达骨架 `paths`）上：
 
-- 该路网**不显示**，只作吸附网；车永远落在它真正走的那条路上（等价于 GPS 贴路）。
+- 该锚定用的路网**不显示**，只作吸附网；车永远落在它真正走的那条路上（等价于 GPS 贴路）。
+- **不使用平台「固定路径」图做吸附源**：它只是沿路边、碰起点才走的优先级片段，吸偏后位置会错。
 - 偏离路网超过 `SNAP_MAX_M`（默认 12m，定位异常）时不硬拉，照真实位置显示，避免"飞出路面又被拽回"。
 - 贴路成功时，车辆数据牌的状态后缀会显示「· 已贴路」。
 
@@ -146,7 +175,7 @@ py = height - (y - origin_y) / resolution      # 图像 y 向下，origin = 左�
 ## 五、部署到主机（三步）
 
 1. 主机装好 **Chrome 或 Edge**，能打开 `http://<后端IP>:3000/dashboard`；
-2. 大屏由后端直接托管（无独立启动脚本）：先启动后端（根目录 `启动服务器.bat`，API/管理员/大屏同端口 3000），
+2. 大屏由后端直接托管（无独立启动脚本）：先启动后端（`cd backend && node server.js`，API/管理员/大屏同端口 3000），
    再双击 `deploy/启动大屏.bat` 以 kiosk 全屏打开；
 3. 管理员身份运行 `deploy\安装开机自启.ps1` —— 注册登录自启任务，之后开机自动进大屏。
 
@@ -172,16 +201,20 @@ py = height - (y - origin_y) / resolution      # 图像 y 向下，origin = 左�
 
 | 参数 | 位置 | 默认 | 作用 |
 |---|---|---|---|
-| `POLL_MS` | `js/dashboard.js` | 5000 | overview 取数间隔 |
-| `ROBOT_POLL_MS` | `js/dashboard.js` | 1000 | 车辆位置轮询间隔 |
-| `RELOAD_HOUR` | `js/dashboard.js` | 4 | 每日整页重载时刻 |
-| `MEM_LIMIT` | `js/dashboard.js` | 800MB | 内存兜底阈值 |
-| `MAX_ROBOTS / MAX_BATCHES / MAX_ALERTS / MAX_EVENTS` | `js/dashboard.js` | 6/4/3/8 | 各列表最大行数（固定 DOM 规模） |
-| 地图初始视角/高度 | `js/map3d-gl.js` 的 `opts` | el=65, heightScale=0.58 | 俯仰角 / 楼高夸张倍数（界面滑块可调） |
+| `POLL_MS` | `js/dashboard/shared.js` | 5000 | overview 取数间隔 |
+| `ROBOT_POLL_MS` | `js/dashboard/shared.js` | 1000 | 车辆位置轮询间隔 |
+| `RELOAD_HOUR` | `js/dashboard/shared.js` | 4 | 每日整页重载时刻 |
+| `MEM_LIMIT` | `js/dashboard/shared.js` | 800MB | 内存兜底阈值 |
+| `MAX_ROBOTS / MAX_BATCHES / MAX_ALERTS` | `js/dashboard/shared.js` | 6/4/3 | 各列表最大行数（固定 DOM 规模）；动态日志条数由后端 `DASHBOARD_EVENTS_LIMIT` 决定 |
+| 地图初始视角 | `js/map3d-gl.js` 的 `resetView()` | el=40、zoom=0.92 | 俯仰角 / 初始缩放（全校版；东苑小图时是 22 / 0.85） |
+| 楼高夸张倍数 | `js/map3d-gl.js` 的 `autoHeightScaleFor()` | 按跨度自适应（全校 ≈1.75） | 小图固定 0.58；动过工具栏「高度」滑块后就锁定为用户值 |
+| 标注重要度分级 | `assets/map-calibration.json` 的 `label_pr` | 1=大件 / 2=其他 | 远景只显示 1 级，`zoom ≥ 0.78` 才放 2 级 |
 | 车辆平滑插值 | `js/map3d-gl.js` 的 `kSmooth` | `1-exp(-dt·2.6)` | 时间常数 ≈0.38s；越小越"飘"，越大越"紧跟" |
-| 轨迹拖尾长度 | `js/map3d-gl.js` 的 `trail` 上限 | 30 点（≈5s） | 采样间隔 0.18s / 最小位移 0.35m |
+| 轨迹拖尾长度 | `js/map3d-gl.js` 的 `TRAIL_SEC` | 最近 6 秒 | 0.18s 采样、位移 >0.35m 才记，最多 120 点 |
+| 车模显示倍数 | `js/map3d-gl.js` 的 `CAR_SCALE` | 按跨度自适应（全校 ≈37） | `?carscale=N` 或工具栏「车模」滑块可手改 |
 | 贴路吸附上限 | `js/map3d-gl.js` 的 `SNAP_MAX_M` | 12 | 偏离路网超过该米数就不硬拉（照真实位置显示） |
-| 雷达底图默认开关 | `js/map3d-gl.js` 的 `opts.ground` | false | 大屏默认不显示雷达图；工具栏「雷达图」可临时打开 |
+| 雷达底图默认开关 | `js/map3d-gl.js` 的 `opts.ground` | true | 全校版默认开；「雷达图」按钮可关 |
+| 雷达底图不透明度 | `js/map3d-gl.js` 的 `opts.groundOpacity` | 0.50 | 太高会盖住灰色道路与楼体 |
 | 渲染器回退 | `js/map3d-entry.js` | 自动 | WebGL 失败自动降级 2.5D |
 | `DASHBOARD_CACHE_MS` | 后端 env | 5000 | overview 接口缓存 |
 | `DASHBOARD_ROBOTS_CACHE_MS` | 后端 env | 1000 | 车辆位置接口缓存 |
@@ -198,7 +231,8 @@ py = height - (y - origin_y) / resolution      # 图像 y 向下，origin = 左�
 | 地图上只有静态楼栋、车不动 | 车辆高频接口连不上：看后端日志确认 `/api/dashboard/robot-positions` 返回正常；机器人离线/无配送任务时平台不返回坐标，属正常，可用 `?demo=1` 看效果 |
 | 地图有车但位置偏了 | 3D 场景用的是本地标定几何（map-calibration.js），点位整体偏移说明标定数据与平台 bbox 不对齐——检查 `assets/map-calibration.js` 的 transform / 与平台 `bbox` 是否一致 |
 | 车辆/路线都没有 | 该场地暂无进行中批次，属正常 |
-| 底图（radar-ground）不显示 | `assets/radar-ground*.png` 缺失或未随仓库同步 |
+| 底图（radar-ground）不显示 | `assets/radar-ground-full.png`（全校）或 `radar-ground-dark.png`（旧小图回退）缺失，或 `map-calibration.js` 的 `texture.src` 指错 |
+| 楼栋/道路跑到奇怪的位置 | **换图后旧重构数据被套用了**。重构数据带 `map_id`，与当前标定不一致会被自动忽略（`window.__dash3d_recon_src` 会显示 `server-rejected`）；确认后在大屏里重新微调并保存 |
 | 屏幕上字看着小 | 按 1920×1080 调的；4K 屏给 kiosk 加 `--force-device-scale-factor=1.5` |
 | 拖拽/缩放不跟手 | 页面固定 1920×1080 等比缩放，非 1:1 窗口下手感会偏差（已知取舍） |
 
@@ -230,8 +264,16 @@ py = height - (y - origin_y) / resolution      # 图像 y 向下，origin = 左�
   （`buildStatic(..., clearRoad:false)`），标定里也不再配 `visual_offset_m` —— 因为被楼挡住的
   路线/车辆本来就靠半透明墙面可见，不需要挪楼。若以后确有需要，手工配 `visual_offset_m` 仍然生效，
   此时会用虚线 + 圆圈标出该楼真实位置（不显示文字）作提示。
-- **道路**：OSM 参照（灰，亮灰而非暗蓝——暗蓝会被雷达走廊同色吃掉），宽度按米换算。
+  **楼栋名会互相避让**：与已画出的楼名框相交的那条直接不画（只留楼体），放大后自然出现，
+  所以远景看到"有楼没名"是这条规则，不是丢数据。
+- **道路**：OSM 参照（亮灰，暗蓝会被雷达走廊同色吃掉），宽度按类别换算：
+  主路 4.8m / 支路 3.6m / 人行 1.6m。
+- **水体**：`map-calibration.js` 的 `water[]`（当前 3 个：龙湖 + 两个水塘），
+  湖面填充青蓝半透明、岸线亮青色描边，画在道路之前、高度 0.55，不会被路面盖住。
 - **雷达走廊**：机器人可通行区骨架（青绿发光），`paths` 开关控制。
+- **重构数据的地图版本闸**：`RECON` 会带 `map_id` / `map_version`，与当前标定不同图的存档
+  **整份忽略**（换图后旧偏移把楼搬错位置比不套用更糟）。本地存档、内置默认、服务器三处都过闸；
+  `window.__dash3d_recon_src` 会显示实际生效来源（`server` / `local` / `default` / `none` / `server-rejected`）。
 - **车辆**：白色小车 + 车底定位光环 + 垂直光柱，位置按时间归一化插值
   （`1-exp(-dt·2.6)`，两次定位之间匀速滑行、不"追一下停一下"），车后带**行驶轨迹拖尾**
   （青蓝渐变、越新越亮，最多 30 个采样点 ≈5s）；离线即清空拖尾，避免重新上线时拉直线。
@@ -248,9 +290,11 @@ py = height - (y - origin_y) / resolution      # 图像 y 向下，origin = 左�
   注意：这层的判断条件**不能要求 `map.meta`** —— 后端只下发 `bbox`，无 meta 时 `makePlatformToRadar` 退回 bbox 归一化
   （与后端算 `px/py` 同一套映射），之前多写了 `&& live.meta` 导致配送点一个都不画。
 - **文字位置固定、不因遮挡挪位**：所有文字都画在自己的锚点上（楼栋名 = 楼中心上方，站点名 = 针头右侧），
-  **不为了避让而上下挪行 / 左右让位**。重叠时按重叠层数逐级降透明度（每层 ×0.6，下限 0.32，`LABEL_ALPHA_MIN`），
-  越远的越淡；楼栋名优先占位、且永不淡化。任何情况都照画（"文字永不消失"），只是可能更透明。
-  这样三个站点挤在铺子门口时，名字仍各自贴在自己的点上，靠透明度分出主次。
+  **不为了避让而上下挪行 / 左右让位**。楼栋名优先占位、永不淡化；**站点名一旦与已占位的文字框重叠就不画**
+  （只保留图标），避免一串名字糊在一起。所以点位密集处看到"有针没字"是这条规则，不是数据丢了。
+- **标注分级**（`view.zoom` 越小＝越放大）：楼栋名在 `0.50 < zoom < 1.25` 显示；充电/上货点名在 `zoom ≤ 1.00` 显示；
+  取货点名在 `zoom ≤ 0.50` 才显示。放大跨过 0.50 时楼栋名会整批退出、取货点名整批接上（同一位置换层级）。
+  三个阈值都写在 `js/map3d-gl.js` 的 `TIER_*` 常量里。
 - **实时路线**：平台下发的批次途经点 → 贴路折线（道路拓扑 Dijkstra + 吸附 + 抽稀），橙色扁带，
   默认关闭（`route` 开关），`routeFlow` 可开流光。
 

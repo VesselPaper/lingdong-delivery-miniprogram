@@ -34,16 +34,18 @@ window.Map3DGL = (function () {
   // 默认值：保留**灰色校园道路**与底图、楼体；关掉橙色规划路线与青色荧光测绘线
   // （用户要求"不要取消灰色的线，先不要黄色的" → 再去掉荧光绿的线条）。
   var opts = {
-    el: 65, heightScale: 0.58,
+    el: 65, heightScale: 1.7,
     labels: true,          // 楼栋名称
     paths: false,          // 测绘骨架线（青色荧光线条）—— 默认关闭
     roads: true,           // OSM 校园道路（灰色）—— 保留
     route: false,          // 橙色规划/演示路线 —— 默认关闭
     routeFlow: false,      // 路线上的"流光"动态效果 —— 默认关闭（用户要求：不要动态效果）
     demoCars: false,       // 演示车辆 —— 默认关闭：没有真实车辆数据时地图上不显示任何车
-    // 雷达底图（激光可通行区）：默认**关闭** —— 大屏只保留校园道路与小车图标；
-    // 调试对齐时可用工具栏「雷达图」按钮临时打开（能看到"有宽度的可通行区"对照）。
-    ground: false,
+    // 雷达底图（激光可通行区）：**默认开启** —— 全校版底图是「完整地图」，
+    // 亮度已按着色器阈值重做过（背景压暗、可通行区提亮），开着才能看出路网与楼群的关系。
+    // 工具栏「雷达图」按钮可随时关掉，只看灰色 OSM 道路与楼体。
+    ground: true,
+    groundOpacity: 0.50,   // 底图整体不透明度：0.50 —— 扫描可通行区只作"地面纹理"，灰色 OSM 道路要压得住
     // 配送点标记（平台 landmarks：取货点/上货点/充电点）—— 默认开，工具栏「配送点」按钮可关
     sites: true,
     // 楼体透明：**默认开启**（2026-10-19 负责人要求）。楼顶色 alpha 是 0.92（接近实心），
@@ -111,24 +113,58 @@ window.Map3DGL = (function () {
     RECON.roadCls = (o && o.roadCls && typeof o.roadCls === 'object') ? o.roadCls : {}
     RECON.bldHeight = (o && o.bldHeight && typeof o.bldHeight === 'object') ? o.bldHeight : {}
   }
+  /* ---------------- 重构数据的地图版本闸 ----------------
+   * 逐楼/逐路的偏移量是按**某一张图**的下标与坐标算的。换图（东苑小图 → 全校 2d-2）后，
+   * 同一份偏移会把楼搬到大楼位置错开几十米的地方 —— 比不套用更糟。
+   * 因此每份重构数据都带 map_id / map_version：
+   *   · 与当前标定**不同图** → 整份忽略，并记一条原因（reconRejectReason() 可查）
+   *   · 老数据没有 map_id（2026-11-18 之前存的）→ 视为不兼容，同样忽略
+   * 只在"同一张图的后续版本"（map_version 变了但 map_id 相同）时仍然沿用。 */
+  function calibMapId() { return (calib && (calib.map_id || '')) || '' }
+  function calibMapVersion() { return (calib && (calib.map_version || '')) || '' }
+  var _reconReject = ''
+  function reconRejectReason() { return _reconReject }
+  // 返回 true 表示这份数据可以应用到当前标定
+  function reconCompatible(o, srcLabel) {
+    if (!o || typeof o !== 'object') { _reconReject = srcLabel + ': 空数据'; return false }
+    var mid = String(o.map_id || '')
+    var cur = calibMapId()
+    if (!cur) { _reconReject = ''; return true }        // 标定没写图名（老标定）：不做闸，保持旧行为
+    if (!mid) { _reconReject = srcLabel + ': 数据没有 map_id（换图前的老存档，已忽略）'; return false }
+    if (mid !== cur) { _reconReject = srcLabel + ': map_id 不同（' + mid + ' ≠ ' + cur + '）'; return false }
+    _reconReject = ''
+    return true
+  }
   function loadRecon() {
     // 优先级：本地手工存档(localStorage) > 内置默认新地图(MAP_DEFAULT_RECON)。
     // 状态由"本机手工改过的存档"决定；没有手工存档时就显示内置的完善后新地图。
+    // 两者都要过版本闸：换图后旧存档一律不套用（见 reconCompatible 的注释）。
     try {
       var s = window.localStorage && window.localStorage.getItem('dash3d_recon')
       var src = null
       if (s) { try { src = JSON.parse(s) } catch (e) { src = null } }
-      if (src && typeof src === 'object') {
+      if (src && typeof src === 'object' && reconCompatible(src, '本机存档')) {
         applyReconObject(src)
         markReconSource('local')
-      } else if (window.MAP_DEFAULT_RECON && typeof window.MAP_DEFAULT_RECON === 'object') {
+      } else if (window.MAP_DEFAULT_RECON && typeof window.MAP_DEFAULT_RECON === 'object' &&
+                 reconCompatible(window.MAP_DEFAULT_RECON, '内置默认')) {
         applyReconObject(window.MAP_DEFAULT_RECON)
         markReconSource('default')
+      } else if (window.MAP_DEFAULT_RECON && typeof window.MAP_DEFAULT_RECON === 'object') {
+        // 内置默认也被闸掉了：退化为"零偏移"，不套用任何来源
+        applyReconObject({})
+        markReconSource('none')
       }
     } catch (e) {}
   }
   function saveRecon() {
-    try { window.localStorage.setItem('dash3d_recon', JSON.stringify(RECON)) } catch (e) {}
+    // 存档时写入地图身份：没有这两个字段，换图后这份偏移就分不清该不该套用（见 reconCompatible）
+    try {
+      var mid = calibMapId(), mver = calibMapVersion()
+      if (mid) RECON.map_id = mid
+      if (mver) RECON.map_version = mver
+      window.localStorage.setItem('dash3d_recon', JSON.stringify(RECON))
+    } catch (e) {}
   }
   // 便于脚本读取/回写重构数据（已持久化在 localStorage「dash3d_recon」）
   if (window) window.__dash3d_recon = {
@@ -287,10 +323,6 @@ window.Map3DGL = (function () {
     })
     if (bb && bbd <= BLD_TOL) return bb
     return null
-  }
-  function recFromIndex(obj, i, addArr) {
-    if (i >= 0 && addArr && addArr.length && i >= addArr.length) return { key: '#' + (i - addArr.length), subtype: 'orig' }
-    return { key: '#add:' + i, subtype: 'add' }
   }
   function ptSegDist(px, pz, a, b) {
     var vx = b[0] - a[0], vy = b[1] - a[1]
@@ -454,10 +486,14 @@ window.Map3DGL = (function () {
           clearTimeout(timer)
           if (!j || j.code !== 0 || !j.data) return
           var rc = j.data.recon
-          if (rc && typeof rc === 'object') {
+          if (rc && typeof rc === 'object' && reconCompatible(rc, '服务器')) {
             applyReconObject(rc)
             rebuild()                    // 完整重建（楼体/道路/车模），确保服务器数据真正上屏
             markReconSource('server')
+          } else if (rc && typeof rc === 'object') {
+            // 服务器上是别的图（或换图前的老存档）：整份忽略，保持当前（本地/默认/零偏移）
+            if (window.console && console.info) console.info('[recon] 服务器重构数据已按地图版本闸忽略：' + _reconReject)
+            markReconSource('server-rejected')
           }
         })
         .catch(function () { clearTimeout(timer) })
@@ -485,14 +521,27 @@ window.Map3DGL = (function () {
   // 所以默认放大到 3.0 倍（车长约 3.9m）——与"楼高夸张"同理，属可读性取舍。
   // 需要调参可在地址栏加 ?carscale=2 覆盖。
   // 车模显示倍数：默认 9.0（车身上屏约 45px，配合亮色车体一眼可辨；可用 ?carscale=N 或工具栏"车模比例"滑块实时改）。
+  // 车模显示倍数：默认 9.0（东苑小图尺度）。全校底图的世界跨度约大 3.4 倍，
+  // 若还用 9.0，车在满屏视角下只有十几个像素、像个噪点，所以**默认按场景尺度自适应**：
+  // autoCarScale() 让车在各尺度下屏幕上大小大致相当；用户一旦用 ?carscale= 或工具栏
+  // 「车模」滑块指定过，就不再自动改（carScaleLocked）。
   var CAR_SCALE = (function () {
     var mt = /[?&]carscale=([0-9.]+)/.exec(location.search)
     var v = mt ? Number(mt[1]) : 0
     return v > 0 ? v : 9.0
   })()
+  var carScaleLocked = /[?&]carscale=([0-9.]+)/.test(location.search)
   var CAR_LEN_M = 1.3 * CAR_SCALE
+  // 场景跨度（世界像素）→ 车模倍数：以东苑小图（跨度约 6200px）对应 9.0 为基准线性放大
+  function autoCarScaleFor(sc) {
+    if (!sc || !sc.bounds) return CAR_SCALE
+    var span = Math.max(sc.bounds.maxX - sc.bounds.minX, sc.bounds.maxZ - sc.bounds.minZ)
+    if (!(span > 0)) return CAR_SCALE
+    return Math.max(9.0, Math.min(64.0, (span / 6200.0) * 9.0))
+  }
   function setCarScale(v) {
     if (!(v > 0)) v = 6.0
+    carScaleLocked = true
     CAR_SCALE = v
     CAR_LEN_M = 1.3 * v
     rebuild()
@@ -504,13 +553,23 @@ window.Map3DGL = (function () {
   function carTailPx() { return 0.662 * (scene ? scene.pxPerM : 19.45) * CAR_SCALE }
 
   function num(v) { return typeof v === 'number' && isFinite(v) ? v : 0 }
-  // 收集当前有效楼栋名称集合（含改名/新增）——备用工具
-  function buildingNameSet() {
-    var cef = effectiveCalib(), s = {}
-    ;(cef && cef.buildings ? cef.buildings : []).forEach(function (bd) {
-      if (bd && bd.name) s[String(bd.name).replace(/\s+/g, '')] = 1
-    })
-    return s
+
+  // 楼高夸张倍数：与车模同理，必须随场景尺度自适应。
+
+  // 东苑小图（跨度约 6200px）用 0.58 时，20m 的楼在屏幕上占视野约 3.6%，立体感正好；
+  // 全校图跨度约 19600px，同样的楼只剩 1.5%，整片校园会塌成一片平板（实测就是这样）。
+  // 所以按跨度等比放大，初值 = 0.58 × (跨度/6200)，夹在 0.5~2.6；
+  // 用户动过工具栏「高度」滑块后就不再自动改（heightScaleLocked）。
+  var heightScaleLocked = false
+  function autoHeightScaleFor(sc) {
+    if (!sc || !sc.bounds) return opts.heightScale
+    var span = Math.max(sc.bounds.maxX - sc.bounds.minX, sc.bounds.maxZ - sc.bounds.minZ)
+    if (!(span > 0)) return opts.heightScale
+    return Math.max(0.5, Math.min(2.6, 0.58 * (span / 6200.0)))
+  }
+  function syncHeightSlider() {
+    var h = document.getElementById('m3Height')
+    if (h) h.value = String(Math.round(opts.heightScale * 100))
   }
   // 失败时把已插入的画布摘掉，让回退渲染器（2.5D）能干净地接管地图区
   function fail(why) {
@@ -599,6 +658,14 @@ window.Map3DGL = (function () {
     requestAnimationFrame(frame)
   }
 
+  // 底图路径：以标定文件里的 texture.src 为准（换图时只改标定，不用改代码）；
+  // 老标定没有 texture 字段时回退到东苑那张深色雷达图。
+  function groundSrc() {
+    var t = calib && calib.texture && calib.texture.src
+    var base = t ? t.replace(/^assets\//, '') : 'radar-ground-dark.png'
+    return ASSET + base + '?v=' + (window.MAP_ASSET_VER || '1')
+  }
+
   function loadAssets() {
     if (window.MAP_CALIBRATION) applyCalib(window.MAP_CALIBRATION)
     else {
@@ -633,7 +700,7 @@ window.Map3DGL = (function () {
         maskEl.textContent = '雷达底图缺失（assets/radar-ground-dark.png 没加载出来），点「雷达图」不会有变化'
       }
     }
-    im.src = ASSET + 'radar-ground-dark.png?v=' + (window.MAP_ASSET_VER || '1')
+    im.src = groundSrc()
   }
 
   function applyCalib(c) {
@@ -681,10 +748,39 @@ window.Map3DGL = (function () {
     return b
   }
 
+  // 标定数据覆盖的世界跨度（像素）：取全部楼栋轮廓 + 道路点的外包框最长边
+  function calibSpan(ce) {
+    if (!ce) return 0
+    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    function eat(list, get) {
+      for (var i = 0; i < (list || []).length; i++) {
+        var pts = get(list[i]) || []
+        for (var k = 0; k < pts.length; k++) {
+          var p = pts[k]
+          if (!p || !isFinite(p[0]) || !isFinite(p[1])) continue
+          if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0]
+          if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1]
+        }
+      }
+    }
+    eat(ce.buildings, function (b) { return b && b.ring })
+    eat(ce.roads, function (r) { return r && r.pts })
+    if (!isFinite(minX)) return 0
+    return Math.max(maxX - minX, maxY - minY)
+  }
+
   // 只重建灰色静态层（楼体/道路/底板/车模）—— 不碰青色导航线、小车吸附、路线
   function rebuildStaticMesh() {
     if (!gl || !calib) return
     var ce = effectiveCalib()
+    // 楼高倍数按**标定数据本身**的跨度自适应（不用 scene.bounds，因为那要等 buildStatic 之后才有）
+    if (!heightScaleLocked) {
+      var bb = calibSpan(ce)
+      if (bb) {
+        opts.heightScale = Math.max(0.5, Math.min(2.6, 0.58 * (bb / 6200.0)))
+        syncHeightSlider()
+      }
+    }
     scene = S.buildStatic(ce, {
       roads: opts.roads, paths: opts.paths, labels: opts.labels, heightScale: opts.heightScale,
       // 关掉"自动让路"：原先路线压进楼里（<0.4m）时会把整栋楼推开（最多 9m），
@@ -694,6 +790,11 @@ window.Map3DGL = (function () {
     })
     // 道路拓扑网：规划路线用它做"吸附 + 最短路"，保证黄线一定压在灰色道路上
     roadNet = S.buildRoadGraph(ce.roads || [])
+    // 车模倍数随场景尺度自适应（用户手动指定过就不动）
+    if (!carScaleLocked) {
+      CAR_SCALE = autoCarScaleFor(scene)
+      CAR_LEN_M = 1.3 * CAR_SCALE
+    }
     dropMesh(bufs.opaque); bufs.opaque = uploadMesh(scene.opaque)
     dropMesh(bufs.roofs); bufs.roofs = uploadMesh(scene.roofs)
     dropMesh(bufs.glass); bufs.glass = uploadMesh(scene.glass)
@@ -788,14 +889,12 @@ window.Map3DGL = (function () {
 
   function resetView() {
     view.az = S.principalAzimuth(calib ? calib.buildings : null)
-    //「回到校园」= 打开网页时的默认视角（首次构建后也会调它，见 initialViewApplied）。
-    // el：俯仰角。2026-10-19 先由 45° → 30°，再按负责人要求 → 22°（更平视、楼的立体感更强）。
-    //     下限 3°，22° 仍能看清校园整体布局，同时接近"站在校园里看"。
-    // zoom：1 是"整校园刚好铺满"；0.75 是拉近一档，后又按要求缩回一点 → 0.85。
-    //     注意 zoom 越小＝越放大；且 T2（充电点/上货点名）只在 zoom ≤ 1.00 时显示，
-    //     0.85 仍在范围内，标注不会因为这次缩小而消失（超过 1.00 才会掉）。
-    view.el = 22
-    view.zoom = 0.85
+    // 2026-11-18 全校版：底图从东苑小图（5786×5406）扩到全校（19688×23177），
+    // 原来那套「el 22 / zoom 0.85」是为小图定的近视角 —— 放到全校尺度上会把校园
+    // 压成一条贴在画面中部的薄带（900m×900m 的范围在 22° 俯角下只占屏幕高度约 1/3）。
+    // 现在改成 52° 俯角 + zoom 0.92：整校区铺满画面、楼体仍有立体感。
+    view.el = 40
+    view.zoom = 0.92
     view.panX = 0; view.panY = 0
     if (scene) view.target = scene.bounds.center.slice()
     updateCamera(true)
@@ -1041,19 +1140,18 @@ window.Map3DGL = (function () {
       tilt.addEventListener('input', function () { opts.el = Number(tilt.value); view.el = opts.el; updateCamera(false) })
     }
     var hgt = document.getElementById('m3Height')
-    if (hgt) hgt.addEventListener('input', function () { opts.heightScale = Number(hgt.value) / 100; rebuild() })
+    if (hgt) hgt.addEventListener('input', function () { heightScaleLocked = true; opts.heightScale = Number(hgt.value) / 100; rebuild() })
     var m3car = document.getElementById('m3Car')
     if (m3car) m3car.addEventListener('input', function () { setCarScale(Number(m3car.value) / 10) })
     var lb = document.getElementById('m3Label')
     if (lb) lb.addEventListener('click', function () { opts.labels = !opts.labels; lb.classList.toggle('on', opts.labels); rebuild() })
-    var pth = document.getElementById('m3Path')
-    if (pth) pth.addEventListener('click', function () { opts.paths = !opts.paths; pth.classList.toggle('on', opts.paths); rebuild() })
-    var rt = document.getElementById('m3Route')
-    if (rt) rt.addEventListener('click', function () { opts.route = !opts.route; rt.classList.toggle('on', opts.route); rebuild() })
-    var rd = document.getElementById('m3Road')
-    if (rd) rd.addEventListener('click', function () { opts.roads = !opts.roads; rd.classList.toggle('on', opts.roads); rebuild() })
     var gr = document.getElementById('m3Ground')
-    if (gr) gr.addEventListener('click', function () { opts.ground = !opts.ground; gr.classList.toggle('on', opts.ground) })
+    if (gr) {
+      // 默认就是开的（见 opts.ground），按钮必须同步亮起；否则会出现"效果开着、按钮显示关"，
+      // 用户第一次点反而把它关掉（2026-10-12 在「楼体透明」上踩过同一个坑）。
+      gr.classList.toggle('on', !!opts.ground)
+      gr.addEventListener('click', function () { opts.ground = !opts.ground; gr.classList.toggle('on', opts.ground) })
+    }
     // 配送点在叠加层（overlay）每帧重画，开关只需翻 opts 标志，不必 rebuild 静态网格
     var st = document.getElementById('m3Site')
     if (st) st.addEventListener('click', function () { opts.sites = !opts.sites; st.classList.toggle('on', opts.sites) })
@@ -1120,7 +1218,7 @@ window.Map3DGL = (function () {
   var flowScale = 0
   // 雷达底图参数：uFade = 背景亮度阈值（真机底图实测：背景 41/255≈0.161，走廊 86/255≈0.337），
   // 低于阈值 → 透明（露出底板），高于阈值 → 显现为"有宽度的可通行区"。
-  var GROUND_FADE = 0.165, GROUND_FADE_SOFT = 0.10, GROUND_OPACITY = 0.95
+  var GROUND_FADE = 0.165, GROUND_FADE_SOFT = 0.10
   function drawGround() {
     if (!groundReady || !bufs.ground) return
     var pr = progs.ground, p = pr.p
@@ -1133,7 +1231,7 @@ window.Map3DGL = (function () {
     gl.uniform1i(pr.u.uTex, 0)
     gl.uniform1f(pr.u.uFade, GROUND_FADE)
     gl.uniform1f(pr.u.uFadeSoft, GROUND_FADE_SOFT)
-    gl.uniform1f(pr.u.uOpacity, GROUND_OPACITY)
+    gl.uniform1f(pr.u.uOpacity, opts.groundOpacity == null ? 0.92 : opts.groundOpacity)
     // 注意：地面 quad 的 4 个顶点是**环序**（左上→右上→右下→左下，见 scene3d.js 的 scene.ground.pos），
     // 因此必须用 TRIANGLE_FAN 扇形成两个三角形 {左上,右上,右下}+{左上,右下,左下}，完整铺满 quad。
     // 曾误用 TRIANGLE_STRIP：对环序顶点会切成 {左上,右上,右下}+{右上,右下,左下}，
@@ -1218,10 +1316,12 @@ window.Map3DGL = (function () {
   //   T2 充电点/上货点名：zoom ≤ 1.00 —— 「回到校园」(0.75) 仍在范围内，显示正常
   //   T3 取货点名：zoom ≤ 0.50 —— 再放大一档（约 0.5）才出现
   var TIER_T3_ZOOM = 0.50, TIER_T2_ZOOM = 1.00, TIER_T1_HIDE_OUT = 1.25
-  // 各层字号基准（zoom=1 时的像素）：楼栋 12 / 第二层 10 / 第三层 9
-  var LABEL_BASE_PX = { 1: 12, 2: 10, 3: 9 }
-  // 站点名透明度下限：已废弃（2026-10-12 起点位名被遮挡时直接隐藏 alpha=0，不再降透明度）
-  var LABEL_ALPHA_MIN = 0.32
+  // 楼栋名按重要度分级：全校 49 栋楼若全部显示，远视角下会糊成一团（实测 39 个名字叠在一起）。
+  // label_pr（标定里给）：1=宿舍/教学楼/图书馆/食堂等"大件"，2=其他有名楼栋，3=附属小楼。
+  // 远景（zoom ≥ BLD_LABEL_PR2_ZOOM）只显示 1 级，拉近后才放 2 级。
+  var BLD_LABEL_PR2_ZOOM = 0.78
+  // 各层字号基准（zoom=1 时的像素）：楼栋 14 / 第二层 11 / 第三层 9
+  var LABEL_BASE_PX = { 1: 14, 2: 11, 3: 9 }
   // 站点图标基准半径（zoom=1），第二层 4.4 / 第三层 3.6（比原来 5.4 小）
   var SITE_HEAD_BASE = { 2: 4.4, 3: 3.6 }
   // 点位去重（2026-10-12，负责人反馈"商铺上货一片点位很近"）：
@@ -1422,32 +1522,6 @@ window.Map3DGL = (function () {
       }
     }
     return best || [p[0], p[1]]
-  }
-  // 保留给旧调用（现在改用 snapToRoads）
-  function smoothPolyline(pts, step) {
-    if (pts.length < 3) return pts
-    var out = [pts[0]], acc = 0
-    for (var i = 0; i + 1 < pts.length; i++) {
-      var a = pts[i], b = pts[i + 1]
-      var L = Math.hypot(b[0] - a[0], b[1] - a[1])
-      if (L < 1e-9) continue
-      var t = 0
-      while (acc + (L - t) >= step) {
-        t += step - acc
-        var k = t / L
-        out.push([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k])
-        acc = 0
-      }
-      acc += L - t
-    }
-    out.push(pts[pts.length - 1])
-    for (var p = 0; p < 2; p++) {
-      for (var j = 1; j < out.length - 1; j++) {
-        out[j] = [(out[j - 1][0] + 2 * out[j][0] + out[j + 1][0]) / 4,
-          (out[j - 1][1] + 2 * out[j][1] + out[j + 1][1]) / 4]
-      }
-    }
-    return out
   }
 
   function initDemo() {
@@ -1920,12 +1994,15 @@ window.Map3DGL = (function () {
     // ---- 第一层：楼栋名（宿舍楼 / 食堂 / 餐厅 / 铺子 **同层级、同样式**）----
     // 缩放区间：(0.50, 1.25) —— 缩到最小(≥1.25)才消失；放大到 T3(取货点名)出现时隐藏。
     var showT1 = (view.zoom > TIER_T3_ZOOM && view.zoom < TIER_T1_HIDE_OUT)
+    // 远景只留 1 级楼名，拉近后再放 2 级（3 级永不画，避免一排附属小楼糊住主干）
+    var allowedPr = view.zoom >= BLD_LABEL_PR2_ZOOM ? 1 : 2
     var blds = calib.buildings || []
     var items = []
     if (showT1) {
       for (var b = 0; b < blds.length; b++) {
         var bd = blds[b]
         if (bd.no_label === true) continue          // 标定里标记为"只渲染体块、不画名字"的楼
+        if (num(bd.label_pr || 1) > allowedPr) continue
         var hpx = num(bd.height_m) * scene.pxPerM * opts.heightScale + 4.5 * scene.pxPerM
         var tip = S.projectPoint(cam, W, H, [bd.center[0], hpx, bd.center[1]])
         if (!tip) continue
@@ -1945,9 +2022,6 @@ window.Map3DGL = (function () {
     var eye = cam.eye
     items.forEach(function (it) { it.d = Math.hypot(eye[0] - it.wx, eye[1] - it.wy, eye[2] - it.wz) })
     items.sort(function (a, b) { return (b.d - a.d) || (b.pr - a.pr) })
-    var dMin = Infinity, dMax = -Infinity
-    items.forEach(function (it) { if (it.d < dMin) dMin = it.d; if (it.d > dMax) dMax = it.d })
-    var dSpan = Math.max(1e-6, dMax - dMin)
     var kzText = 1 / Math.max(0.01, view.zoom)
     // 逐项先定字号/透明度（算重叠要拿字号量宽度）
     for (var k0 = 0; k0 < items.length; k0++) {
@@ -1961,14 +2035,13 @@ window.Map3DGL = (function () {
       it0.alpha = 1
       it0.tx = it0.x; it0.ty = it0.y      // 落笔位置＝锚点本身：文字一律不再挪位
     }
-    // ---- 文字位置固定：不为了避让而挪位，重叠时按"被压住的程度"降低透明度 ----
+    // ---- 文字位置固定：不为了避让而挪位，重叠时只隐藏点位名 ----
     // 原先会把站点文字上下挪行、左右让位，名字因此跑到针尖之外，看起来"名字不在那个点上"。
-    // 用户要求：位置不要因为被遮挡而移动，而是根据遮挡弱化显示效果（如降低透明度）。
     // 现在的规则：
     //   · 所有文字都画在自己的锚点上（楼栋名 = 楼中心上方；站点名 = 针头右侧）；
-    //   · 楼栋名优先级最高：先占位，且从不淡化；
-    //   · 站点名与已占位的文字框重叠时，按重叠个数逐级降透明度（下限 LABEL_ALPHA_MIN），
-    //     先画的（更远的）被后画的压住时自然更淡 → 主次分明，且**文字永不消失**。
+    //   · 楼栋名优先级最高：先占位，且从不淡化、从不隐藏；
+    //   · 站点名一旦与已占位的文字框（楼栋名或更靠前的站点名）重叠，整条名称不画（alpha=0），
+    //     只保留图标 —— 2026-10-12 负责人要求，避免一串名字糊在一起。
     var taken = []
     function overlapCount(x, y, w, h) {
       var n = 0
@@ -1979,10 +2052,22 @@ window.Map3DGL = (function () {
       return n
     }
     function reserve(x, y, w, h) { taken.push([x - 2, y - h, x + w + 3, y + h * 0.45]) }
+    // 楼栋名：全校 49 栋，东苑一片楼挨着楼，名字会叠成一坨。
+    // 用「文字外框」去重：横向按两边宽度各一半、纵向按一个行高（字号 × 1.25）。
+    // 与已保留的楼名框相交就整条不画；放大后楼群在屏幕上散开，被压掉的会自然回来。
+    var keptBoxes = []
+    var lineH = LABEL_BASE_PX[1] * kzText * 1.25
     for (var kb2 = 0; kb2 < items.length; kb2++) {
       var ib = items[kb2]
       if (!ib.bold) continue
-      reserve(ib.x, ib.y, textWidth(g, ib.text, ib.font), ib.base * kzText * 1.2)
+      var wb = textWidth(g, ib.text, ib.font)
+      var clash = false
+      for (var ka = 0; ka < keptBoxes.length; ka++) {
+        var kbx = keptBoxes[ka]
+        if (Math.abs(ib.x - kbx[0]) < (wb + kbx[1]) / 2 + 3 && Math.abs(ib.y - kbx[2]) < lineH) { clash = true; break }
+      }
+      if (clash) { ib.alpha = 0; continue }
+      keptBoxes.push([ib.x, wb, ib.y])
     }
     for (var ks2 = items.length - 1; ks2 >= 0; ks2--) {     // 反向遍历＝由近到远
       var its2 = items[ks2]
@@ -1997,7 +2082,7 @@ window.Map3DGL = (function () {
     // 记下这一帧的落笔情况（只读快照，供 labelsDebug() 断言"文字没有被挪位"；
     // alpha=0 的条目 = 被遮挡而隐藏的点位名，探针据此断言"隐藏只留图标"）
     _lastLabels = items.map(function (it) {
-      return { text: it.text, kind: it.kind, x: it.x, y: it.y, tx: it.tx, ty: it.ty, alpha: it.alpha }
+      return { text: it.text, kind: it.kind, x: it.x, y: it.y, tx: it.tx, ty: it.ty, alpha: it.alpha, w: it.w || 0 }
     })
     for (var k2 = 0; k2 < items.length; k2++) {
       var it = items[k2]
@@ -2013,38 +2098,6 @@ window.Map3DGL = (function () {
     }
     // ---- 最后补画选中车数据牌：此时楼名/站点名都已画完，牌子必在最上层 ----
     flushPlates()
-  }
-  function strokePath(g, pts) {
-    g.beginPath()
-    g.moveTo(pts[0][0], pts[0][1])
-    for (var i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1])
-    g.stroke()
-  }
-  // 叠加层用的路线折线（雷达像素）：真实档取平台路线，演示档取骨架主路线
-  var _routeCache = null
-  function routePolylines() {
-    if (live.bbox && live.routes && live.routes.length) {
-      var p2r = S.makePlatformToRadar(live.bbox, scene.radarW, scene.radarH, live.meta)
-      if (!p2r) return []
-      var out = [], cacheKey = 'live' + live.routes.length
-      if (_routeCache && _routeCache.key === cacheKey) return _routeCache.data
-      for (var i = 0; i < live.routes.length; i++) {
-        var stops = (live.routes[i] && live.routes[i].stops) || []
-        if (stops.length < 2) continue
-        var poly = []
-        for (var s = 0; s < stops.length; s++) {
-          var rp = p2r(stops[s].x, stops[s].y)
-          poly.push([rp[0], rp[1]])
-        }
-        if (poly.length >= 2) out.push(poly)
-      }
-      _routeCache = { key: cacheKey, data: out }
-      return out
-    }
-    var paths = S.demoRoutePaths(calib)
-    var demo = []
-    for (var k = 0; k < paths.length; k++) if (paths[k].pts && paths[k].pts.length > 1) demo.push(paths[k].pts)
-    return demo
   }
   // 行驶轨迹拖尾：**画成 3D 地面带**，而不是 2D 叠层。
   // 为什么必须放到 3D：叠层永远盖在 3D 画布之上，所以 2D 画的拖尾会压在车模上；
@@ -2339,8 +2392,7 @@ window.Map3DGL = (function () {
     getEdited: function () { return editedSel },
     // 屏幕 XY(逻辑像素) → 命中 {kind,key,name,dx?} ；命中失败返回 null
     pickAt: function (sx, sy) { return pickAtXY(sx, sy) },
-    reconDrawActive: function () { return reconDrawActive },
-    beginReconDraw: function (kind) { beginReconDraw(kind) }
+    reconDrawActive: function () { return reconDrawActive }
   }
   if (window.Map3DGLRecon && window.Map3DGLRecon.bind) window.Map3DGLRecon.bind(__reconHost)
 

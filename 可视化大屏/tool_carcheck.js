@@ -6,7 +6,7 @@ const path = require('path')
 const S = require(path.join(__dirname, 'js', 'scene3d.js'))
 
 const pxPerM = 19.45          // 场景像素/米（map-calibration scale_px_per_m 量级）
-const CAR_SCALE = 3.0         // 与 map3d-gl.js 的 CAR_SCALE 默认值一致
+const CAR_SCALE = 9.0         // 与 map3d-gl.js 的 CAR_SCALE 默认值一致
 
 function bbox(pos) {
   let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity, mnz = Infinity, mxz = -Infinity

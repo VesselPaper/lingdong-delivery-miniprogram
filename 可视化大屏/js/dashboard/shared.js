@@ -23,7 +23,6 @@ window.Dash = (function () {
     FETCH_TIMEOUT: 8000,
     RELOAD_HOUR: 4,
     MEM_LIMIT: 800 * 1024 * 1024,
-    MAP_PAD: 0,
     HEADING_OFFSET: 90,
     MAX_ROBOTS: 6,
     MAX_BATCHES: 4,
@@ -58,14 +57,6 @@ window.Dash = (function () {
   function $(id) { return document.getElementById(id) }
 
   var state = {
-    mapKey: '',
-    mapBBox: null,
-    mapReady: false,
-    sigRoads: '',
-    sigLm: '',
-    sigRoutes: '',
-    cars: {},          // device_sn -> element
-    stopEls: [],
     events: [],        // 最近一次后端下发的实时动态（log_events），刷新后由后端重新灌满
     lastData: null,
     lastOkTs: 0,

@@ -522,18 +522,6 @@ window.Map3DFlat = (function () {
       lb.classList.toggle('on', opts.labels)
       staticDirty = true
     })
-    var pth = document.getElementById('m3Path')
-    if (pth) pth.addEventListener('click', function () {
-      opts.paths = !opts.paths
-      pth.classList.toggle('on', opts.paths)
-      staticDirty = true
-    })
-    var rd = document.getElementById('m3Road')
-    if (rd) rd.addEventListener('click', function () {
-      opts.roads = !opts.roads
-      rd.classList.toggle('on', opts.roads)
-      staticDirty = true
-    })
     var rst = document.getElementById('mapReset')
     if (rst) { rst.hidden = false; rst.onclick = resetView }
   }

@@ -13,14 +13,19 @@
 ```
 可视化大屏/
   index.html              入口；按序加载各 js（见下方「加载顺序」）
-  assets/                 标定数据 + 雷达底图（image/geo）
+  assets/                 标定数据 + 底图（image/geo）
+    map-calibration.json  全校标定：楼栋/道路/水体/边界/演示路线 + 平台 meta
+    map-calibration.js    同上（window.MAP_CALIBRATION，供 file:// 双击）
+    map-recon-default.js  内置默认「3D 图层重构」数据（带 map_id，缺省零偏移）
+    radar-ground-full.png 全校雷达底图（4922×5794，0.2 m/px，深色）
+    radar-ground-dark.png 东苑旧小图底图（回退用，不要删）
   css/                    样式
   js/
     scene3d/              3D 几何纯算法库（浏览器/Node 共用）
       math.js             mat4 + 向量 + 主题色 + 光照   （最独立，agent 几乎不读）
       triangulate.js      耳切三角化 + 网格累加器
       camera.js           透视相机 + 平台坐标→雷达像素 + 方位
-    scene3d.js            3D 几何库主体：图元/建筑/静态场景/车辆/路线/路网（行号索引见 §4）
+    scene3d.js            3D 几何库主体：图元/建筑/水体/静态场景/车辆/路线/路网
     render/
       gl3d/shaders.js     WebGL 着色器（纯 GLSL 定义）
     map3d-gl.js           WebGL 真 3D 渲染器（window.Map3DGL，默认渲染）
@@ -30,12 +35,12 @@
     gl3d/recon.js         3D 图层重构面板控制器（独立抽出）
     dashboard/            大屏骨架（共享上下文 + 数据源 + UI 渲染 + 地图 + 编排）
       shared.js           公共常量/工具/DOM 快捷/Dash.state
-      api.js              数据源（overview / robot-positions）
+      api.js              数据源（overview / robot-positions / virtual-robot / recon）
       views-ui.js         各 UI 渲染纯函数（时钟/指标/机器人/批次/告警/事件）
       map.js              Leaflet 实时地图 + 标定(?calib=1)
       main.js             编排者：apply/loop/boot/轮询/演示/内存守护/每日重载
   configs/
-    default.js            默认大屏配置（多租户扩展入口）→ §5
+    default.js            默认大屏配置（多租户扩展入口，当前不读取）→ §5
   vendor/                 Leaflet（第三方库，勿改）
 ```
 
@@ -43,10 +48,16 @@
 
 ```
 vendor/leaflet → assets/map-calibration → js/scene3d/{math,triangulate,camera}
-→ js/scene3d → js/map3d-core → js/map3d → (MAP_ASSET_VER='3d38')
-→ js/render/gl3d/shaders → js/gl3d/recon → js/map3d-gl → js/map3d-entry
+→ js/scene3d → js/map3d-core → js/map3d → (MAP_ASSET_VER='3d40')
+→ js/gl3d/recon → assets/map-recon-default → js/render/gl3d/shaders
+→ js/map3d-gl → js/map3d-entry
 → js/dashboard/{shared,api,views-ui,map,main}
 ```
+
+> 底图与几何的对应关系：`map-calibration.json` 里的 `radar_full_size` 是**雷达底图全尺寸**
+> （全校版 19688×23177），`texture.width/height` 是实际贴图尺寸（4922×5794）。
+> 着色器按纹理 UV 采样，`scene3d.buildStatic` 的地面 quad 用的是 `radar_full_size`，
+> 所以两者尺寸不一致也正确 —— 改底图分辨率只需改 `texture` 字段，不必动几何。
 
 > 改动某一文件后：**若它是最后加载的（如 dashboard/*），刷新即可**；否则浏览器可能缓存，
 > 需强刷（Ctrl+Shift+R）。改全局命名空间单文件时同档强刷。
@@ -107,6 +118,9 @@ window.DASH_TENANT_CONFIG = {
 ## 7. 测试与验证
 
 - **离线工具**：`node tool_carcheck.js` —— 跑在 Node 上 require scene3d.js，质检车模/光环/光柱无 NaN、落地、尺寸正确。**改 scene3d 的任何几何后必须跑它**。
+- **全校地图底图/标定的生成链**：在负责人工作区 `_tmp4/probes/tools/mapbuild/`（不在仓库），
+  顺序是 `fetch_platform_map.mjs` → `fetch_osm.mjs` → `align_affine.mjs` → `refine_by_mask.py` →
+  `emit_assets.mjs` → `build_texture.py`。换平台地图时整条链重跑，不要手改 `map-calibration.json`。
 - **浏览器探针**：headless Chrome/Edge + CDP 验证页面零报错、`Map3D.ensure()` 起得来、重构下拉项数、`Dash` 各分件装载。
   交互回归可脚本化：`Dash.main.selectCar(sn)` / `Map3D.setSelected(sn)` 双向同步、合成 `mousedown+mousemove` 验证
   "拖动自动关跟随"、`Dash.main.setLeftHidden(true)` / `toggleMapFull()` 后断言 `#mapBox canvas.width === #mapBox.clientWidth`

@@ -86,7 +86,7 @@
         <!-- 第二行：控制工具栏（滑块 + 开关按钮，整块不换行、不压缩） -->
         <div class="map3dCtl" id="map3dCtl">
           <label class="ctlRange" title="镜头俯仰角">俯仰<input type="range" id="m3Tilt" min="3" max="88" value="65"></label>
-          <label class="ctlRange" title="楼栋高度夸张倍数">高度<input type="range" id="m3Height" min="20" max="200" value="58"></label>
+          <label class="ctlRange" title="楼栋高度夸张倍数">高度<input type="range" id="m3Height" min="20" max="260" value="170"></label>
           <label class="ctlRange" title="3D 车模显示倍数">车模<input type="range" id="m3Car" min="20" max="150" value="90"></label>
           <span class="ctlSep"></span>
           <button id="m3Spin" title="自动环绕旋转">环绕</button>
@@ -238,25 +238,25 @@
 </div>
 
 <script src="vendor/leaflet.js"></script>
-<script src="assets/map-calibration.js?v=3d43"></script>
+<script src="assets/map-calibration.js?v=3d44"></script>
 <!-- Scene3D 分件：先加载独立工具层（math → triangulate → camera），再加载场景主体 -->
-<script src="js/scene3d/math.js?v=3d42"></script>
+<script src="js/scene3d/math.js?v=3d45"></script>
 <script src="js/scene3d/triangulate.js?v=3d66"></script>
 <script src="js/scene3d/camera.js?v=3d42"></script>
-<script src="js/scene3d.js?v=3d68"></script>
+<script src="js/scene3d.js?v=3d69"></script>
 <script src="js/map3d-core.js?v=3d42"></script>
-<script src="js/map3d.js?v=3d42"></script>
-<script>window.MAP_ASSET_VER='3d39'</script>
+<script src="js/map3d.js?v=3d43"></script>
+<script>window.MAP_ASSET_VER='3d40'</script>
 <!-- 重构面板控制器（真3D渲染器的分层子模块，必须在 map3d-gl.js 之前加载、在 bind() 时注入能力） -->
 <script src="js/gl3d/recon.js?v=3d79"></script>
 <!-- 内置默认重构数据（负责人手动完善后的新地图）：无本地存档时大屏回退到这版 -->
 <script src="assets/map-recon-default.js?v=3d60"></script>
 <!-- WebGL 着色器定义（纯 GLSL，不依赖 gl 实例，可在 map3d-gl.js 之前加载） -->
 <script src="js/render/gl3d/shaders.js?v=3d42"></script>
-<script src="js/map3d-gl.js?v=3d92"></script>
+<script src="js/map3d-gl.js?v=3da2"></script>
 <script src="js/map3d-entry.js?v=3d43"></script>
 <!-- 大屏骨架（分件）：共享上下文 → 数据源 → 界面渲染 → 地图 → 编排者/启动 -->
-<script src="js/dashboard/shared.js?v=3d64"></script>
+<script src="js/dashboard/shared.js?v=3d65"></script>
 <script src="js/dashboard/api.js?v=3d61"></script>
 <script src="js/dashboard/views-ui.js?v=3d48"></script>
 <script src="js/dashboard/map.js?v=3d43"></script>
