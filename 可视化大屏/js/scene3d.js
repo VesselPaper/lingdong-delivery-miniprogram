@@ -355,9 +355,32 @@
           edgeRibbon(opaque, midA, midB, Math.max(1.2, 0.15 * pxM), THEME.fieldEdge, 0.295)
         }
       } else {
-        // 操场：底色 + 剪草条纹（沿长边分 12 条，深浅交替）+ 白边线 + 中线 + 中圈
-        fillPoly(fr, 0.28, THEME.fieldPitch)
-        var e2 = rectLongEdges(fr)
+        // 操场：底层草皮 + 剪草条纹 + 白边线 + 中线 + 中圈
+        // 若标定里标了 track:true（面积够大、且附近没有独立的 leisure=track 面 ——
+        // 典型就是看台旁的第二运动场、一号运动场），就在草坪外圈套一条红色跑道环带：
+        //   先把整个多边形铺成跑道色，再把草坪按"跑道宽度"内缩后盖上去，
+        //   最后沿每条分道内缩画白线。视觉上就是"标准田径场"，且完全落在这个多边形里。
+        var hasTrack = fd.track === true
+        var pitchRing = fr
+        if (hasTrack) {
+          var tcx0 = fieldCentroid(fr)
+          var tRad = Math.max.apply(null, fr.map(function (p) {
+            return Math.hypot(p[0] - tcx0[0], p[1] - tcx0[1])
+          }))
+          var trackW = Math.max(pxM * 6, Math.min(pxM * 10, tRad * 0.16))
+          // 跑道底色（外圈略深）
+          fillPoly(fr, 0.275, THEME.fieldTrackOuter)
+          // 分道线：在跑道环带内再内缩画 4 条白线
+          for (var tl = 1; tl <= 4; tl++) {
+            var tInset = insetRing(fr, trackW * tl / 4.6)
+            strokeRing(tInset, 0.30, Math.max(1, 0.09 * pxM), THEME.fieldTrackLine)
+          }
+          // 草坪：从外圈内缩一个跑道宽度后作为真正的场地
+          pitchRing = insetRing(fr, trackW)
+          strokeRing(fr, 0.302, Math.max(1.4, 0.16 * pxM), THEME.fieldTrackLine)
+        }
+        fillPoly(pitchRing, 0.28, THEME.fieldPitch)
+        var e2 = rectLongEdges(pitchRing)
         if (e2) {
           var STRIPES = 12
           for (var si = 0; si < STRIPES; si++) {
@@ -389,7 +412,8 @@
             }
           }
         }
-        strokeRing(fr, 0.295, Math.max(1.5, 0.2 * pxM), THEME.fieldEdge)
+        // 草坪外框用 pitchRing（有跑道时是内缩后的草坪边界），上面草皮条纹也按它画
+        strokeRing(pitchRing, 0.295, Math.max(1.5, 0.2 * pxM), THEME.fieldEdge)
       }
     }
 
