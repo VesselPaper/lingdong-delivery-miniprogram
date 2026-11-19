@@ -3,7 +3,7 @@
 > 本文件放在 **git 仓库根**，随代码一起同步给所有成员。
 > 任何 AI 客户端（DSH / Codex / Cursor / Zed / Copilot / Claude 等）在本仓库里工作时，**请先读完本文件再动代码**。
 > 它只回答三件事：**东西放在哪**、**代码怎么写 / 怎么拆**、**提交和验证有什么硬规矩**。
-> 最后更新：2026-10-12。
+> 最后更新：2026-11-19。
 
 ---
 
@@ -73,9 +73,9 @@ node tests\test_batch_flow.js     # 其余 test_*.js 同理
 | --- | --- |
 | `backend/server.js` | 唯一入口：装配中间件、挂载各域路由、静态托管三个前端 |
 | `backend/db.js` | 建库 / 迁移 / 语句封装（`node:sqlite`，已开 WAL） |
-| `backend/domains/<域>/` | **按业务域分层**，现有五个域：`admin`、`delivery`、`goods`、`order`、`user`。每个域内部固定是 `routes.js`（HTTP 入口）+ `service.js`（业务）+ `queries.js`（SQL），按需加 `timers.js`（定时器）、`live.js`（实时推送）。域内共用的小工具放 `domains/_shared.js` |
+| `backend/domains/<域>/` | **按业务域分层**，现有六个域：`admin`、`coupon`、`delivery`、`goods`、`order`、`user`。每个域内部固定是 `routes.js`（HTTP 入口）+ `service.js`（业务）+ `queries.js`（SQL），按需加 `timers.js`（定时器）、`live.js`（实时推送）。域内共用的小工具放 `domains/_shared.js` |
 | `backend/services/` | **跨域共用能力**：平台对接 `platform.js` / `platform-http.js` / `platform-mock.js` / `platform-callbacks.js`、组单 `batch.js`、虚拟车 `virtualRobot.js`、推送 `push.js`、运行时开关 `runtime.js`、订单取消 `orderCancel.js`、状态事件 `statusEvents.js` 等 |
-| `backend/tests/` | 可直接 `node` 跑的回归测试 `test_*.js`（13 个） |
+| `backend/tests/` | 可直接 `node` 跑的回归测试 `test_*.js`（20 个） |
 | `backend/tools/` | 运维小工具（建管理员、生成分类图标等） |
 | `backend/data/` | **不进仓库**：`lingdong.db`（+ `-wal`/`-shm`）、`map-recon.json`（大屏 3D 重构）、`admin-calib.json`（定位标定） |
 | `backend/seed_images/` `backend/uploads/` | 种子商品图（**在仓库里**）/ 运行时上传（**不进仓库**） |
@@ -109,23 +109,24 @@ node tests\test_batch_flow.js     # 其余 test_*.js 同理
   - 大屏：`js/dashboard/`、`js/scene3d/`、`js/gl3d/`、`js/render/`（按模块切）
 - **拆分纪律**：**只搬不改**。分件后函数名、行为、接口路径、`?v=` 加载顺序都不能变；**一次提交只做一件事**，拆完必须按 §5 回归。
 
-### 4.2 当前优先拆分清单（2026-10-11 实测行数）
+### 4.2 当前优先拆分清单（2026-11-19 实测行数）
 
 | 行数 | 文件 | 备注 |
 | --- | --- | --- |
-| 2180 | `可视化大屏/js/map3d-gl.js` | 3D 主渲染，**拆之前先问用户** |
-| 1765 | `管理员网页/admin.js` | 入口装配，可继续拆到 `js/parts/` |
-| 1496 | `backend/services/platform-http.js` | 平台对接，可拆请求/标定/点位 |
-| 900 | `backend/services/batch.js` | 组单算法，可拆算分与约束 |
-| 840 | `backend/domains/delivery/routes.js` | |
-| 778 | `backend/domains/admin/routes.js` | |
-| 694 | `backend/db.js` | 建表与迁移可分离 |
-| 670 | `backend/services/platform.js` | |
-| 660 | `backend/domains/delivery/service.js` | |
-| 641 | `可视化大屏/js/gl3d/recon.js` | |
-| 550 | `可视化大屏/js/map3d.js` | **不拆**（2.5D 兜底，低用，用户已明确） |
-| 498 / 452 | `backend/domains/order/routes.js` / `service.js` | |
-| 450 / 571 | `用户端/pages/order/confirm.js` / `confirm.wxss` | |
+| 2760 | `可视化大屏/js/map3d-gl.js` | 3D 主渲染，**拆之前先问用户** |
+| 1602 | `backend/services/platform-http.js` | 平台对接，可拆请求/标定/点位 |
+| 1076 | `管理员网页/admin.js` | 入口装配，可继续拆到 `js/parts/` |
+| 899 | `backend/services/batch.js` | 组单算法，可拆算分与约束 |
+| 834 | `backend/domains/delivery/routes.js` | |
+| 823 | `backend/domains/admin/routes.js` | |
+| 810 | `backend/db.js` | 建表与迁移可分离 |
+| 649 | `backend/services/platform.js` | |
+| 646 | `backend/domains/delivery/service.js` | |
+| 636 | `可视化大屏/js/gl3d/recon.js` | |
+| 564 | `backend/domains/order/service.js` | |
+| 534 | `backend/domains/order/routes.js` | |
+| 529 / 509 | `用户端/pages/order/confirm.js` / `confirm.wxss` | |
+| 508 | `可视化大屏/js/map3d.js` | **不拆**（2.5D 兜底，低用，用户已明确） |
 
 ### 4.3 这些**不要**拆（不是源码）
 
@@ -143,7 +144,7 @@ node tests\test_batch_flow.js     # 其余 test_*.js 同理
 
 | 改动范围 | 必须做的验证 |
 | --- | --- |
-| 配送 / 订单 / 组单 | 在 `backend/` 下逐个跑 `node tests\test_*.js`，13 个测试文件必须**全绿** |
+| 配送 / 订单 / 组单 | 在 `backend/` 下逐个跑 `node tests\test_*.js`，20 个测试文件必须**全绿** |
 | 后端接口 | 起服务后真调一次接口（用 `node -e "fetch(...)"`，**不要**用 `Invoke-WebRequest`，非交互 pwsh 下会走 IE 引擎失败） |
 | 可视化大屏 | **真实浏览器**（CDP 无头 Edge）跑回归探针：键位、三栏布局、启动读服务器数据、保存防护等，要求 **0 console 报错**，并确认服务器地图数据被原样还原 |
 | 小程序 | 微信开发者工具真机 / 模拟器预览一次；改了 `config.js` 或域名要留意「网络异常」 |

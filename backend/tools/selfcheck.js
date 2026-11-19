@@ -71,6 +71,24 @@ if (env.exists) {
   ok('.env 存在', env.file)
 } else {
   wa('.env 不存在 → 没关系：后端首次启动会**自动**从 .env.example 复制一份（示范/mock 档）')
+  /* 2026-11-19 修假警报：原来这一节只是"提示没问题"，但下面 C 节的启动守卫
+   * 用的是**空的 process.env** 去跑 runtime.check()，于是新 clone（没有 .env）
+   * 必然被判定 combo 不合法，红叉写着"会被拒绝启动"——而实际上 server.js 启动时
+   * 会先把 .env.example 复制成 .env 再加载，能正常起来。第一次上手的人会被这句劝退。
+   * 现在：没有 .env 就把 .env.example 当作"首次启动会生效的那份"读进来，只用于校验。 */
+  const exFile = path.join(BACKEND, '.env.example')
+  if (fs.existsSync(exFile)) {
+    for (const line of fs.readFileSync(exFile, 'utf8').split(/\r?\n/)) {
+      const t = line.trim()
+      if (!t || t.startsWith('#')) continue
+      const i = t.indexOf('=')
+      if (i < 0) continue
+      const k = t.slice(0, i).trim()
+      const v = t.slice(i + 1).trim().replace(/^['"]|['"]$/g, '')
+      if (k && process.env[k] === undefined) process.env[k] = v
+    }
+    console.log('     （已按 .env.example 的默认值进行校验，等同首次启动时实际生效的配置）')
+  }
 }
 console.log('     实际生效值：RUN_MODE=' + val('RUN_MODE', '(空 → 默认 demo)') +
   '  PLATFORM_MOCK=' + val('PLATFORM_MOCK', '(空)') +
