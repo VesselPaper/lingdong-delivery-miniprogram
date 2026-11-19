@@ -1496,6 +1496,11 @@ window.Map3DGL = (function () {
    * 缓存上一帧整套标注的文字与世界坐标锚点；视角变化没超过阈值时直接复用，
    * 只重新投影位置，不再逐帧重新聚类/挑字号。 */
   var labelCache = { key: '', entries: null, font: 0 }
+  /* 跨梯度切换的淡入淡出（2026-11-19 负责人要求：别"啪"一下整批换）。
+   * labelDrawn = 上一帧真正画出来的那套（带世界坐标锚点），用作下一轮淡出的起点。 */
+  var LABEL_FADE_MS = 200
+  var labelFade = { active: false, t0: 0, from: null, fromFont: 0, tier: -1 }
+  var labelDrawn = { entries: null, font: 0 }
   function labelCacheFont(tier) {
     // 复用只在 layoutKey 相同（含 tier.id）时发生，所以缓存里的字号一定属于同一梯度
     return labelCache.font || tier.font
@@ -2392,7 +2397,46 @@ window.Map3DGL = (function () {
 
     /* ---------------- 绘制 ----------------
      * 梯度内一律 alpha=1、同一字号：不再有深度淡出 / 屏幕边缘淡出 / 重叠降透明，
-     * 那三套连续调制正是"同一个类别的字亮度、消失时机各不相同"的来源。 */
+     * 那三套连续调制正是"同一个类别的字亮度、消失时机各不相同"的来源。
+     *
+     * 跨梯度切换（2026-11-19 负责人要求）：不再"啪"一下整批替换，
+     * 旧梯度淡出、新梯度淡入，200ms 交叉过渡。过渡期间两套都按世界坐标锚点重新投影，
+     * 所以它们跟着相机走，不会脱位。 */
+    var nowMs = (window.performance && window.performance.now) ? window.performance.now() : Date.now()
+    if (labelFade.tier !== tier.id) {
+      if (labelDrawn.entries && labelDrawn.entries.length) {
+        labelFade.active = true
+        labelFade.t0 = nowMs
+        labelFade.from = labelDrawn.entries
+        labelFade.fromFont = labelDrawn.font
+      }
+      labelFade.tier = tier.id
+    }
+    var fadeK = 1
+    if (labelFade.active) {
+      fadeK = Math.min(1, (nowMs - labelFade.t0) / LABEL_FADE_MS)
+      if (fadeK >= 1) labelFade.active = false
+    }
+
+    // 旧梯度：淡出（只影响绘制，不影响 _lastLabels 的逻辑状态）
+    if (labelFade.active && labelFade.from) {
+      g.font = (labelFade.fromFont || fontPx) + 'px ' + LABEL_FONT
+      g.lineWidth = Math.max(2, (labelFade.fromFont || fontPx) * 0.3)
+      g.strokeStyle = 'rgba(6,18,32,0.88)'
+      for (var fq2 = 0; fq2 < labelFade.from.length; fq2++) {
+        var fo = labelFade.from[fq2]
+        var fp2 = S.projectPoint(cam, W, H, [fo.wx, fo.wy, fo.wz])
+        if (!fp2) continue
+        // 用 sqrt 而不是线性：两套同时 50% 时视觉上会明显发暗，
+        // 开方后过渡中段两套各约 71%，交叉淡化更顺，不会出现"中间一瞬变灰"。
+        g.globalAlpha = Math.sqrt(Math.max(0, 1 - fadeK))
+        g.strokeText(fo.text, fp2[0], fp2[1])
+        g.fillStyle = fo.color || '#9ef2ff'
+        g.fillText(fo.text, fp2[0], fp2[1])
+      }
+      g.globalAlpha = 1
+    }
+
     _lastLabels = placed.map(function (p2) {
       return {
         text: p2.text, kind: p2.lead.kind, x: p2.lead.x, y: p2.lead.y,
@@ -2403,12 +2447,27 @@ window.Map3DGL = (function () {
     g.font = labelFont
     g.lineWidth = Math.max(2, fontPx * 0.3)
     g.strokeStyle = 'rgba(6,18,32,0.88)'
+    g.globalAlpha = Math.sqrt(Math.max(0, fadeK))
     for (var dr = 0; dr < placed.length; dr++) {
       var pp = placed[dr]
       g.strokeText(pp.text, pp.x, pp.y)
       g.fillStyle = pp.color || '#9ef2ff'
       g.fillText(pp.text, pp.x, pp.y)
     }
+    g.globalAlpha = 1
+
+    // 记下这一帧真正画出来的那套（带世界坐标锚点），供下一次梯度切换淡出用
+    var drawnEntries = []
+    for (var de = 0; de < placed.length; de++) {
+      var pe2 = placed[de]
+      var wx3 = (pe2.wx != null) ? pe2.wx : pe2.lead.wx
+      var wy3 = (pe2.wy != null) ? pe2.wy : pe2.lead.wy
+      var wz3 = (pe2.wz != null) ? pe2.wz : pe2.lead.wz
+      if (wx3 == null) continue
+      drawnEntries.push({ text: pe2.text, color: pe2.color, wx: wx3, wy: wy3, wz: wz3 })
+    }
+    labelDrawn.entries = drawnEntries
+    labelDrawn.font = fontPx
 
     // ---- 最后补画选中车数据牌：此时楼名/站点名都已画完，牌子必在最上层 ----
     flushPlates()
