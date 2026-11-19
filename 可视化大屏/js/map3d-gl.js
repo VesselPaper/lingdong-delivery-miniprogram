@@ -1486,11 +1486,31 @@ window.Map3DGL = (function () {
     // 最近：点位名
     { id: 4, minZoom: 0, font: 11, minFont: 10, kind: 'site', merge: true, color: '#ffd45e' }
   ]
+  /* 梯度选择，带**滞回**（2026-11-19）：
+   * 没有滞回时，缩放在界限附近轻微晃动就会反复切换梯度 —— 每次切换都触发一次交叉淡化，
+   * 看起来就是"文字一明一暗地抖"。现在：
+   *   · 要往"更远"的档走，必须超过该档下限 4%；
+   *   · 要往"更近"的档走，必须低于当前档下限 4%。
+   * 中间这段什么都不变，缩放自然就稳。 */
+  var labelTierId = -1
   function labelTierFor(z) {
+    var HYST = 0.04
+    // 先按 plain 规则算出目标档位
+    var want = LABEL_TIERS.length - 1
     for (var i = 0; i < LABEL_TIERS.length; i++) {
-      if (z >= LABEL_TIERS[i].minZoom) return LABEL_TIERS[i]
+      if (z >= LABEL_TIERS[i].minZoom) { want = i; break }
     }
-    return LABEL_TIERS[LABEL_TIERS.length - 1]
+    if (labelTierId < 0) { labelTierId = want; return LABEL_TIERS[want] }
+    if (want === labelTierId) return LABEL_TIERS[labelTierId]
+    // 想变档：必须越过边界的 4% 才认
+    var curMin = LABEL_TIERS[labelTierId].minZoom
+    if (want < labelTierId) {                    // 往更远的档（zoom 变大）
+      if (z < curMin * (1 + HYST)) return LABEL_TIERS[labelTierId]
+    } else {                                     // 往更近的档（zoom 变小）
+      if (z > curMin * (1 - HYST)) return LABEL_TIERS[labelTierId]
+    }
+    labelTierId = want
+    return LABEL_TIERS[want]
   }
   /* 标注布局缓存（2026-11-19 修"标签闪现"）：
    * 缓存上一帧整套标注的文字与世界坐标锚点；视角变化没超过阈值时直接复用，
