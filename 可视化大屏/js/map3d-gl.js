@@ -2309,7 +2309,8 @@ window.Map3DGL = (function () {
         fontPx = fsz
         if (attempt.merged === 0) break
       }
-      var labelFont0 = fontPx + 'px ' + LABEL_FONT
+      // 注：排版阶段用的字号在 layoutAt 内部自算；原先这里还有个 labelFont0 只服务于
+      // "重叠就丢弃"的那段逻辑，已随该逻辑一并删除。
 
       // 合并簇的文案：主导片区名；片区不明确就用最大那个的名字 + 数量
       for (var pl2 = 0; pl2 < placed.length; pl2++) {
@@ -2358,27 +2359,16 @@ window.Map3DGL = (function () {
       }
       placed = kept
 
-      /* 最终落位校验：片区名归并时被移到新中心，可能和已落位的楼名撞上。
-       * 按优先级（成员数 → 体量）从高到低收，撞上就丢弃后者 —— 梯度内零重叠。 */
+      /* 绘制顺序：按体量从小到大排，**大的后画、压在上面**。
+       * 2026-11-19 负责人要求：因为移动俯仰角造成的重叠，就用物理重叠画出来，不要靠删标注回避。
+       * 所以这里**不再丢弃**任何重叠项 —— 原来的"撞上就丢弃后者"会让文字凭空消失，
+       * 而俯仰角一变，同样两条文字还会再撞上，于是又消失一次，读起来像闪烁。
+       * 现在只排序：小的先画、大的压上，重叠时自然形成遮挡关系。 */
       placed.sort(function (a, b5) {
         var pa = (a.members.length || 1) * 1e6 + ((a.lead && a.lead.area) || 0)
         var pb = (b5.members.length || 1) * 1e6 + ((b5.lead && b5.lead.area) || 0)
-        return pb - pa
+        return pa - pb
       })
-      var finalList = []
-      for (var fp = 0; fp < placed.length; fp++) {
-        var F = placed[fp]
-        var fw = textWidth(g, F.text, labelFont0)
-        var fb = [F.x - 2, F.y - fontPx, F.x + fw + 3, F.y + fontPx * 0.38]
-        var hit2 = false
-        for (var fq = 0; fq < finalList.length; fq++) {
-          if (boxHit(fb, finalList[fq].box)) { hit2 = true; break }
-        }
-        if (hit2) continue
-        F.box = fb
-        finalList.push(F)
-      }
-      placed = finalList
 
       // 写缓存：把每个标注的**世界坐标锚点**一起存下来
       var cacheEntries = []
