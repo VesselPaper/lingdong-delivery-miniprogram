@@ -1492,6 +1492,14 @@ window.Map3DGL = (function () {
     }
     return LABEL_TIERS[LABEL_TIERS.length - 1]
   }
+  /* 标注布局缓存（2026-11-19 修"标签闪现"）：
+   * 缓存上一帧整套标注的文字与世界坐标锚点；视角变化没超过阈值时直接复用，
+   * 只重新投影位置，不再逐帧重新聚类/挑字号。 */
+  var labelCache = { key: '', entries: null, font: 0 }
+  function labelCacheFont(tier) {
+    // 复用只在 layoutKey 相同（含 tier.id）时发生，所以缓存里的字号一定属于同一梯度
+    return labelCache.font || tier.font
+  }
   // 片区归属：用于 L0 的片区名，以及梯度内合并时的"这一片的名字"
   function regionOf(name) {
     var n = String(name || '')
@@ -2230,118 +2238,167 @@ window.Map3DGL = (function () {
       }
     }
 
-    /* ---------------- 落位：重叠就并入同一簇 ----------------
-     * 按重要度从大到小落位，体量大的先占位、小的并进去。这样合并出来的名字
-     * 一定是这一片里最重要的那个（或主导片区名），不会出现小楼把大楼吃掉。 */
-    function boxHit(a, b4) {
-      return a[0] < b4[2] && a[2] > b4[0] && a[1] < b4[3] && a[3] > b4[1]
+    /* ---------------- 布局冻结（2026-11-19 修"标签闪现"） ----------------
+     * 之前每一帧都重新聚类、重新挑字号：只要有一对文字的包围盒在阈值附近来回越界，
+     * 整档字号就会 8↔9 跳、合并簇反复拆分 —— 相机一动满屏文字在闪。
+     * 现在把布局结果连同**世界坐标锚点**缓存下来：视角变化没超过阈值时，
+     * 直接复用上一套标注，只重新投影位置。只有视角真的变了才重新布局。 */
+    var layoutKey = [
+      tier.id,
+      Math.round(view.zoom * 14),        // 约 7% 一档
+      Math.round(view.az * 2),           // 约 0.5° 一档
+      Math.round(view.panX / 24), Math.round(view.panY / 24),
+      W, H
+    ].join('|')
+
+    var placed = []
+    var fontPx = labelCacheFont(tier)
+    var reused = false
+    if (labelCache.key === layoutKey && labelCache.entries && labelCache.entries.length) {
+      // 复用：位置按缓存的锚点世界坐标重新投影，文字内容与成员数量都不变
+      for (var rc2 = 0; rc2 < labelCache.entries.length; rc2++) {
+        var ce2 = labelCache.entries[rc2]
+        var sp2 = S.projectPoint(cam, W, H, [ce2.wx, ce2.wy, ce2.wz])
+        if (!sp2) continue
+        placed.push({ text: ce2.text, color: ce2.color, x: sp2[0], y: sp2[1],
+          members: new Array(ce2.members), lead: { x: sp2[0], y: sp2[1], kind: ce2.kind }, area: ce2.area })
+      }
+      fontPx = labelCache.font || fontPx
+      reused = true
     }
-    function layoutAt(fpx, mergeOn) {
-      var fnt = fpx + 'px ' + LABEL_FONT
-      var list = cands.slice().sort(function (a, b3) { return (b3.area || 0) - (a.area || 0) })
-      var pl = []
-      var merges = 0
-      for (var ci2 = 0; ci2 < list.length; ci2++) {
-        var cd = list[ci2]
-        var tw2 = textWidth(g, cd.text, fnt)
-        var bx = [cd.x - 2, cd.y - fpx, cd.x + tw2 + 3, cd.y + fpx * 0.38]
-        var host = null
-        if (mergeOn) {
-          for (var pi = 0; pi < pl.length; pi++) {
-            if (boxHit(bx, pl[pi].box)) { host = pl[pi]; break }
+
+    if (!reused) {
+      /* ---------------- 落位：重叠就并入同一簇 ----------------
+       * 按重要度从大到小落位，体量大的先占位、小的并进去。 */
+      function boxHit(a, b4) {
+        return a[0] < b4[2] && a[2] > b4[0] && a[1] < b4[3] && a[3] > b4[1]
+      }
+      function layoutAt(fpx, mergeOn) {
+        var fnt = fpx + 'px ' + LABEL_FONT
+        var list = cands.slice().sort(function (a, b3) { return (b3.area || 0) - (a.area || 0) })
+        var pl = []
+        var merges = 0
+        for (var ci2 = 0; ci2 < list.length; ci2++) {
+          var cd = list[ci2]
+          var tw2 = textWidth(g, cd.text, fnt)
+          var bx = [cd.x - 2, cd.y - fpx, cd.x + tw2 + 3, cd.y + fpx * 0.38]
+          var host = null
+          if (mergeOn) {
+            for (var pi = 0; pi < pl.length; pi++) {
+              if (boxHit(bx, pl[pi].box)) { host = pl[pi]; break }
+            }
+          }
+          if (host) {
+            host.members.push(cd)
+            if (cd.region) host.votes[cd.region] = (host.votes[cd.region] || 0) + 1
+            merges++
+          } else {
+            var votes = {}
+            if (cd.region) votes[cd.region] = 1
+            pl.push({ box: bx, x: cd.x, y: cd.y, members: [cd], votes: votes, lead: cd })
           }
         }
-        if (host) {
-          host.members.push(cd)
-          if (cd.region) host.votes[cd.region] = (host.votes[cd.region] || 0) + 1
-          merges++
+        return { placed: pl, merged: merges, font: fpx }
+      }
+      // 字号阶梯：从最大开始试，出现合并就降 1px 再试。
+      // 负责人要求"密集时优先缩小字体，不要一上来就合并" —— 只有降到最小仍然重叠才保留合并。
+      var minF = tier.minFont || tier.font
+      for (var fsz = tier.font; fsz >= minF; fsz--) {
+        var attempt = layoutAt(fsz, tier.merge)
+        placed = attempt.placed
+        fontPx = fsz
+        if (attempt.merged === 0) break
+      }
+      var labelFont0 = fontPx + 'px ' + LABEL_FONT
+
+      // 合并簇的文案：主导片区名；片区不明确就用最大那个的名字 + 数量
+      for (var pl2 = 0; pl2 < placed.length; pl2++) {
+        var P2 = placed[pl2]
+        if (P2.members.length < 2) {
+          P2.text = P2.lead.text
         } else {
-          var votes = {}
-          if (cd.region) votes[cd.region] = 1
-          pl.push({ box: bx, x: cd.x, y: cd.y, members: [cd], votes: votes, lead: cd })
+          var bestRg = '', bestN = 0
+          for (var vk in P2.votes) { if (P2.votes[vk] > bestN) { bestN = P2.votes[vk]; bestRg = vk } }
+          P2.text = (bestRg && bestN * 2 >= P2.members.length)
+            ? bestRg
+            : (P2.lead.text + '等' + P2.members.length + '处')
+        }
+        P2.color = P2.lead.color
+      }
+
+      /* 同名片区归并：同一片区被切成好几个簇会出现好几个「东苑宿舍区」，读起来像重复标注。
+       * 这里并成一个，锚点移到该片区所有成员的面积加权中心。 */
+      var REGION_NAMES = { '东苑宿舍区': 1, '西苑宿舍区': 1, '教学区': 1, '运动区': 1, '生活服务区': 1 }
+      var regionAcc = {}
+      var kept = []
+      for (var pj = 0; pj < placed.length; pj++) {
+        var P3 = placed[pj]
+        if (P3.members.length > 1 && REGION_NAMES[P3.text]) {
+          var ra = regionAcc[P3.text] || (regionAcc[P3.text] = { w: 0, x: 0, y: 0, z: 0, n: 0, color: P3.color })
+          for (var mk = 0; mk < P3.members.length; mk++) {
+            var mm = P3.members[mk]
+            var mw = Math.max(1, mm.area || 1)
+            ra.w += mw; ra.x += mm.wx * mw; ra.y += mm.wy * mw; ra.z += mm.wz * mw; ra.n++
+          }
+        } else {
+          kept.push(P3)
         }
       }
-      return { placed: pl, merged: merges, font: fpx }
-    }
-    var placed = []
-    var fontPx = tier.font
-    // 字号阶梯：从最大开始试，出现合并就降 1px 再试。
-    // 负责人要求"密集时优先缩小字体，不要一上来就合并" —— 只有降到最小仍然重叠才保留合并。
-    var minF = tier.minFont || tier.font
-    for (var fsz = tier.font; fsz >= minF; fsz--) {
-      var attempt = layoutAt(fsz, tier.merge)
-      placed = attempt.placed
-      fontPx = fsz
-      if (attempt.merged === 0) break
-    }
-    var labelFont = fontPx + 'px ' + LABEL_FONT
-
-    // 合并簇的文案：主导片区名；片区不明确就用最大那个的名字 + 数量
-    for (var pl2 = 0; pl2 < placed.length; pl2++) {
-      var P2 = placed[pl2]
-      if (P2.members.length < 2) {
-        P2.text = P2.lead.text
-      } else {
-        var bestRg = '', bestN = 0
-        for (var vk in P2.votes) { if (P2.votes[vk] > bestN) { bestN = P2.votes[vk]; bestRg = vk } }
-        P2.text = (bestRg && bestN * 2 >= P2.members.length)
-          ? bestRg
-          : (P2.lead.text + '等' + P2.members.length + '处')
+      for (var rn in regionAcc) {
+        var rr2 = regionAcc[rn]
+        var rcx2 = rr2.x / rr2.w, rcy2 = rr2.y / rr2.w, rcz2 = rr2.z / rr2.w
+        var rp2 = S.projectPoint(cam, W, H, [rcx2, rcy2, rcz2])
+        if (!rp2) continue
+        kept.push({
+          x: rp2[0], y: rp2[1], text: rn, color: rr2.color,
+          members: new Array(rr2.n), lead: { x: rp2[0], y: rp2[1], kind: 'region' },
+          // 归并后的锚点要用**世界坐标**记下来，供布局冻结时重新投影
+          wx: rcx2, wy: rcy2, wz: rcz2, area: rr2.w
+        })
       }
-      P2.color = P2.lead.color
-    }
+      placed = kept
 
-    /* 同名片区归并：同一片区被切成好几个簇会出现好几个「东苑宿舍区」，读起来像重复标注。
-     * 这里并成一个，锚点移到该片区所有成员的面积加权中心。 */
-    var REGION_NAMES = { '东苑宿舍区': 1, '西苑宿舍区': 1, '教学区': 1, '运动区': 1, '生活服务区': 1 }
-    var regionAcc = {}
-    var kept = []
-    for (var pj = 0; pj < placed.length; pj++) {
-      var P3 = placed[pj]
-      if (P3.members.length > 1 && REGION_NAMES[P3.text]) {
-        var ra = regionAcc[P3.text] || (regionAcc[P3.text] = { w: 0, x: 0, y: 0, z: 0, n: 0, color: P3.color })
-        for (var mk = 0; mk < P3.members.length; mk++) {
-          var mm = P3.members[mk]
-          var mw = Math.max(1, mm.area || 1)
-          ra.w += mw; ra.x += mm.wx * mw; ra.y += mm.wy * mw; ra.z += mm.wz * mw; ra.n++
-        }
-      } else {
-        kept.push(P3)
-      }
-    }
-    for (var rn in regionAcc) {
-      var rr2 = regionAcc[rn]
-      var rcx2 = rr2.x / rr2.w, rcy2 = rr2.y / rr2.w, rcz2 = rr2.z / rr2.w
-      var rp2 = S.projectPoint(cam, W, H, [rcx2, rcy2, rcz2])
-      if (!rp2) continue
-      kept.push({
-        x: rp2[0], y: rp2[1], text: rn, color: rr2.color,
-        members: new Array(rr2.n), lead: { x: rp2[0], y: rp2[1], kind: 'region' }
+      /* 最终落位校验：片区名归并时被移到新中心，可能和已落位的楼名撞上。
+       * 按优先级（成员数 → 体量）从高到低收，撞上就丢弃后者 —— 梯度内零重叠。 */
+      placed.sort(function (a, b5) {
+        var pa = (a.members.length || 1) * 1e6 + ((a.lead && a.lead.area) || 0)
+        var pb = (b5.members.length || 1) * 1e6 + ((b5.lead && b5.lead.area) || 0)
+        return pb - pa
       })
-    }
-    placed = kept
-
-    /* 最终落位校验：片区名归并时被移到新中心，可能和已落位的楼名撞上。
-     * 按优先级（成员数 → 体量）从高到低收，撞上就丢弃后者 —— 梯度内零重叠。 */
-    placed.sort(function (a, b5) {
-      var pa = (a.members.length || 1) * 1e6 + ((a.lead && a.lead.area) || 0)
-      var pb = (b5.members.length || 1) * 1e6 + ((b5.lead && b5.lead.area) || 0)
-      return pb - pa
-    })
-    var finalList = []
-    for (var fp = 0; fp < placed.length; fp++) {
-      var F = placed[fp]
-      var fw = textWidth(g, F.text, labelFont)
-      var fb = [F.x - 2, F.y - fontPx, F.x + fw + 3, F.y + fontPx * 0.38]
-      var hit2 = false
-      for (var fq = 0; fq < finalList.length; fq++) {
-        if (boxHit(fb, finalList[fq].box)) { hit2 = true; break }
+      var finalList = []
+      for (var fp = 0; fp < placed.length; fp++) {
+        var F = placed[fp]
+        var fw = textWidth(g, F.text, labelFont0)
+        var fb = [F.x - 2, F.y - fontPx, F.x + fw + 3, F.y + fontPx * 0.38]
+        var hit2 = false
+        for (var fq = 0; fq < finalList.length; fq++) {
+          if (boxHit(fb, finalList[fq].box)) { hit2 = true; break }
+        }
+        if (hit2) continue
+        F.box = fb
+        finalList.push(F)
       }
-      if (hit2) continue
-      F.box = fb
-      finalList.push(F)
+      placed = finalList
+
+      // 写缓存：把每个标注的**世界坐标锚点**一起存下来
+      var cacheEntries = []
+      for (var ce = 0; ce < placed.length; ce++) {
+        var pe = placed[ce]
+        var wxa, wya, wza
+        if (pe.wx != null) { wxa = pe.wx; wya = pe.wy; wza = pe.wz }
+        else { wxa = pe.lead.wx; wya = pe.lead.wy; wza = pe.lead.wz }
+        cacheEntries.push({
+          text: pe.text, color: pe.color, kind: pe.lead.kind,
+          members: pe.members.length, area: pe.lead.area || 0,
+          wx: wxa, wy: wya, wz: wza
+        })
+      }
+      labelCache.key = layoutKey
+      labelCache.entries = cacheEntries
+      labelCache.font = fontPx
     }
-    placed = finalList
+
+    var labelFont = fontPx + 'px ' + LABEL_FONT
 
     /* ---------------- 绘制 ----------------
      * 梯度内一律 alpha=1、同一字号：不再有深度淡出 / 屏幕边缘淡出 / 重叠降透明，
