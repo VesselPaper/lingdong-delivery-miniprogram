@@ -926,16 +926,85 @@ window.Map3DGL = (function () {
     return [eye[0] + lam * dx, hitY, eye[2] + lam * dz]
   }
 
+  // 默认取景倍率不用写死：按画布实测把校园外框卡进画面（见 fitZoom），
+  // 这样窗口大小变了也仍然"刚刚好"。这里的常量只作为初值。
+  var DEFAULT_ZOOM = 1.30
+  // 取景用的"校园本体"外接框：建筑 + 场地 + 水体。
+  // 不用校区边界多边形（它比实际建成区大得多、还含校外），也不用 scene.bounds
+  // （含伸到图外的道路）—— 这两种都会让"拉近"几乎看不出变化。
+  var fitBoxCache = null
+  function campusFitBox() {
+    if (fitBoxCache) return fitBoxCache
+    if (!calib) return null
+    var minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+    function eat(list, get) {
+      for (var i = 0; i < (list || []).length; i++) {
+        var ring = get(list[i])
+        if (!ring) continue
+        for (var k = 0; k < ring.length; k++) {
+          var p = ring[k]
+          if (!p || !isFinite(p[0]) || !isFinite(p[1])) continue
+          if (p[0] < minX) minX = p[0]
+          if (p[0] > maxX) maxX = p[0]
+          if (p[1] < minZ) minZ = p[1]
+          if (p[1] > maxZ) maxZ = p[1]
+        }
+      }
+    }
+    eat(calib.buildings, function (b) { return b && b.ring })
+    eat(calib.fields, function (f) { return f && f.ring })
+    eat(calib.water, function (w) { return w && w.ring })
+    if (!(maxX > minX) || !(maxZ > minZ)) return null
+    fitBoxCache = { minX: minX, maxX: maxX, minZ: minZ, maxZ: maxZ }
+    return fitBoxCache
+  }
+
+  function fitZoom(padK) {
+    if (!scene || !W || !H || !calib || !cam) return DEFAULT_ZOOM
+    // 按**屏幕包络**取景：把所有楼栋/场地/水体的顶点都投影一遍，取屏幕上的实际外接框。
+    // 为什么不用世界坐标 bbox 的四个角：bbox 的对角线角上通常没有东西（空白），
+    // 用它取景会明显偏保守 —— 实测角点已占 93% 画布宽，而画面里校园只占一半。
+    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    function eat(list) {
+      for (var i = 0; i < (list || []).length; i++) {
+        var ring = list[i] && list[i].ring
+        if (!ring) continue
+        for (var k = 0; k < ring.length; k++) {
+          var p = ring[k]
+          if (!p || !isFinite(p[0]) || !isFinite(p[1])) continue
+          var s = S.projectPoint(cam, W, H, [p[0], 0, p[1]])
+          if (!s) continue
+          if (s[0] < minX) minX = s[0]
+          if (s[0] > maxX) maxX = s[0]
+          if (s[1] < minY) minY = s[1]
+          if (s[1] > maxY) maxY = s[1]
+        }
+      }
+    }
+    eat(calib.buildings)
+    eat(calib.fields)
+    eat(calib.water)
+    if (!(maxX > minX) || !(maxY > minY)) return DEFAULT_ZOOM
+    // 投影偏移与 zoom 成反比：想要包络占画布的 padK 比例，就直接按比例反推
+    var k = Math.min((W * padK) / (maxX - minX), (H * padK) / (maxY - minY))
+    var z = view.zoom / Math.max(1e-6, k)
+    return Math.max(0.20, Math.min(3.2, z))
+  }
+
   function resetView() {
     view.az = S.principalAzimuth(calib ? calib.buildings : null)
     // 2026-11-18 全校版：底图从东苑小图（5786×5406）扩到全校（19688×23177），
-    // 原来那套「el 22 / zoom 0.85」是为小图定的近视角 —— 放到全校尺度上会把校园
-    // 压成一条贴在画面中部的薄带（900m×900m 的范围在 22° 俯角下只占屏幕高度约 1/3）。
-    // 现在改成 52° 俯角 + zoom 0.92：整校区铺满画面、楼体仍有立体感。
+    // 原来那套「el 22 / zoom 0.85」是为小图定的近视角，放到全校尺度上会把校园压成一条薄带。
+    // 2026-11-19 负责人要求"默认镜头拉近一点，让整个校园刚刚好完全在地图框里"：
+    // 这里按**取景后实测**调 zoom，保证校园外框刚好贴住画布（留 6% 边距），不裁切也不空一大圈。
     view.el = 40
-    view.zoom = 0.92
+    view.zoom = DEFAULT_ZOOM
     view.panX = 0; view.panY = 0
     if (scene) view.target = scene.bounds.center.slice()
+    updateCamera(true)
+    // 再按画布实测收一次：让校园外框刚好贴住画面（留 6% 边距）
+    view.zoom = fitZoom(0.94)
+    DEFAULT_ZOOM = view.zoom
     updateCamera(true)
     syncTiltSlider()
   }
@@ -1384,19 +1453,56 @@ window.Map3DGL = (function () {
   //   T1 楼栋名（含食堂/餐厅/铺子，**同一层级同样式**）：zoom ∈ (0.50, 1.25)
   //        —— 缩到最小(≥1.25)才消失；放大到 T3(取货点名)出现时隐藏（同一位置由 T3 接手）
   //   T2 充电点/上货点名：zoom ≤ 1.00 —— 「回到校园」(0.75) 仍在范围内，显示正常
-  //   T3 取货点名：zoom ≤ 0.50 —— 再放大一档（约 0.5）才出现
-  var TIER_T3_ZOOM = 0.50, TIER_T2_ZOOM = 1.00, TIER_T1_HIDE_OUT = 1.25
-  // 楼栋名按重要度分级：全校 49 栋楼若全部显示，远视角下会糊成一团（实测 39 个名字叠在一起）。
-  // label_pr（标定里给）：1=宿舍/教学楼/图书馆/食堂等"大件"，2=其他有名楼栋，3=附属小楼。
-  // 远景（zoom ≥ BLD_LABEL_PR2_ZOOM）只显示 1 级，拉近后才放 2 级。
-  var BLD_LABEL_PR2_ZOOM = 0.78
-  // 楼名数量上限（按体量取前 N 个）：远景只留十几栋，避免整屏文字；
-  // 拉近后逐步放开，到最近才基本全显示。
-  var BLD_LABEL_CAP_FAR = 14
-  var BLD_LABEL_CAP_MID = 22
-  var BLD_LABEL_CAP_NEAR = 40
-  // 各层字号基准（zoom=1 时的像素）。2026-11-18 整体下调一档：
-  // 全校 49 栋楼的名字在原字号下过于抢眼、也更容易互相压住；现在楼名 11、点位名 9。
+  /* ---------------- 标注梯度（2026-11-19 重构） ----------------
+   * 负责人的要求：文字标注的消失范围要统一；先分层，一个梯度就一类大小；不同梯度不同时显示；
+   * 点位要在某个梯度里出现；某一梯度内若重叠，就把一坨地方合并成一个标注（这一片的名字），
+   * 放大到下一梯度再整齐细分。
+   *
+   * 旧实现的问题（为什么"消失范围不统一"）：同一个楼名同时受四套互相独立的规则控制 ——
+   *   ① showT1 的缩放区间 (0.50, 1.25)；
+   *   ② allowedPr：zoom ≥ 0.78 只留 1 级楼名；
+   *   ③ cap：按体量截断到 14 / 22 / 40 条；
+   *   ④ 深度淡出 + 屏幕边缘淡出 + 重叠按层降透明。
+   * 四套阈值互不相同，于是"这栋为什么没了、那栋为什么还在"无法解释。
+   * 字号还是 11/zoom 连续变化的，同一梯度里字号一直在变。
+   *
+   * 新规则（三条硬约束）：
+   *   ① 同一时刻只显示**一个梯度**；
+   *   ② 梯度内**字号固定**（不随 zoom 连乘），亮度一致（不再淡出）；
+   *   ③ 梯度内**重叠就合并**：按重要度从大到小落位，与已落位的框相交者并入那一簇，
+   *      整簇只画一个标注（这一片的名称）；下一梯度若关闭合并，就自动拆成逐个名字。
+   */
+  /* 梯度按「离得远近」排：zoom 越小画面越大（越近）。
+   * 数组按 minZoom **从大到小**排，取第一个满足 z >= minZoom 的档。 */
+  var LABEL_TIERS = [
+    // 最远：只见片区
+    { id: 0, minZoom: 1.45, font: 14, minFont: 12, kind: 'region', merge: true, color: '#7fe3ff' },
+    // 较远：主要地标
+    { id: 1, minZoom: 1.05, font: 12, minFont: 9, kind: 'major', merge: true, color: '#a8eeff' },
+    // 中景：全部楼栋
+    { id: 2, minZoom: 0.75, font: 11, minFont: 8, kind: 'all', merge: true, color: '#9ef2ff' },
+    // 默认视角（fitZoom 后约 0.71）落在这一档：全部具体楼栋，密集优先缩字号（12→8）
+    { id: 3, minZoom: 0.55, font: 12, minFont: 8, kind: 'all', merge: true, color: '#9ef2ff' },
+    // 最近：点位名
+    { id: 4, minZoom: 0, font: 11, minFont: 10, kind: 'site', merge: true, color: '#ffd45e' }
+  ]
+  function labelTierFor(z) {
+    for (var i = 0; i < LABEL_TIERS.length; i++) {
+      if (z >= LABEL_TIERS[i].minZoom) return LABEL_TIERS[i]
+    }
+    return LABEL_TIERS[LABEL_TIERS.length - 1]
+  }
+  // 片区归属：用于 L0 的片区名，以及梯度内合并时的"这一片的名字"
+  function regionOf(name) {
+    var n = String(name || '')
+    if (/^东苑/.test(n)) return '东苑宿舍区'
+    if (/^西苑/.test(n)) return '西苑宿舍区'
+    if (/食堂|餐厅|超市|驿站/.test(n)) return '生活服务区'
+    if (/运动场|球场|体育场|看台|剧场|游泳/.test(n)) return '运动区'
+    if (/教学|实验|图书|办公|行政|书院|学院|活动中心|医院/.test(n)) return '教学区'
+    return ''
+  }
+  // 各层字号基准（兼容旧引用；新逻辑用 LABEL_TIERS 里的固定字号）
   var LABEL_BASE_PX = { 1: 11, 2: 9, 3: 8 }
   // 字体：楼名用无衬线常规体（不再是粗体），点位名同族小一号 —— 粗体会让密集区糊成一片。
   var LABEL_FONT = '"Microsoft YaHei UI","Microsoft YaHei","PingFang SC",sans-serif'
@@ -2058,9 +2164,9 @@ window.Map3DGL = (function () {
           // 中心小孔（深色），让图标更像"站点"而不是实心球
           g.fillStyle = 'rgba(6,20,34,0.9)'
           g.beginPath(); g.arc(K.tipX, headY, headR * 0.4, 0, 6.2832); g.fill()
-          // 名称标签：按**本层自己的缩放区间**决定是否显示（图标始终画，便于定位）
-          var tierShown = (K.tier === 2) ? (view.zoom <= TIER_T2_ZOOM) : (view.zoom <= TIER_T3_ZOOM)
-          if (opts.labels && K.nm3 && tierShown) {
+          // 名称收集：这里**不再判断缩放区间** —— 什么时候显示由梯度决定（见下面的 LABEL_TIERS）。
+          // 图标本身始终画，便于定位。
+          if (opts.labels && K.nm3) {
             siteLabels.push({
               text: K.nm3, x: K.tipX + headR + 4, y: headY + 4, kind: 'site', color: K.col3,
               pr: K.tier, tier: K.tier, wx: K.wx, wy: 0.4, wz: K.wz
@@ -2072,143 +2178,191 @@ window.Map3DGL = (function () {
     }
 
     if (!opts.labels) { _lastLabels = []; flushPlates(); return }   // 关掉标注也要把数据牌画在最上层
-    // ---- 第一层：楼栋名（宿舍楼 / 食堂 / 餐厅 / 铺子 **同层级、同样式**）----
-    // 缩放区间：(0.50, 1.25) —— 缩到最小(≥1.25)才消失；放大到 T3(取货点名)出现时隐藏。
-    var showT1 = (view.zoom > TIER_T3_ZOOM && view.zoom < TIER_T1_HIDE_OUT)
-    // 远景只留 1 级楼名，拉近后再放 2 级（3 级永不画，避免一排附属小楼糊住主干）
-    var allowedPr = view.zoom >= BLD_LABEL_PR2_ZOOM ? 1 : 2
-    var blds = calib.buildings || []
-    var items = []
-    if (showT1) {
-      // 2026-11-18 美术：楼名"太多太乱"是负责人第一条反馈。
-      // 除了原有的 pr 分级，再加两道闸：
-      //   ① **体量排序限量**：按楼底面积从大到小，远景只留前 N 个名字；
-      //   ② **屏幕边缘淡出**：靠近画布四边的名字压暗，视觉重心回到中间。
-      // 两个集合都只影响"画不画/多淡"，文字锚点仍然固定在楼顶，不挪位。
-      var bldCands = []
-      for (var b = 0; b < blds.length; b++) {
-        var bd = blds[b]
-        if (bd.no_label === true) continue          // 标定里标记为"只渲染体块、不画名字"的楼
-        if (num(bd.label_pr || 1) > allowedPr) continue
-        var hpx = num(bd.height_m) * scene.pxPerM * opts.heightScale + 4.5 * scene.pxPerM
-        var tip = S.projectPoint(cam, W, H, [bd.center[0], hpx, bd.center[1]])
-        if (!tip) continue
-        bldCands.push({
-          text: bd.name, x: tip[0] + 2, y: tip[1] - 4, kind: 'bld', color: '#9ef2ff', pr: 1,
-          wx: bd.center[0], wy: hpx, wz: bd.center[1],
-          area: num(bd.area_m2), sx: tip[0], sy: tip[1],
-          deliv: bd.deliver === true
-        })
-      }
-      // 排序：**送餐楼加权**（业务目标，但不能挤掉地标）。
-      // 先前一版是"送餐楼绝对优先"，结果 10 条全在東苑宿舍群，图书馆/食堂/湖都没名字 ——
-      // 画面反而更单调。现在用 面积 × 权重 打分：送餐楼 ×2.4，地标按体量自然进入。
-      var ccx = W / 2, ccy = H / 2
-      bldCands.forEach(function (c) {
-        c.score = Math.max(1, c.area) * (c.deliv ? 2.4 : 1)
-      })
-      bldCands.sort(function (a, b2) {
-        if (Math.abs(b2.score - a.score) > 1) return b2.score - a.score
-        return Math.hypot(a.sx - ccx, a.sy - ccy) - Math.hypot(b2.sx - ccx, b2.sy - ccy)
-      })
-      var cap = view.zoom >= 0.90 ? BLD_LABEL_CAP_FAR
-        : (view.zoom >= BLD_LABEL_PR2_ZOOM ? BLD_LABEL_CAP_MID : BLD_LABEL_CAP_NEAR)
-      for (var bc = 0; bc < bldCands.length && bc < cap; bc++) items.push(bldCands[bc])
-    }
-    // 站点文字并入同一批（第二/三层已在收集时按各自缩放区间过滤过）
-    for (var sl = 0; sl < siteLabels.length; sl++) items.push(siteLabels[sl])
 
-    // ---- 统一绘制 ----
-    //   · 远的先画、近的后画 → 近处的名字自然压住远处的名字；
-    //   · 2026-10-12 起透明度一律 1（不再按相机距离变亮变暗 —— 负责人反馈"11栋/7栋 和别的字不一样"，
-    //     其实是距离淡出让近的字更亮；统一后所有标注同亮度同字号）；
-    //   · 同深度时按层级：楼栋(1)最后画、压在上层，然后第二层、第三层。
-    //   · 字号随视角缩放：font = 基准 / view.zoom（视角放大文字同步放大、缩小同步缩小）。
-    var eye = cam.eye
-    items.forEach(function (it) { it.d = Math.hypot(eye[0] - it.wx, eye[1] - it.wy, eye[2] - it.wz) })
-    items.sort(function (a, b) { return (b.d - a.d) || (b.pr - a.pr) })
-    var kzText = 1 / Math.max(0.01, view.zoom)
-    // 逐项先定字号/透明度（算重叠要拿字号量宽度）
-    for (var k0 = 0; k0 < items.length; k0++) {
-      var it0 = items[k0]
-      it0.bold = (it0.kind === 'bld')
-      // 楼名不再用粗体：全校名字一多，粗体 + 14px 会把密集区糊成一片，
-      // 改成常规体 + 小一号（见 LABEL_BASE_PX），层级靠颜色与位置区分，不靠粗细。
-      it0.base = it0.bold ? LABEL_BASE_PX[1] : LABEL_BASE_PX[2]
-      it0.font = (it0.base * kzText).toFixed(1) + 'px ' + LABEL_FONT
-      it0.alpha = 1
-      it0.tx = it0.x; it0.ty = it0.y      // 落笔位置＝锚点本身：文字一律不再挪位
-    }
-    // 深度淡出：远处的名字压暗（物理上离得远就发虚），近处保持清晰。
-    // 只影响透明度，位置仍固定在锚点上。
-    var dFirst = items.length ? items[0].d : 0
-    var dSpan2 = Math.max(1e-6, (items.length ? items[items.length - 1].d : 1) - dFirst)
-    for (var kd = 0; kd < items.length; kd++) {
-      var itd = items[kd]
-      var far = (itd.d - dFirst) / dSpan2
-      itd.alpha *= 0.62 + 0.38 * (1 - Math.min(1, Math.max(0, far)))
-    }
-    // 屏幕边缘淡出（2026-11-18）：贴近画布四边的标注压暗一半。
-    // 目的是把视觉重心收回到画面中部 —— 边上稀稀拉拉几个名字最显得"乱"。
-    var edgeX = Math.max(40, W * 0.11), edgeY = Math.max(30, H * 0.11)
-    for (var ke = 0; ke < items.length; ke++) {
-      var ite = items[ke]
-      var ex = Math.min(ite.x, W - ite.x), ey = Math.min(ite.y, H - ite.y)
-      var kx = Math.min(1, Math.max(0, ex / edgeX)), ky = Math.min(1, Math.max(0, ey / edgeY))
-      var edgeK = 0.45 + 0.55 * Math.min(kx, ky)
-      ite.alpha *= edgeK
-    }
-    // ---- 文字位置固定，重叠时**半透明**而不是消失（2026-11-18 负责人要求）----
-    // 旧规则是"重叠就不画"（点位名整条 alpha=0）、楼名也整条不画，密集区会出现
-    // "有针没字、有楼没名"的突兀感。新规则：
-    //   · 文字位置一律不动（仍贴自己的锚点）；
-    //   · 楼名按重叠层数逐级降低透明度（每层 -0.20，下限 0.34）；
-    //   · 点位名同理（每层 -0.26，下限 0.28），始终至少半透明可见。
-    // 效果接近物理遮挡：近处/主楼清楚，被压住的"若隐若现"，而不是凭空消失。
-    var taken = []
-    function overlapCount(x, y, w, h) {
-      var n = 0
-      for (var i = 0; i < taken.length; i++) {
-        var bk = taken[i]
-        if (x < bk[2] && x + w > bk[0] && y < bk[3] && y + h > bk[1]) n++
+    /* ---------------- 按梯度收集候选标注 ----------------
+     * 同一时刻只出一个梯度；梯度内字号统一；梯度内重叠优先**缩小字号**，实在不行才合并。
+     * 详见文件上方 LABEL_TIERS 的说明。 */
+    var tier = labelTierFor(view.zoom)
+    var blds = calib.buildings || []
+    var cands = []
+
+    if (tier.kind === 'site') {
+      for (var sl2 = 0; sl2 < siteLabels.length; sl2++) cands.push(siteLabels[sl2])
+    } else if (tier.kind === 'region') {
+      // 片区：成员楼栋按面积加权求中心，锚点抬到成员平均楼顶
+      var acc = {}
+      for (var br = 0; br < blds.length; br++) {
+        var bdr = blds[br]
+        if (bdr.no_label === true || !bdr.name) continue
+        var rg = regionOf(bdr.name)
+        if (!rg) continue
+        var a0 = Math.max(1, num(bdr.area_m2))
+        var o = acc[rg] || (acc[rg] = { w: 0, x: 0, z: 0, h: 0, n: 0 })
+        o.w += a0; o.x += bdr.center[0] * a0; o.z += bdr.center[1] * a0
+        o.h += num(bdr.height_m); o.n++
       }
-      return n
+      for (var rk in acc) {
+        var rr = acc[rk]
+        if (rr.n < 2) continue          // 只有一栋的片区不单独出片区名
+        var rcx = rr.x / rr.w, rcz = rr.z / rr.w
+        var rh = (rr.h / rr.n) * scene.pxPerM * opts.heightScale + 6 * scene.pxPerM
+        var rt = S.projectPoint(cam, W, H, [rcx, rh, rcz])
+        if (!rt) continue
+        cands.push({ text: rk, x: rt[0], y: rt[1], kind: 'region', color: tier.color,
+          wx: rcx, wy: rh, wz: rcz, area: rr.w, region: rk, count: rr.n })
+      }
+    } else {
+      for (var b2 = 0; b2 < blds.length; b2++) {
+        var bd = blds[b2]
+        if (bd.no_label === true || !bd.name) continue
+        // L1「地标」只留非宿舍类、体量够大的楼；L2/L3 出全部楼名
+        if (tier.kind === 'major') {
+          if (/栋$/.test(bd.name)) continue
+          if (num(bd.area_m2) < 800) continue
+        }
+        var hpx2 = num(bd.height_m) * scene.pxPerM * opts.heightScale + 4.5 * scene.pxPerM
+        var tp = S.projectPoint(cam, W, H, [bd.center[0], hpx2, bd.center[1]])
+        if (!tp) continue
+        cands.push({ text: bd.name, x: tp[0], y: tp[1], kind: 'bld', color: tier.color,
+          wx: bd.center[0], wy: hpx2, wz: bd.center[1],
+          area: Math.max(1, num(bd.area_m2)) * (bd.deliver === true ? 2.2 : 1),
+          region: regionOf(bd.name) })
+      }
     }
-    function reserve(x, y, w, h) { taken.push([x - 2, y - h, x + w + 3, y + h * 0.45]) }
-    // 楼名：近的（先遍历到的）占位，后来者按重叠层数递减透明度（不再整条不画）
-    for (var kb2 = 0; kb2 < items.length; kb2++) {
-      var ib = items[kb2]
-      if (!ib.bold) continue
-      var wb = textWidth(g, ib.text, ib.font), hb = ib.base * kzText * 1.2
-      var ovb = overlapCount(ib.x, ib.y, wb, hb)
-      if (ovb > 0) ib.alpha = Math.max(0.34, ib.alpha - 0.20 * ovb)
-      reserve(ib.x, ib.y, wb, hb)
+
+    /* ---------------- 落位：重叠就并入同一簇 ----------------
+     * 按重要度从大到小落位，体量大的先占位、小的并进去。这样合并出来的名字
+     * 一定是这一片里最重要的那个（或主导片区名），不会出现小楼把大楼吃掉。 */
+    function boxHit(a, b4) {
+      return a[0] < b4[2] && a[2] > b4[0] && a[1] < b4[3] && a[3] > b4[1]
     }
-    for (var ks2 = items.length - 1; ks2 >= 0; ks2--) {     // 反向遍历＝由近到远
-      var its2 = items[ks2]
-      if (its2.bold) continue
-      var ws = textWidth(g, its2.text, its2.font), hs = its2.base * kzText * 1.2
-      var nOv = overlapCount(its2.x, its2.y, ws, hs)
-      if (nOv > 0) its2.alpha = Math.max(0.28, its2.alpha - 0.26 * nOv)
-      reserve(its2.x, its2.y, ws, hs)
+    function layoutAt(fpx, mergeOn) {
+      var fnt = fpx + 'px ' + LABEL_FONT
+      var list = cands.slice().sort(function (a, b3) { return (b3.area || 0) - (a.area || 0) })
+      var pl = []
+      var merges = 0
+      for (var ci2 = 0; ci2 < list.length; ci2++) {
+        var cd = list[ci2]
+        var tw2 = textWidth(g, cd.text, fnt)
+        var bx = [cd.x - 2, cd.y - fpx, cd.x + tw2 + 3, cd.y + fpx * 0.38]
+        var host = null
+        if (mergeOn) {
+          for (var pi = 0; pi < pl.length; pi++) {
+            if (boxHit(bx, pl[pi].box)) { host = pl[pi]; break }
+          }
+        }
+        if (host) {
+          host.members.push(cd)
+          if (cd.region) host.votes[cd.region] = (host.votes[cd.region] || 0) + 1
+          merges++
+        } else {
+          var votes = {}
+          if (cd.region) votes[cd.region] = 1
+          pl.push({ box: bx, x: cd.x, y: cd.y, members: [cd], votes: votes, lead: cd })
+        }
+      }
+      return { placed: pl, merged: merges, font: fpx }
     }
-    // 记下这一帧的落笔情况（只读快照，供 labelsDebug() 断言"文字没有被挪位"；
-    // alpha=0 的条目 = 被遮挡而隐藏的点位名，探针据此断言"隐藏只留图标"）
-    _lastLabels = items.map(function (it) {
-      return { text: it.text, kind: it.kind, x: it.x, y: it.y, tx: it.tx, ty: it.ty, alpha: it.alpha, w: it.w || 0 }
+    var placed = []
+    var fontPx = tier.font
+    // 字号阶梯：从最大开始试，出现合并就降 1px 再试。
+    // 负责人要求"密集时优先缩小字体，不要一上来就合并" —— 只有降到最小仍然重叠才保留合并。
+    var minF = tier.minFont || tier.font
+    for (var fsz = tier.font; fsz >= minF; fsz--) {
+      var attempt = layoutAt(fsz, tier.merge)
+      placed = attempt.placed
+      fontPx = fsz
+      if (attempt.merged === 0) break
+    }
+    var labelFont = fontPx + 'px ' + LABEL_FONT
+
+    // 合并簇的文案：主导片区名；片区不明确就用最大那个的名字 + 数量
+    for (var pl2 = 0; pl2 < placed.length; pl2++) {
+      var P2 = placed[pl2]
+      if (P2.members.length < 2) {
+        P2.text = P2.lead.text
+      } else {
+        var bestRg = '', bestN = 0
+        for (var vk in P2.votes) { if (P2.votes[vk] > bestN) { bestN = P2.votes[vk]; bestRg = vk } }
+        P2.text = (bestRg && bestN * 2 >= P2.members.length)
+          ? bestRg
+          : (P2.lead.text + '等' + P2.members.length + '处')
+      }
+      P2.color = P2.lead.color
+    }
+
+    /* 同名片区归并：同一片区被切成好几个簇会出现好几个「东苑宿舍区」，读起来像重复标注。
+     * 这里并成一个，锚点移到该片区所有成员的面积加权中心。 */
+    var REGION_NAMES = { '东苑宿舍区': 1, '西苑宿舍区': 1, '教学区': 1, '运动区': 1, '生活服务区': 1 }
+    var regionAcc = {}
+    var kept = []
+    for (var pj = 0; pj < placed.length; pj++) {
+      var P3 = placed[pj]
+      if (P3.members.length > 1 && REGION_NAMES[P3.text]) {
+        var ra = regionAcc[P3.text] || (regionAcc[P3.text] = { w: 0, x: 0, y: 0, z: 0, n: 0, color: P3.color })
+        for (var mk = 0; mk < P3.members.length; mk++) {
+          var mm = P3.members[mk]
+          var mw = Math.max(1, mm.area || 1)
+          ra.w += mw; ra.x += mm.wx * mw; ra.y += mm.wy * mw; ra.z += mm.wz * mw; ra.n++
+        }
+      } else {
+        kept.push(P3)
+      }
+    }
+    for (var rn in regionAcc) {
+      var rr2 = regionAcc[rn]
+      var rcx2 = rr2.x / rr2.w, rcy2 = rr2.y / rr2.w, rcz2 = rr2.z / rr2.w
+      var rp2 = S.projectPoint(cam, W, H, [rcx2, rcy2, rcz2])
+      if (!rp2) continue
+      kept.push({
+        x: rp2[0], y: rp2[1], text: rn, color: rr2.color,
+        members: new Array(rr2.n), lead: { x: rp2[0], y: rp2[1], kind: 'region' }
+      })
+    }
+    placed = kept
+
+    /* 最终落位校验：片区名归并时被移到新中心，可能和已落位的楼名撞上。
+     * 按优先级（成员数 → 体量）从高到低收，撞上就丢弃后者 —— 梯度内零重叠。 */
+    placed.sort(function (a, b5) {
+      var pa = (a.members.length || 1) * 1e6 + ((a.lead && a.lead.area) || 0)
+      var pb = (b5.members.length || 1) * 1e6 + ((b5.lead && b5.lead.area) || 0)
+      return pb - pa
     })
-    for (var k2 = 0; k2 < items.length; k2++) {
-      var it = items[k2]
-      if (it.alpha <= 0) continue           // 被遮挡的点位名：不画（只留图标）
-      g.globalAlpha = it.alpha
-      g.font = it.font
-      g.lineWidth = Math.max(2, 3 * kzText)
-      g.strokeStyle = 'rgba(6,18,32,0.85)'
-      g.strokeText(it.text, it.tx, it.ty)
-      g.fillStyle = it.color || '#9ef2ff'
-      g.fillText(it.text, it.tx, it.ty)
-      g.globalAlpha = 1
+    var finalList = []
+    for (var fp = 0; fp < placed.length; fp++) {
+      var F = placed[fp]
+      var fw = textWidth(g, F.text, labelFont)
+      var fb = [F.x - 2, F.y - fontPx, F.x + fw + 3, F.y + fontPx * 0.38]
+      var hit2 = false
+      for (var fq = 0; fq < finalList.length; fq++) {
+        if (boxHit(fb, finalList[fq].box)) { hit2 = true; break }
+      }
+      if (hit2) continue
+      F.box = fb
+      finalList.push(F)
     }
+    placed = finalList
+
+    /* ---------------- 绘制 ----------------
+     * 梯度内一律 alpha=1、同一字号：不再有深度淡出 / 屏幕边缘淡出 / 重叠降透明，
+     * 那三套连续调制正是"同一个类别的字亮度、消失时机各不相同"的来源。 */
+    _lastLabels = placed.map(function (p2) {
+      return {
+        text: p2.text, kind: p2.lead.kind, x: p2.lead.x, y: p2.lead.y,
+        tx: p2.x, ty: p2.y, alpha: 1, members: p2.members.length,
+        tier: tier.id, font: fontPx
+      }
+    })
+    g.font = labelFont
+    g.lineWidth = Math.max(2, fontPx * 0.3)
+    g.strokeStyle = 'rgba(6,18,32,0.88)'
+    for (var dr = 0; dr < placed.length; dr++) {
+      var pp = placed[dr]
+      g.strokeText(pp.text, pp.x, pp.y)
+      g.fillStyle = pp.color || '#9ef2ff'
+      g.fillText(pp.text, pp.x, pp.y)
+    }
+
     // ---- 最后补画选中车数据牌：此时楼名/站点名都已画完，牌子必在最上层 ----
     flushPlates()
   }
@@ -2532,6 +2686,31 @@ window.Map3DGL = (function () {
     // 容器尺寸变化（左右看板收缩 / 地图全屏）后必须重算画布尺寸：
     // resize() 读的是 mapBox 的 clientWidth/Height，不主动调用则画布会拉伸出错。
     resize: resize,
+    // 只读/调试：按目标倍率设置视图（探针在多个梯度截图用；键盘滚轮之外没有别的入口）
+    setZoom: function (z) {
+      var v = Number(z)
+      if (!isFinite(v)) return view.zoom
+      view.zoom = Math.max(0.2, Math.min(4, v))
+      updateCamera(true)
+      return view.zoom
+    },
+    defaultZoom: function () { return DEFAULT_ZOOM },
+    // 只读调试：取景计算的中间量（探针用，勿删）
+    fitDebug: function () {
+      var fb = campusFitBox()
+      var out = { W: W, H: H, DPR: DPR, zoom: view.zoom, box: fb, pts: [] }
+      if (!fb) return out
+      var m = Math.max(fb.maxX - fb.minX, fb.maxZ - fb.minZ) * 0.03
+      var ps = [
+        [fb.minX - m, 0, fb.minZ - m], [fb.maxX + m, 0, fb.minZ - m],
+        [fb.maxX + m, 0, fb.maxZ + m], [fb.minX - m, 0, fb.maxZ + m]
+      ]
+      for (var i = 0; i < ps.length; i++) {
+        var p = S.projectPoint(cam, W, H, ps[i])
+        out.pts.push(p ? [Math.round(p[0]), Math.round(p[1])] : null)
+      }
+      return out
+    },
     isReady: function () { return ready }, hasFailed: function () { return failed }
   }
 })()
