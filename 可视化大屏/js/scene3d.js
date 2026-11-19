@@ -99,7 +99,31 @@
     pushQuad(m, [p[0] - hw, 0, p[1]], [p[0] + hw, 0, p[1]], [p[0] + hw, h, p[1]], [p[0] - hw, h, p[1]], col, null)
     pushQuad(m, [p[0], 0, p[1] - hw], [p[0], 0, p[1] + hw], [p[0], h, p[1] + hw], [p[0], h, p[1] - hw], col, null)
   }
-  function addBuilding(mOpaque, mWall, ring, hpx, roofCol, wallCol, edgeCol, pxPerM) {
+  // 颜色明暗微调（k>1 提亮，k<1 压暗；alpha 不动，避免透明度叠加出意外）
+  function tintCol(col, k) {
+    return [Math.min(1, col[0] * k), Math.min(1, col[1] * k), Math.min(1, col[2] * k),
+      col.length > 3 ? col[3] : 1]
+  }
+
+  // 按楼名推断功能分类，返回 {wall, roof}（2026-11-18 美术：整片校园不再一个色）
+  function buildingCategory(name) {
+    var n = String(name || '')
+    if (/宿舍|栋$|公寓/.test(n) && !/教学楼|实验|图书|行政|办公/.test(n)) {
+      return { wall: THEME.catDormWall, roof: THEME.catDormRoof }
+    }
+    if (/食堂|餐厅|餐|超市|驿站|铺子|市场/.test(n)) {
+      return { wall: THEME.catFoodWall, roof: THEME.catFoodRoof }
+    }
+    if (/教学|实验|图书|行政|办公|书院|活动中心|医院/.test(n)) {
+      return { wall: THEME.catTeachWall, roof: THEME.catTeachRoof }
+    }
+    if (/运动|体育|场|馆|舞台|剧场/.test(n)) {
+      return { wall: THEME.catSportWall, roof: THEME.catSportRoof }
+    }
+    return { wall: THEME.wall, roof: THEME.roof }
+  }
+
+  function addBuilding(mOpaque, mWall, ring, hpx, roofCol, wallCol, edgeCol, pxPerM, detail) {
     var n = ring.length
     if (n < 3) return
     var idx = triangulate(ring)
@@ -122,10 +146,67 @@
       var mx = (p[0] + q[0]) / 2 - cx, mz = (p[1] + q[1]) / 2 - cz
       if (nx * mx + nz * mz < 0) { nx = -nx; nz = -nz }
       var nn = [nx, 0, nz]
-      pushQuad(mWall, [p[0], 0, p[1]], [q[0], 0, q[1]], [q[0], hpx, q[1]], [p[0], hpx, p[1]], wallCol, nn)
+      // 墙面分上下两段：上段略亮、下段略暗，模拟"天光从上打下"的垂直渐变。
+      // 单段纯色会让楼像一块平板（2026-11-18 截图里整片楼群就是这种"糊成一块"的感觉）。
+      if (detail && detail.wallShade) {
+        var yMid = hpx * 0.58
+        pushQuad(mWall, [p[0], 0, p[1]], [q[0], 0, q[1]], [q[0], yMid, q[1]], [p[0], yMid, p[1]],
+          tintCol(wallCol, 0.86), nn)
+        pushQuad(mWall, [p[0], yMid, p[1]], [q[0], yMid, q[1]], [q[0], hpx, q[1]], [p[0], hpx, p[1]],
+          tintCol(wallCol, 1.16), nn)
+      } else {
+        pushQuad(mWall, [p[0], 0, p[1]], [q[0], 0, q[1]], [q[0], hpx, q[1]], [p[0], hpx, p[1]], wallCol, nn)
+      }
       edgeRibbon(mOpaque, p, q, ew, edgeCol, yb)
       edgeRibbon(mOpaque, p, q, ew, edgeCol, yt)
       edgePost(mOpaque, p, hpx, ew, edgeCol)
+    }
+    /* ---- 2026-11-18 美术细化：楼层腰线 + 屋顶女儿墙 + 楼底投影 ---- */
+    if (!detail) return
+    // 楼层腰线：每 2 层画一道很淡的横向细带，让楼体读出"层数"，不再是一块平板。
+    // 只给体量够大的楼画（面积 ≥ detailFloorMinM2），否则小房子会被线糊住。
+    var floors = Math.max(0, Math.round(num(detail.heightM) / 3.2))
+    if (detail.floorLines && floors >= 3 && num(detail.areaM2) >= 600) {
+      for (var f = 2; f < floors; f += 2) {
+        var yf = hpx * (f / floors)
+        if (yf < yb + ew || yf > yt - ew) continue
+        for (var e2 = 0; e2 < n; e2++) {
+          var p2 = ring[e2], q2 = ring[(e2 + 1) % n]
+          edgeRibbon(mOpaque, p2, q2, ew * 0.85, THEME.floorLine, yf)
+        }
+      }
+    }
+    // 屋顶女儿墙：楼顶边缘一圈略亮的竖带，给屋顶一个"厚度"，
+    // 远景时它能勾出每栋楼的轮廓，比纯色屋顶好看很多。
+    var parapetH = Math.min(Math.max(0.35 * pxPerM, hpx * 0.05), hpx * 0.2)
+    if (parapetH > 0.4) {
+      for (var e3 = 0; e3 < n; e3++) {
+        var p3 = ring[e3], q3 = ring[(e3 + 1) % n]
+        var e3x = q3[0] - p3[0], e3z = q3[1] - p3[1]
+        var L3 = Math.hypot(e3x, e3z)
+        if (L3 < 1e-6) continue
+        var n3x = -e3z / L3, n3z = e3x / L3
+        var m3x = (p3[0] + q3[0]) / 2 - cx, m3z = (p3[1] + q3[1]) / 2 - cz
+        if (n3x * m3x + n3z * m3z < 0) { n3x = -n3x; n3z = -n3z }
+        pushQuad(mOpaque,
+          [p3[0], hpx, p3[1]], [q3[0], hpx, q3[1]],
+          [q3[0], hpx + parapetH, q3[1]], [p3[0], hpx + parapetH, p3[1]],
+          THEME.parapet, [n3x, 0, n3z])
+      }
+    }
+    // 楼底投影：把轮廓略微放大后贴一层暗色，形成接地阴影（增加"落地感"）
+    if (detail.shadow) {
+      var shR = ring.map(function (pt) {
+        var dx = pt[0] - cx, dz = pt[1] - cz
+        var L = Math.hypot(dx, dz) || 1
+        var k2 = 1 + (0.9 * pxPerM) / L
+        return [cx + dx * k2, cz + dz * k2]
+      })
+      var shIdx = triangulate(shR)
+      for (var si = 0; si + 2 < shIdx.length; si += 3) {
+        var sa = shR[shIdx[si]], sb = shR[shIdx[si + 1]], sc = shR[shIdx[si + 2]]
+        pushTri(mOpaque, [sa[0], 0.12, sa[1]], [sc[0], 0.12, sc[1]], [sb[0], 0.12, sb[1]], THEME.bldShadow, [0, 1, 0])
+      }
     }
   }
 
@@ -237,10 +318,16 @@
         })
       }
       var hpx = Math.max(2, num(b.height_m) * pxPerM * hs)
+      // 按功能分类配色（宿舍 / 教学 / 食堂 / 场馆）：同一片区的楼不再是一模一样的青灰板。
+      // 送餐楼不再统一刷成一种颜色 —— 那样会把分类色全盖掉（第一版就是这样，宿舍色一次都没出现）。
+      // 送餐楼只靠**更亮的描边**区分（下面 edgeDeliver）。
+      var cat = buildingCategory(b.name || '')
+      var wCol = cat.wall
+      var rCol = cat.roof
       var gStart = glass.pos.length / 3
-      addBuilding(roofs, glass, ring, hpx,
-        deliver ? THEME.dRoof : THEME.roof, deliver ? THEME.dWall : THEME.wall,
-        deliver ? THEME.edgeDeliver : THEME.edge, pxPerM)
+      addBuilding(roofs, glass, ring, hpx, rCol, wCol,
+        deliver ? THEME.edgeDeliver : THEME.edge, pxPerM,
+        { heightM: num(b.height_m), areaM2: num(b.area_m2), floorLines: true, shadow: true, wallShade: true })
       ranges.push({ start: gStart, count: glass.pos.length / 3 - gStart, cx: cx0 + ox, cz: cz0 + oz })
       if (b.name && opts.labels !== false && b.no_label !== true) {
         var cx = cx0 + ox, cz = cz0 + oz
@@ -547,23 +634,31 @@
       }
     }
 
-    // 水体（湖 / 塘）：湖面半透明青蓝 + 亮色岸线。
-    // 画在道路之前、高度略高于道路（0.55 vs 0.4），这样从上方俯视时水面会压住穿过它的路面，
-    // 湖面上的桥/路自然被"沉"到水下（校园里没有跨湖道路，实际不会出现这种遮挡）。
+    /* 水体（湖 / 塘）：2026-11-18 第三次改法。
+     * 前两次都错在"往形心收缩出同心轮廓"：龙湖有 61 个点、形状不规则，
+     * 形心收缩会让内圈多边形自交，三角化后成一团蛛网（截图已确认）。
+     * 现在只做三件能做对的事：
+     *   ① 整块按真实轮廓铺一层水色；
+     *   ② 外圈一条宽而淡的浅滩光带（沿真实轮廓，不会自交）；
+     *   ③ 内圈一条窄而亮的水线。
+     * 不再做层叠填充/斜向反光，宁少不脏。 */
     var waters = calib.water || []
+    function fillWaterRing(ring2, y, col) {
+      var t2 = triangulate(ring2)
+      for (var k2 = 0; k2 + 2 < t2.length; k2 += 3) {
+        var a2 = ring2[t2[k2]], b2 = ring2[t2[k2 + 1]], c3 = ring2[t2[k2 + 2]]
+        pushTri(opaque, [a2[0], y, a2[1]], [c3[0], y, c3[1]], [b2[0], y, b2[1]], col, [0, 1, 0])
+      }
+    }
     for (var wi = 0; wi < waters.length; wi++) {
       var wtr = waters[wi]
       var wring = wtr && wtr.ring
       if (!wring || wring.length < 3) continue
-      var wTri = triangulate(wring)
-      for (var wt = 0; wt + 2 < wTri.length; wt += 3) {
-        var wa = wring[wTri[wt]], wb = wring[wTri[wt + 1]], wc = wring[wTri[wt + 2]]
-        pushTri(opaque, [wa[0], 0.55, wa[1]], [wc[0], 0.55, wc[1]], [wb[0], 0.55, wb[1]], THEME.water, [0, 1, 0])
-      }
-      // 岸线：沿轮廓一圈细带，略高于水面
+      fillWaterRing(wring, 0.55, THEME.waterMid)
       for (var we = 0; we < wring.length; we++) {
         var wp = wring[we], wq = wring[(we + 1) % wring.length]
-        edgeRibbon(opaque, wp, wq, Math.max(0.35 * pxPerM, 3), THEME.waterRim, 0.62)
+        edgeRibbon(opaque, wp, wq, Math.max(1.8 * pxM, 9), THEME.waterRimSoft, 0.57)
+        edgeRibbon(opaque, wp, wq, Math.max(0.30 * pxM, 3), THEME.waterRim, 0.60)
       }
     }
 
@@ -575,7 +670,8 @@
         if (!rd.pts || rd.pts.length < 2) continue
         var col = rd.cls === 'main' ? THEME.roadMain : THEME.roadRoad
         // 宽度按高德参考图里的实际路面宽度：主路 ~4.8 m，支路 ~3.6 m
-        var wM = rd.cls === 'main' ? 4.8 : 3.6
+        // 2026-11-18 略收窄：全校视角下 4.8m 的路几乎盖住楼间空地，看着像白线乱穿
+        var wM = rd.cls === 'main' ? 4.4 : 3.2
         // 没被雷达扫到的路要**弱化**（不是删掉）：那些路要么没扫到、要么车走不了。
         // cov 来自 road_coverage.py；规则见下，既要能看出"这里有条路"，又不能喧宾夺主。
         var aMul = 1
@@ -600,13 +696,17 @@
       }
     }
 
-    // 底板（深色"桌面"）：尺寸由取景范围外扩，但不参与取景计算
-    var pad = Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) * 0.30
+    var pad = Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) * 0.60
     pushQuad(opaque,
-      [bounds.minX - pad, -22, bounds.minZ - pad], [bounds.maxX + pad, -22, bounds.minZ - pad],
-      [bounds.maxX + pad, -22, bounds.maxZ + pad], [bounds.minX - pad, -22, bounds.maxZ + pad],
-      THEME.baseBoard, [0, 1, 0])
+      [bounds.minX - pad, -24, bounds.minZ - pad], [bounds.maxX + pad, -24, bounds.minZ - pad],
+      [bounds.maxX + pad, -24, bounds.maxZ + pad], [bounds.minX - pad, -24, bounds.maxZ + pad],
+      THEME.bgLight, [0, 1, 0])
+    // 地面本体改由 map3d-gl.js 的「风格地面」贴图绘制（assets/ground-style.png，带羽化透明边）。
+    // 几何地台（按校区多边形铺）已删除 —— 多边形边缘一定是硬折线，做不出自然过渡。
     // 注：底板网格（淡青网格线）已按负责人要求移除 —— 地面不再有蓝色网格。
+
+    /* ---- 校区边界：曾经画过一圈青色发光带，截图里像"激光围栏"，反而更乱，已移除。
+     * 现在只靠地台本身的明暗差表达校园范围，边缘是自然形状，不加描边。 */
 
     var solid = finalize(opaque)
     var roofsF = finalize(roofs)

@@ -29,6 +29,7 @@ window.Map3DGL = (function () {
   var W = 0, H = 0, DPR = 1
   var started = false, ready = false, failed = false
   var calib = null, groundTex = null, groundReady = false
+  var groundStyleTex = null, groundStyleReady = false
   var progs = {}, bufs = {}
   var scene = null, carMesh = null, ringMesh = null, beamMesh = null
   // 默认值：保留**灰色校园道路**与底图、楼体；关掉橙色规划路线与青色荧光测绘线
@@ -47,6 +48,8 @@ window.Map3DGL = (function () {
     // 雷达底图（激光可通行区）：**默认关闭**（2026-11-18 负责人要求：大屏默认不显示雷达图）。
     // 工具栏「雷达图」按钮可临时打开，用来对照"机器人实际扫到的可通行区"。
     ground: false,
+    groundStyle: true,     // 风格地面贴图（带羽化透明边）—— 默认开；雷达底图仍默认关
+    groundStyleOpacity: 1.0,
     groundOpacity: 0.50,   // 底图整体不透明度：0.50 —— 扫描可通行区只作"地面纹理"，灰色 OSM 道路要压得住
     // 配送点标记（平台 landmarks：取货点/上货点/充电点）—— 默认开，工具栏「配送点」按钮可关
     sites: true,
@@ -654,13 +657,15 @@ window.Map3DGL = (function () {
     try {
       progs.mesh = program(VS_MESH, FS_MESH, ['uViewProj', 'uModel', 'uLight', 'uAmbient', 'uDiffuse', 'uAlphaMul', 'uFlowAmp', 'uFlowScale', 'uTime'])
       progs.ground = program(VS_GROUND, FS_GROUND,
-        ['uViewProj', 'uTex', 'uFade', 'uFadeSoft', 'uOpacity'])
+        ['uViewProj', 'uTex', 'uFade', 'uFadeSoft', 'uOpacity', 'uMode'])
     } catch (e) { return fail('WebGL 着色器编译失败：' + e.message) }
     gl.enable(gl.DEPTH_TEST)
     gl.depthFunc(gl.LEQUAL)
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-    var bg = S.THEME.bg
+    // 背景：用略亮的深蓝（bgLight）而不是纯黑蓝，配合底板径向渐变拉出"纵深"。
+    // 2026-11-18 美术：原来整个背景是一块死板的深色，和地面糊成一片。
+    var bg = S.THEME.bgLight || S.THEME.bg
     gl.clearColor(bg[0], bg[1], bg[2], 1)
 
     bindControls()
@@ -714,6 +719,27 @@ window.Map3DGL = (function () {
       }
     }
     im.src = groundSrc()
+
+    /* ---- 风格地面（默认开）：一张带羽化透明边的校园地面贴图 ----
+     * 为什么单独一张：雷达底图太"工程图"，而纯几何地台边缘一定是硬折线。
+     * 这张贴图只负责"地面质感 + 自然边缘"，不做定位参考，所以和雷达图互不影响。 */
+    var sim2 = new Image()
+    sim2.onload = function () {
+      groundStyleTex = gl.createTexture()
+      gl.bindTexture(gl.TEXTURE_2D, groundStyleTex)
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sim2)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+      groundStyleReady = true
+    }
+    sim2.onerror = function () {
+      groundStyleReady = false
+      if (window.console && console.warn) console.warn('[Map3D] 风格地面贴图加载失败：' + sim2.src)
+    }
+    sim2.src = 'assets/ground-style.png?v=' + (window.MAP_ASSET_VER || '1')
   }
 
   function applyCalib(c) {
@@ -1245,24 +1271,42 @@ window.Map3DGL = (function () {
   // 雷达底图参数：uFade = 背景亮度阈值（真机底图实测：背景 41/255≈0.161，走廊 86/255≈0.337），
   // 低于阈值 → 透明（露出底板），高于阈值 → 显现为"有宽度的可通行区"。
   var GROUND_FADE = 0.165, GROUND_FADE_SOFT = 0.10
-  function drawGround() {
-    if (!groundReady || !bufs.ground) return
+  // 通用地面贴图绘制：mode 0 = 雷达底图（亮度抠背景），mode 1 = 风格地面（用贴图 alpha）
+  function drawGroundTex(tex, opacity, mode) {
+    if (!tex || !bufs.ground) return
     var pr = progs.ground, p = pr.p
     gl.useProgram(p)
     bindAttr(p, 'aPos', bufs.ground.pos, 3)
     bindAttr(p, 'aUV', bufs.ground.uv, 2)
     gl.uniformMatrix4fv(pr.u.uViewProj, false, cam.vpF32)
     gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, groundTex)
+    gl.bindTexture(gl.TEXTURE_2D, tex)
     gl.uniform1i(pr.u.uTex, 0)
     gl.uniform1f(pr.u.uFade, GROUND_FADE)
     gl.uniform1f(pr.u.uFadeSoft, GROUND_FADE_SOFT)
-    gl.uniform1f(pr.u.uOpacity, opts.groundOpacity == null ? 0.92 : opts.groundOpacity)
+    gl.uniform1f(pr.u.uOpacity, opacity)
+    gl.uniform1f(pr.u.uMode, mode)
     // 注意：地面 quad 的 4 个顶点是**环序**（左上→右上→右下→左下，见 scene3d.js 的 scene.ground.pos），
     // 因此必须用 TRIANGLE_FAN 扇形成两个三角形 {左上,右上,右下}+{左上,右下,左下}，完整铺满 quad。
     // 曾误用 TRIANGLE_STRIP：对环序顶点会切成 {左上,右上,右下}+{右上,右下,左下}，
     // 右半边重叠、左中三角形（面积 1/4）漏空 → 表现为"雷达图左侧缺一块斜 45° 的方形空白"。
     gl.drawArrays(gl.TRIANGLE_FAN, 0, 4)
+  }
+  function drawGroundStyle() {
+    if (!groundStyleReady || opts.groundStyle === false) return
+    /* 关键：风格地面必须**关掉深度测试**、并且**最先画**。
+     * 否则它会和高度很接近的水面/场地打架：默认视角下相机距校园约 25000 世界单位，
+     * 24 位深度缓冲在这个距离上的精度只有几十个单位量级，
+     * 地面(0) 与水面(0.55) 根本分不开 → 湖面上出现一片沿三角形边界的花纹。
+     * （2026-11-19 用 A/B 截图确认：关掉这张贴图，湖面立刻干净。）
+     * 地面是"背景"，本来就不该参与深度比较，先铺底、后面的几何直接盖上去最稳。 */
+    gl.disable(gl.DEPTH_TEST)
+    drawGroundTex(groundStyleTex, opts.groundStyleOpacity == null ? 1.0 : opts.groundStyleOpacity, 1)
+    gl.enable(gl.DEPTH_TEST)
+  }
+  function drawGround() {
+    if (!groundReady) return
+    drawGroundTex(groundTex, opts.groundOpacity == null ? 0.92 : opts.groundOpacity, 0)
   }
   function drawGlass() {
     if (!bufs.glass || !bufs.glass.count) return
@@ -1346,6 +1390,11 @@ window.Map3DGL = (function () {
   // label_pr（标定里给）：1=宿舍/教学楼/图书馆/食堂等"大件"，2=其他有名楼栋，3=附属小楼。
   // 远景（zoom ≥ BLD_LABEL_PR2_ZOOM）只显示 1 级，拉近后才放 2 级。
   var BLD_LABEL_PR2_ZOOM = 0.78
+  // 楼名数量上限（按体量取前 N 个）：远景只留十几栋，避免整屏文字；
+  // 拉近后逐步放开，到最近才基本全显示。
+  var BLD_LABEL_CAP_FAR = 14
+  var BLD_LABEL_CAP_MID = 22
+  var BLD_LABEL_CAP_NEAR = 40
   // 各层字号基准（zoom=1 时的像素）。2026-11-18 整体下调一档：
   // 全校 49 栋楼的名字在原字号下过于抢眼、也更容易互相压住；现在楼名 11、点位名 9。
   var LABEL_BASE_PX = { 1: 11, 2: 9, 3: 8 }
@@ -1712,6 +1761,9 @@ window.Map3DGL = (function () {
     }
 
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+    // 风格地面先铺底（关深度测试，见 drawGroundStyle 里的说明），
+    // 之后画的不透明几何（道路/场地/楼栋）会直接盖在它上面，不会出现深度打架的花纹。
+    if (opts.groundStyle !== false) drawGroundStyle()
     drawMesh(bufs.opaque, null)
     if (opts.ground) drawGround()
 
@@ -2028,6 +2080,12 @@ window.Map3DGL = (function () {
     var blds = calib.buildings || []
     var items = []
     if (showT1) {
+      // 2026-11-18 美术：楼名"太多太乱"是负责人第一条反馈。
+      // 除了原有的 pr 分级，再加两道闸：
+      //   ① **体量排序限量**：按楼底面积从大到小，远景只留前 N 个名字；
+      //   ② **屏幕边缘淡出**：靠近画布四边的名字压暗，视觉重心回到中间。
+      // 两个集合都只影响"画不画/多淡"，文字锚点仍然固定在楼顶，不挪位。
+      var bldCands = []
       for (var b = 0; b < blds.length; b++) {
         var bd = blds[b]
         if (bd.no_label === true) continue          // 标定里标记为"只渲染体块、不画名字"的楼
@@ -2035,9 +2093,27 @@ window.Map3DGL = (function () {
         var hpx = num(bd.height_m) * scene.pxPerM * opts.heightScale + 4.5 * scene.pxPerM
         var tip = S.projectPoint(cam, W, H, [bd.center[0], hpx, bd.center[1]])
         if (!tip) continue
-        // 楼名只出文字，不画立体图标
-        items.push({ text: bd.name, x: tip[0] + 2, y: tip[1] - 4, kind: 'bld', color: '#9ef2ff', pr: 1, wx: bd.center[0], wy: hpx, wz: bd.center[1] })
+        bldCands.push({
+          text: bd.name, x: tip[0] + 2, y: tip[1] - 4, kind: 'bld', color: '#9ef2ff', pr: 1,
+          wx: bd.center[0], wy: hpx, wz: bd.center[1],
+          area: num(bd.area_m2), sx: tip[0], sy: tip[1],
+          deliv: bd.deliver === true
+        })
       }
+      // 排序：**送餐楼加权**（业务目标，但不能挤掉地标）。
+      // 先前一版是"送餐楼绝对优先"，结果 10 条全在東苑宿舍群，图书馆/食堂/湖都没名字 ——
+      // 画面反而更单调。现在用 面积 × 权重 打分：送餐楼 ×2.4，地标按体量自然进入。
+      var ccx = W / 2, ccy = H / 2
+      bldCands.forEach(function (c) {
+        c.score = Math.max(1, c.area) * (c.deliv ? 2.4 : 1)
+      })
+      bldCands.sort(function (a, b2) {
+        if (Math.abs(b2.score - a.score) > 1) return b2.score - a.score
+        return Math.hypot(a.sx - ccx, a.sy - ccy) - Math.hypot(b2.sx - ccx, b2.sy - ccy)
+      })
+      var cap = view.zoom >= 0.90 ? BLD_LABEL_CAP_FAR
+        : (view.zoom >= BLD_LABEL_PR2_ZOOM ? BLD_LABEL_CAP_MID : BLD_LABEL_CAP_NEAR)
+      for (var bc = 0; bc < bldCands.length && bc < cap; bc++) items.push(bldCands[bc])
     }
     // 站点文字并入同一批（第二/三层已在收集时按各自缩放区间过滤过）
     for (var sl = 0; sl < siteLabels.length; sl++) items.push(siteLabels[sl])
@@ -2071,6 +2147,16 @@ window.Map3DGL = (function () {
       var itd = items[kd]
       var far = (itd.d - dFirst) / dSpan2
       itd.alpha *= 0.62 + 0.38 * (1 - Math.min(1, Math.max(0, far)))
+    }
+    // 屏幕边缘淡出（2026-11-18）：贴近画布四边的标注压暗一半。
+    // 目的是把视觉重心收回到画面中部 —— 边上稀稀拉拉几个名字最显得"乱"。
+    var edgeX = Math.max(40, W * 0.11), edgeY = Math.max(30, H * 0.11)
+    for (var ke = 0; ke < items.length; ke++) {
+      var ite = items[ke]
+      var ex = Math.min(ite.x, W - ite.x), ey = Math.min(ite.y, H - ite.y)
+      var kx = Math.min(1, Math.max(0, ex / edgeX)), ky = Math.min(1, Math.max(0, ey / edgeY))
+      var edgeK = 0.45 + 0.55 * Math.min(kx, ky)
+      ite.alpha *= edgeK
     }
     // ---- 文字位置固定，重叠时**半透明**而不是消失（2026-11-18 负责人要求）----
     // 旧规则是"重叠就不画"（点位名整条 alpha=0）、楼名也整条不画，密集区会出现

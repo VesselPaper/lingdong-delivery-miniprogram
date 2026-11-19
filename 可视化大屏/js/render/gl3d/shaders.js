@@ -50,15 +50,25 @@ window.GL3DShaders = (function () {
   // 雷达底图：按亮度抠背景（背景 RGB(10,25,41) 亮度≈41/255，走廊≈86/255），
   // 只保留**有宽度的可通行区**，背景透明 → 不再出现"一块正方形地面"；
   // 同时去掉原先的程序化蓝色网格（地面网格已按负责人要求移除）。
+  // uMode：0 = 雷达底图（按亮度抠背景）；1 = 风格地面（直接用贴图自带的 alpha）。
+  // 风格地面是 2026-11-19 加的：雷达底色太"工程图"，而纯几何地台的边缘一定是硬折线，
+  // 只有贴图能把边缘羽化掉。
   var FS_GROUND = [
     'precision mediump float;',
     'varying vec2 vUV;',
     'uniform sampler2D uTex;',
     'uniform float uFade; uniform float uFadeSoft; uniform float uOpacity;',
+    'uniform float uMode;',
     'void main() {',
     '  vec4 base = texture2D(uTex, vUV);',
     '  float lum = max(base.r, max(base.g, base.b));',
-    '  float a = smoothstep(uFade, uFade + uFadeSoft, lum) * uOpacity;',
+    '  float a;',
+    '  if (uMode > 0.5) {',
+    '    a = base.a;',                                  // 贴图自带 alpha（已羽化）
+    '  } else {',
+    '    a = smoothstep(uFade, uFade + uFadeSoft, lum);',
+    '  }',
+    '  a *= uOpacity;',
     // 图像边界羽化：即使有内容靠近边缘，也不会切出一条硬直边
     '  float e = min(min(vUV.x, 1.0 - vUV.x), min(vUV.y, 1.0 - vUV.y));',
     '  a *= smoothstep(0.0, 0.012, e);',

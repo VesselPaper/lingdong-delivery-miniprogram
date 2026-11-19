@@ -238,22 +238,22 @@
 </div>
 
 <script src="vendor/leaflet.js"></script>
-<script src="assets/map-calibration.js?v=3d4d"></script>
+<script src="assets/map-calibration.js?v=3d4e"></script>
 <!-- Scene3D 分件：先加载独立工具层（math → triangulate → camera），再加载场景主体 -->
-<script src="js/scene3d/math.js?v=3d48"></script>
+<script src="js/scene3d/math.js?v=3d4e"></script>
 <script src="js/scene3d/triangulate.js?v=3d66"></script>
 <script src="js/scene3d/camera.js?v=3d42"></script>
-<script src="js/scene3d.js?v=3d6f"></script>
+<script src="js/scene3d.js?v=3d73"></script>
 <script src="js/map3d-core.js?v=3d42"></script>
 <script src="js/map3d.js?v=3d43"></script>
-<script>window.MAP_ASSET_VER='3d40'</script>
+<script>window.MAP_ASSET_VER='3d42'</script>
 <!-- 重构面板控制器（真3D渲染器的分层子模块，必须在 map3d-gl.js 之前加载、在 bind() 时注入能力） -->
 <script src="js/gl3d/recon.js?v=3d79"></script>
 <!-- 内置默认重构数据（负责人手动完善后的新地图）：无本地存档时大屏回退到这版 -->
 <script src="assets/map-recon-default.js?v=3d60"></script>
 <!-- WebGL 着色器定义（纯 GLSL，不依赖 gl 实例，可在 map3d-gl.js 之前加载） -->
-<script src="js/render/gl3d/shaders.js?v=3d42"></script>
-<script src="js/map3d-gl.js?v=3da6"></script>
+<script src="js/render/gl3d/shaders.js?v=3d43"></script>
+<script src="js/map3d-gl.js?v=3dab"></script>
 <script src="js/map3d-entry.js?v=3d43"></script>
 <!-- 大屏骨架（分件）：共享上下文 → 数据源 → 界面渲染 → 地图 → 编排者/启动 -->
 <script src="js/dashboard/shared.js?v=3d65"></script>
